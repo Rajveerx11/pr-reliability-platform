@@ -49,3 +49,14 @@ them and names the affected files.
   - `.github/ISSUE_TEMPLATE/config.yml`
   - `.github/workflows/quality.yml`
 
+### Created version-one milestone and feature issues
+
+- Decision: [DEC-011 — GitHub issues](plan/v1.md#dec-011--track-every-feature-with-a-github-issue)
+- Reason: Make feature scope, acceptance criteria, dependency order, and progress visible.
+- GitHub changes:
+  - Created milestone `v0.1.0`.
+  - Created issues [#1 through #15](https://github.com/Rajveerx11/pr-reliability-platform/issues).
+  - Closed [#1](https://github.com/Rajveerx11/pr-reliability-platform/issues/1) after foundation commit `fbeb0da`.
+- Changed files:
+  - `plan/v1.md` — added issue and dependency map.
+  - `Changes.md` — recorded milestone and issue creation.
