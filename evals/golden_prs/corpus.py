@@ -317,9 +317,12 @@ def _candidate_tampering(workspace: Path) -> str | None:
                 raised = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
                 if isinstance(raised, ast.Name) and raised.id == "SystemExit":
                     return f"{path.relative_to(workspace)} raises SystemExit"
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                if node.func.id in blocked_names:
-                    return f"{path.relative_to(workspace)} calls {node.func.id}"
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in blocked_names
+            ):
+                return f"{path.relative_to(workspace)} calls {node.func.id}"
             if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
                 continue
             symbol = (aliases.get(node.value.id, node.value.id), node.attr)
