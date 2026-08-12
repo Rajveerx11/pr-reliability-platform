@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "python-path-traversal-006",
+  "title": "Keep artifact paths inside the run folder",
+  "language": "python",
+  "category": "security",
+  "difficulty": "hard",
+  "instruction": "Reject artifact paths that resolve outside the configured run folder.",
+  "known_defects": ["A string prefix check accepts sibling folders whose names share the root prefix."],
+  "allowed_findings": ["Resolve both paths and require the target to be relative to the root."],
+  "fixture": "fixture",
+  "reference_fix": "reference_fix",
+  "verifier": "verifier.py",
+  "protected_paths": ["verifier.py"]
+}

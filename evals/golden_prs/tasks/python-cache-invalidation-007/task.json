@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "python-cache-invalidation-007",
+  "title": "Invalidate cached user data after update",
+  "language": "python",
+  "category": "state-management",
+  "difficulty": "easy",
+  "instruction": "Ensure a user read after update returns the new value.",
+  "known_defects": ["The update path leaves the old user value in the read cache."],
+  "allowed_findings": ["Remove the updated user from cache after writing the database."],
+  "fixture": "fixture",
+  "reference_fix": "reference_fix",
+  "verifier": "verifier.py",
+  "protected_paths": ["verifier.py"]
+}

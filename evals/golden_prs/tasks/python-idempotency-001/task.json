@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "python-idempotency-001",
+  "title": "Prevent duplicate checkout charges",
+  "language": "python",
+  "category": "idempotency",
+  "difficulty": "medium",
+  "instruction": "Make repeated checkout requests with the same key charge only once.",
+  "known_defects": ["The gateway is charged before the idempotency key is checked."],
+  "allowed_findings": ["Move the key check before charge creation and return the first charge result."],
+  "fixture": "fixture",
+  "reference_fix": "reference_fix",
+  "verifier": "verifier.py",
+  "protected_paths": ["verifier.py"]
+}

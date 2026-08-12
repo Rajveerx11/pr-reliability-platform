@@ -12,11 +12,13 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = [
   "apps/api/tests",
   "workers/tests",
   "packages/contracts/tests",
   "packages/proof_adapter/tests",
+  "evals/tests",
 ]
 
 [tool.ruff]

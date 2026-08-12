@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "python-webhook-dedup-010",
+  "title": "Deduplicate a webhook before side effects",
+  "language": "python",
+  "category": "idempotency",
+  "difficulty": "hard",
+  "instruction": "Ensure retrying the same delivery cannot repeat its side effect after a handler error.",
+  "known_defects": ["The delivery is marked after the handler, so a failed handler is repeated on retry."],
+  "allowed_findings": ["Claim the delivery ID before invoking the side-effecting handler."],
+  "fixture": "fixture",
+  "reference_fix": "reference_fix",
+  "verifier": "verifier.py",
+  "protected_paths": ["verifier.py"]
+}

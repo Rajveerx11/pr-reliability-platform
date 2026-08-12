@@ -18,6 +18,33 @@ Each task contains:
 - Timeout and budget limits
 - Category and difficulty
 
+Version one contains ten frozen Python tasks in `evals/golden_prs/tasks/`. Each task keeps the
+broken fixture, reference fix, protected verifier, known defect, and allowed finding together.
+The verifier and shared verifier support live outside the agent workspace. Candidate modules run
+in isolated child probes, so process exits cannot bypass parent assertions. Protected files are
+checked before and after every verification run. A fail-closed tamper pass rejects direct process
+exit and Python frame-inspection primitives before execution.
+
+The corpus loader rejects unknown manifest fields, duplicate IDs, path escapes, symlinks, and
+unprotected verifiers. It loads tasks in ID order. `corpus.sha256` freezes all metadata, fixture,
+reference-fix, and verifier bytes so accidental changes are visible.
+
+This runner is tamper-resistant evaluation for reviewed fixtures. It is not a security sandbox.
+Untrusted pull request code must use the disposable sandbox planned in issue #9.
+
+The ten tasks cover:
+
+- Payment idempotency
+- Organization authorization
+- Empty pagination
+- Retry limits
+- GitHub webhook signatures
+- Artifact path traversal
+- Cache invalidation
+- Money rounding
+- Timezone preservation
+- Webhook delivery deduplication
+
 ## Required metrics
 
 - Defect recall

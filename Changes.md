@@ -3,6 +3,23 @@
 This file records repository changes. Each entry links changes to the decision that caused
 them and names the affected files.
 
+## Unreleased
+
+### Added first frozen golden pull request corpus
+
+- Issue: [#4](https://github.com/Rajveerx11/pr-reliability-platform/issues/4)
+- Decision: [DEC-002 — Single-agent baseline](plan/v1.md#dec-002--start-with-one-agent)
+- Reason: Version one needs a stable, deterministic set of known defects before agent quality
+  can be measured or compared.
+- Changed files:
+  - `evals/golden_prs/corpus.py` — strict loader, safe paths, protected verifier runner, and
+    stable corpus fingerprint.
+  - `evals/golden_prs/tasks/` — ten broken fixtures, reference fixes, metadata, and verifiers.
+  - `evals/golden_prs/corpus.sha256` — frozen corpus fingerprint.
+  - `evals/tests/test_golden_corpus.py` — corpus contract and verifier tests.
+  - `docs/evaluation.md` — task coverage and freeze rules.
+  - `pyproject.toml` — evaluation test discovery.
+
 ## 2026-08-12 — Repository foundation
 
 ### Added private project repository

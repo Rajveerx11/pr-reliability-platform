@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "python-retry-limit-004",
+  "title": "Respect the retry attempt limit",
+  "language": "python",
+  "category": "reliability",
+  "difficulty": "medium",
+  "instruction": "Call the operation no more than max_attempts times before raising its final error.",
+  "known_defects": ["The retry loop performs one more call than the configured attempt limit."],
+  "allowed_findings": ["Iterate exactly max_attempts times and re-raise the last timeout."],
+  "fixture": "fixture",
+  "reference_fix": "reference_fix",
+  "verifier": "verifier.py",
+  "protected_paths": ["verifier.py"]
+}
