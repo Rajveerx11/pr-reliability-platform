@@ -3,6 +3,23 @@
 This file records repository changes. Each entry links changes to the decision that caused
 them and names the affected files.
 
+## Unreleased
+
+### Added strict version-one contracts and run states
+
+- Issue: [#2](https://github.com/Rajveerx11/pr-reliability-platform/issues/2)
+- Decision: [DEC-006 — Versioned JSON contracts](plan/v1.md#dec-006--use-versioned-json-contracts)
+- Reason: Services and agents need replayable messages that reject undeclared or incomplete
+  input before work starts.
+- Changed files:
+  - `packages/contracts/src/pr_reliability_contracts/` — shared base types, run commands and
+    states, findings, evidence, approvals, publish commands, and GitHub webhook envelope.
+  - `packages/contracts/tests/` — round-trip, strict-input, validation, and state tests.
+  - `pyproject.toml` and `uv.lock` — Pydantic dependency, reproducible versions, package build
+    settings, and test import paths.
+  - `.github/workflows/quality.yml` — lint, format, and test jobs.
+  - `docs/architecture.md` — contract identity and run state rules.
+
 ## 2026-08-12 — Repository foundation
 
 ### Added private project repository

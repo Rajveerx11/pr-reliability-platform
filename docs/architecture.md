@@ -54,6 +54,22 @@ Messages use strict versioned JSON. A contract includes:
 Unknown fields are rejected in version one. New optional fields require a minor contract
 version. Breaking changes require a new major version and explicit migration.
 
+Version-one contracts are defined in `packages/contracts/`. All contracts are immutable and
+reject unknown fields. Run-bound messages carry `schema_version`, `public_id`, `owner_id`,
+`run_id`, and `head_sha`. Webhook envelopes carry delivery, installation, repository, and pull
+request identity before a run exists.
+
+The run state machine is:
+
+```text
+queued -> selecting_context -> analyzing -> verifying -> awaiting_approval
+                                                             |        |
+                                                             v        v
+                                                         published  rejected
+```
+
+Active states may also end as `failed` or `cancelled`. Terminal states cannot restart.
+
 ## Persistence boundary
 
 PostgreSQL stores summaries and safe evidence references. It does not store repository source,
@@ -72,4 +88,3 @@ Every external write follows this order:
 6. Store remote result.
 
 No worker may bypass this path.
-
