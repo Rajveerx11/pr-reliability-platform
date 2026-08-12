@@ -51,7 +51,7 @@ def can_transition(current: RunState, target: RunState) -> bool:
 def require_transition(current: RunState, target: RunState) -> None:
     """Reject a state change that cannot be replayed safely."""
 
-    if not can_transition(current, target):
+    if current is not target and not can_transition(current, target):
         raise ValueError(f"run cannot transition from {current.value} to {target.value}")
 
 

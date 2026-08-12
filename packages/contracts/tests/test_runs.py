@@ -124,6 +124,11 @@ def test_state_machine_rejects_skip_and_terminal_restart() -> None:
     assert not can_transition(RunState.FAILED, RunState.QUEUED)
 
 
+@pytest.mark.parametrize("state", list(RunState))
+def test_replayed_transition_to_persisted_state_is_idempotent(state: RunState) -> None:
+    require_transition(state, state)
+
+
 @pytest.mark.parametrize(
     "active_state",
     [
