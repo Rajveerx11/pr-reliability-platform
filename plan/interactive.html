@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive implementation plan for the Autonomous PR Reliability Platform.">
+  <title>Autonomous PR Reliability Platform — Interactive Plan</title>
+  <style>
+    :root {
+      --bg: #f4f1e9;
+      --paper: #fffdf7;
+      --ink: #18201f;
+      --muted: #65706d;
+      --line: #d7d3c9;
+      --accent: #c9502f;
+      --accent-soft: #f8dfd3;
+      --teal: #176f70;
+      --teal-soft: #d9efeb;
+      --gold: #9a6a12;
+      --gold-soft: #f5e9c8;
+      --ok: #26724b;
+      --danger: #9f3131;
+      --shadow: 0 16px 40px rgba(24, 32, 31, .08);
+      --radius: 18px;
+    }
+
+    [data-theme="dark"] {
+      --bg: #121716;
+      --paper: #1b2321;
+      --ink: #edf2ee;
+      --muted: #aab7b2;
+      --line: #34413d;
+      --accent: #f18461;
+      --accent-soft: #4b2a20;
+      --teal: #76cbc4;
+      --teal-soft: #173c39;
+      --gold: #e1b85d;
+      --gold-soft: #40351d;
+      --ok: #70c793;
+      --danger: #f08c8c;
+      --shadow: 0 16px 40px rgba(0, 0, 0, .24);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      overflow-x: hidden;
+    }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    a { color: inherit; }
+    code, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    .shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--bg) 90%, transparent);
+      backdrop-filter: blur(14px);
+    }
+    .topbar-inner {
+      min-height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      color: var(--paper);
+      background: var(--ink);
+      font-size: 13px;
+      letter-spacing: -.04em;
+    }
+    .top-actions { display: flex; gap: 8px; }
+    .button {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 12px;
+      color: var(--ink);
+      background: var(--paper);
+      font-weight: 750;
+    }
+    .button:hover, .button:focus-visible { border-color: var(--accent); outline: none; }
+
+    .hero { padding: 72px 0 28px; }
+    .eyebrow {
+      color: var(--accent);
+      font-weight: 850;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-size: 12px;
+    }
+    h1 {
+      max-width: 850px;
+      margin: 12px 0 18px;
+      font-size: clamp(40px, 7vw, 78px);
+      line-height: .98;
+      letter-spacing: -.055em;
+    }
+    .hero-copy { max-width: 760px; font-size: clamp(18px, 2vw, 23px); color: var(--muted); }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 7px 11px;
+      background: var(--paper);
+      font-size: 13px;
+      font-weight: 750;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+    .section { padding: 44px 0; }
+    .section-head { display: flex; justify-content: space-between; gap: 24px; align-items: end; margin-bottom: 22px; }
+    .section h2 { margin: 4px 0 0; font-size: clamp(28px, 4vw, 44px); letter-spacing: -.035em; line-height: 1.05; }
+    .section-intro { max-width: 610px; margin: 0; color: var(--muted); }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+    .kicker { color: var(--muted); font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+
+    .snapshot { padding: 18px; overflow: hidden; }
+    .fake-browser { border: 1px solid var(--line); border-radius: 13px; overflow: hidden; background: var(--bg); }
+    .browser-bar { display: flex; gap: 7px; align-items: center; padding: 10px 13px; border-bottom: 1px solid var(--line); }
+    .browser-dot { width: 9px; height: 9px; border: 1px solid var(--line); border-radius: 50%; }
+    .browser-url { margin-left: 7px; color: var(--muted); font-size: 12px; }
+    .product-grid { display: grid; grid-template-columns: 220px 1fr; min-height: 460px; }
+    .sidebar { padding: 22px 15px; border-right: 1px solid var(--line); background: var(--paper); }
+    .sidebar-title { font-weight: 850; margin-bottom: 22px; }
+    .nav-item { padding: 9px 10px; border-radius: 8px; color: var(--muted); font-size: 14px; margin: 3px 0; }
+    .nav-item.active { background: var(--teal-soft); color: var(--teal); font-weight: 800; }
+    .workspace { padding: 26px; }
+    .pr-head { display: flex; justify-content: space-between; gap: 20px; align-items: start; }
+    .pr-title { margin: 5px 0 3px; font-size: 24px; line-height: 1.2; }
+    .status { background: var(--gold-soft); color: var(--gold); border-radius: 999px; padding: 7px 10px; font-weight: 850; font-size: 12px; white-space: nowrap; }
+    .run-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 24px 0; }
+    .run-step { min-width: 0; padding: 12px 9px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; text-align: center; color: var(--muted); }
+    .run-step.done { background: var(--teal-soft); color: var(--teal); border-color: var(--teal); }
+    .run-step.current { background: var(--gold-soft); color: var(--gold); border-color: var(--gold); }
+    .finding { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+    .severity { border-radius: 7px; padding: 4px 7px; color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); font-size: 11px; font-weight: 900; }
+    .finding h3 { margin: 0 0 4px; font-size: 15px; }
+    .finding p { margin: 0; color: var(--muted); font-size: 13px; }
+    .gate { color: var(--ok); font-weight: 850; font-size: 12px; }
+    .approval { margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; background: var(--accent-soft); border-radius: 12px; }
+    .approval strong { color: var(--accent); }
+    .approve { border: 0; border-radius: 9px; padding: 9px 12px; color: var(--paper); background: var(--ink); font-weight: 800; }
+
+    .idea-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .idea { padding: 20px; position: relative; }
+    .idea.recommended { border: 2px solid var(--accent); }
+    .idea-badge { position: absolute; top: 14px; right: 14px; color: var(--accent); font-size: 11px; font-weight: 900; text-transform: uppercase; }
+    .idea h3 { margin: 20px 0 8px; font-size: 20px; }
+    .idea p { color: var(--muted); margin: 0 0 14px; font-size: 14px; }
+    .score-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; }
+    .score { color: var(--teal); font-weight: 850; }
+
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .tab { border: 1px solid var(--line); border-radius: 999px; padding: 8px 13px; color: var(--muted); background: transparent; font-weight: 800; }
+    .tab.active { color: var(--paper); border-color: var(--ink); background: var(--ink); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .diagram-wrap { padding: 22px; overflow-x: auto; }
+    .architecture { min-width: 900px; display: grid; grid-template-columns: 150px 1fr 170px; gap: 18px; align-items: stretch; }
+    .lane { border: 1px dashed var(--line); border-radius: 14px; padding: 12px; }
+    .lane-title { color: var(--muted); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
+    .node { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--paper); margin: 9px 0; transition: .18s ease; }
+    .node strong { display: block; font-size: 13px; }
+    .node span { color: var(--muted); font-size: 11px; }
+    .node[data-layer].lit { border-color: var(--accent); background: var(--accent-soft); transform: translateY(-2px); }
+    .core { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .core .lane-title { grid-column: 1 / -1; }
+    .arrow-note { align-self: center; color: var(--muted); font-size: 12px; text-align: center; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .legend button { border: 1px solid var(--line); background: var(--paper); color: var(--muted); border-radius: 999px; padding: 7px 11px; }
+    .legend button.active { border-color: var(--accent); color: var(--accent); font-weight: 800; }
+
+    .flow-card { padding: 22px; }
+    .flow-nav { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; margin-bottom: 22px; }
+    .flow-button { min-height: 58px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--muted); font-size: 12px; font-weight: 800; }
+    .flow-button.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .flow-detail { display: grid; grid-template-columns: 72px 1fr auto; gap: 18px; align-items: center; min-height: 120px; }
+    .flow-number { font-size: 54px; font-weight: 900; color: var(--line); line-height: 1; }
+    .flow-detail h3 { margin: 0 0 5px; }
+    .flow-detail p { margin: 0; color: var(--muted); }
+    .flow-owner { color: var(--teal); background: var(--teal-soft); border-radius: 999px; padding: 7px 10px; font-size: 12px; font-weight: 850; }
+
+    .state-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .state { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--paper); }
+    .state strong { display: block; margin-bottom: 5px; }
+    .state span { color: var(--muted); font-size: 12px; }
+    .state.terminal { border-style: double; border-width: 3px; }
+
+    .schema { padding: 22px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .entity { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .entity h3 { margin: 0; padding: 11px 13px; background: var(--teal-soft); color: var(--teal); font-size: 14px; }
+    .entity ul { list-style: none; padding: 8px 13px 12px; margin: 0; }
+    .entity li { padding: 4px 0; color: var(--muted); font: 12px/1.45 "SFMono-Regular", Consolas, monospace; }
+
+    .decision-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .decision { padding: 18px; }
+    .decision h3 { margin: 4px 0 7px; }
+    .decision p { margin: 0; color: var(--muted); font-size: 14px; }
+    .decision .choice { color: var(--accent); font-weight: 900; }
+
+    .roadmap { position: relative; display: grid; grid-template-columns: 180px 1fr; gap: 12px 24px; }
+    .phase-label { text-align: right; padding-top: 18px; }
+    .phase-label strong { display: block; }
+    .phase-label span { color: var(--muted); font-size: 12px; }
+    details.phase { border: 1px solid var(--line); border-radius: 14px; background: var(--paper); overflow: hidden; }
+    details.phase[open] { border-color: var(--teal); }
+    details.phase summary { list-style: none; cursor: pointer; padding: 17px 18px; font-weight: 850; }
+    details.phase summary::-webkit-details-marker { display: none; }
+    details.phase summary::after { content: "+"; float: right; color: var(--muted); }
+    details.phase[open] summary::after { content: "−"; }
+    .phase-body { border-top: 1px solid var(--line); padding: 0 18px 17px; }
+    .phase-body ul { margin-bottom: 0; padding-left: 20px; }
+    .deliverable { color: var(--teal); font-weight: 800; }
+
+    .metric-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+    .metric { padding: 16px; text-align: center; }
+    .metric strong { display: block; color: var(--accent); font-size: 26px; line-height: 1.1; }
+    .metric span { color: var(--muted); font-size: 12px; }
+
+    .file-tree { padding: 22px; overflow-x: auto; }
+    .file-tree pre { margin: 0; color: var(--muted); line-height: 1.7; }
+    .new { color: var(--accent); font-weight: 800; }
+    .reuse { color: var(--teal); font-weight: 800; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .list-card { padding: 20px; }
+    .list-card h3 { margin-top: 0; }
+    .list-card ul { padding-left: 19px; margin-bottom: 0; color: var(--muted); }
+    .list-card li { margin: 7px 0; }
+
+    .checklist { padding: 20px; }
+    .progress-track { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 12px 0 18px; }
+    .progress-bar { height: 100%; width: 0; background: var(--teal); transition: width .25s ease; }
+    .check-row { display: flex; gap: 11px; padding: 12px 2px; border-top: 1px solid var(--line); }
+    .check-row input { width: 19px; height: 19px; accent-color: var(--teal); }
+    .check-row label { flex: 1; }
+    .check-row small { display: block; color: var(--muted); }
+
+    .question { padding: 18px; margin: 12px 0; }
+    .question h3 { margin: 0 0 11px; font-size: 16px; }
+    .options { display: flex; flex-wrap: wrap; gap: 9px; }
+    .option { border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--muted); padding: 9px 11px; }
+    .option.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 850; }
+    .recommended-note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+
+    .callout { border-left: 4px solid var(--accent); padding: 16px 18px; background: var(--accent-soft); border-radius: 0 12px 12px 0; }
+    .callout strong { color: var(--accent); }
+    footer { padding: 50px 0 70px; color: var(--muted); font-size: 13px; }
+
+    @media (max-width: 850px) {
+      .product-grid { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .idea-grid, .decision-grid, .two-col { grid-template-columns: 1fr; }
+      .state-grid { grid-template-columns: 1fr 1fr; }
+      .schema { grid-template-columns: 1fr; }
+      .metric-grid { grid-template-columns: 1fr 1fr; }
+      .flow-nav { grid-template-columns: repeat(4, 1fr); }
+      .roadmap { grid-template-columns: 1fr; }
+      .phase-label { text-align: left; padding: 10px 4px 0; }
+      .section-head { display: block; }
+      .section-intro { margin-top: 10px; }
+    }
+    @media (max-width: 560px) {
+      .shell { width: min(100% - 20px, 1180px); }
+      .topbar-inner { gap: 8px; }
+      .brand { min-width: 0; font-size: 14px; }
+      .brand > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .top-actions .button { padding: 7px 9px; font-size: 12px; }
+      .hero { padding-top: 48px; }
+      h1 { font-size: 39px; overflow-wrap: anywhere; }
+      .hero-copy { font-size: 17px; }
+      .workspace { padding: 16px; }
+      .pr-head { flex-direction: column; }
+      .browser-url { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .run-strip { grid-template-columns: 1fr; }
+      .finding { grid-template-columns: 1fr; }
+      .approval { align-items: start; flex-direction: column; }
+      .flow-nav { grid-template-columns: 1fr 1fr; }
+      .flow-detail { grid-template-columns: 48px 1fr; }
+      .flow-owner { grid-column: 2; justify-self: start; }
+      .state-grid, .metric-grid { grid-template-columns: 1fr; }
+      .top-actions .print { display: none; }
+    }
+    @media print {
+      .topbar, .legend, .tabs, .approve, .options { display: none !important; }
+      body { background: white; color: #18201f; }
+      .card { box-shadow: none; break-inside: avoid; }
+      .tab-panel { display: block !important; margin-bottom: 20px; }
+      details.phase .phase-body { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <div class="brand"><span class="brand-mark">PR</span><span>Reliability Platform Plan</span></div>
+      <div class="top-actions">
+        <button class="button print" id="printPlan" type="button">Print / PDF</button>
+        <button class="button" id="themeToggle" type="button" aria-label="Toggle dark mode">Dark mode</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero shell">
+      <div class="eyebrow">Interactive build plan · 12 August 2026</div>
+      <h1>Make every agent-written PR prove itself.</h1>
+      <p class="hero-copy">A GitHub App analyzes a pull request, checks its own findings with deterministic evidence, and waits for a human before publishing or changing code.</p>
+      <div class="hero-meta">
+        <span class="pill"><span class="dot"></span>First milestone: single-agent baseline</span>
+        <span class="pill">Core API: FastAPI</span>
+        <span class="pill">Durable workflow: Temporal</span>
+        <span class="pill">Evidence gate: Proof of Work</span>
+      </div>
+    </section>
+
+    <section class="section shell" id="product">
+      <div class="section-head">
+        <div><div class="kicker">Concrete product view</div><h2>What reviewer sees</h2></div>
+        <p class="section-intro">One place to see agent findings, supporting evidence, gate result, cost, and approval state.</p>
+      </div>
+      <div class="card snapshot">
+        <div class="fake-browser">
+          <div class="browser-bar"><i class="browser-dot"></i><i class="browser-dot"></i><i class="browser-dot"></i><span class="browser-url">app.local/runs/run_01J8…</span></div>
+          <div class="product-grid">
+            <aside class="sidebar">
+              <div class="sidebar-title">Reliability</div>
+              <div class="nav-item">Overview</div>
+              <div class="nav-item active">PR runs <span style="float:right">12</span></div>
+              <div class="nav-item">Approvals <span style="float:right">2</span></div>
+              <div class="nav-item">Evaluations</div>
+              <div class="nav-item">Settings</div>
+            </aside>
+            <div class="workspace">
+              <div class="pr-head">
+                <div><div class="kicker">acme/payments · PR #184</div><h3 class="pr-title">Prevent duplicate checkout charges</h3><span style="color:var(--muted);font-size:13px">Run #41 · commit 8f2a19c · $0.18 · 74s</span></div>
+                <span class="status">Waiting for approval</span>
+              </div>
+              <div class="run-strip">
+                <div class="run-step done">Context</div><div class="run-step done">Analysis</div><div class="run-step done">Tests</div><div class="run-step done">Proof gate</div><div class="run-step current">Human review</div>
+              </div>
+              <div class="finding">
+                <span class="severity">HIGH</span>
+                <div><h3>Retry path can charge twice</h3><p><span class="mono">checkout.ts:91</span> creates a new payment before checking the idempotency key. Reproduced by generated test <span class="mono">checkout.retry.test.ts</span>.</p></div>
+                <span class="gate">Evidence passed</span>
+              </div>
+              <div class="approval"><div><strong>Write action blocked.</strong><br><span style="font-size:13px;color:var(--muted)">Approve before posting this finding to GitHub.</span></div><button class="approve" type="button" id="demoApprove">Approve comment</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section shell" id="ideas">
+      <div class="section-head">
+        <div><div class="kicker">Brainstorm</div><h2>Three possible products</h2></div>
+        <p class="section-intro">All fit the roadmap. One gives best path from small proof to production platform.</p>
+      </div>
+      <div class="idea-grid">
+        <article class="card idea"><span class="idea-badge">Idea A</span><h3>Local PR Lab</h3><p>CLI takes two git refs, runs one agent, and produces an evidence report.</p><div class="score-row"><span>Speed to first demo</span><span class="score">5/5</span></div><div class="score-row"><span>Production proof</span><span class="score">2/5</span></div><div class="score-row"><span>Use</span><span>Evaluation core</span></div></article>
+        <article class="card idea recommended"><span class="idea-badge">Recommended</span><h3>Approval-First GitHub App</h3><p>Webhook starts a durable run. Agent reviews. Proof gate checks evidence. Human approves output.</p><div class="score-row"><span>Speed to first demo</span><span class="score">4/5</span></div><div class="score-row"><span>Production proof</span><span class="score">5/5</span></div><div class="score-row"><span>Use</span><span>Main product</span></div></article>
+        <article class="card idea"><span class="idea-badge">Idea C</span><h3>Multi-Agent Review Council</h3><p>Test, security, and reviewer agents debate every PR before a final verdict.</p><div class="score-row"><span>Speed to first demo</span><span class="score">2/5</span></div><div class="score-row"><span>Production proof</span><span class="score">4/5</span></div><div class="score-row"><span>Use</span><span>Later experiment</span></div></article>
+      </div>
+      <div class="callout" style="margin-top:14px"><strong>Decision:</strong> Build Idea B. Start internally with Idea A’s local fixtures. Add Idea C only when evaluation shows specialist agents improve defect recall enough to justify extra cost and latency.</div>
+    </section>
+
+    <section class="section shell" id="architecture">
+      <div class="section-head">
+        <div><div class="kicker">Architecture</div><h2>Small core, clear boundaries</h2></div>
+        <p class="section-intro">Click legend buttons to highlight one concern. External writes stay behind approval.</p>
+      </div>
+      <div class="card diagram-wrap">
+        <div class="architecture" aria-label="Platform architecture diagram">
+          <div class="lane">
+            <div class="lane-title">Entry</div>
+            <div class="node" data-layer="github"><strong>GitHub App</strong><span>Signed PR webhooks</span></div>
+            <div class="node" data-layer="human"><strong>Reviewer</strong><span>Approve or reject</span></div>
+          </div>
+          <div class="lane core">
+            <div class="lane-title">Platform core</div>
+            <div class="node" data-layer="api"><strong>FastAPI control plane</strong><span>Auth, runs, approvals</span></div>
+            <div class="node" data-layer="workflow"><strong>Temporal workflow</strong><span>Retry, timeout, cancel</span></div>
+            <div class="node" data-layer="context"><strong>Context selector</strong><span>Files within token budget</span></div>
+            <div class="node" data-layer="agent"><strong>Single review agent</strong><span>Structured findings only</span></div>
+            <div class="node" data-layer="sandbox"><strong>Sandbox runner</strong><span>Tests in disposable container</span></div>
+            <div class="node" data-layer="proof"><strong>Proof of Work adapter</strong><span>Fail-closed evidence gate</span></div>
+            <div class="node" data-layer="data"><strong>PostgreSQL</strong><span>Runs, findings, approvals</span></div>
+            <div class="node" data-layer="observe"><strong>OpenTelemetry</strong><span>Calls, tools, cost, latency</span></div>
+          </div>
+          <div class="lane">
+            <div class="lane-title">Outputs</div>
+            <div class="node" data-layer="human"><strong>Approval inbox</strong><span>No auto-write in MVP</span></div>
+            <div class="node" data-layer="github"><strong>GitHub comment</strong><span>Approved findings only</span></div>
+            <div class="node" data-layer="observe"><strong>Metrics dashboard</strong><span>Quality and operations</span></div>
+          </div>
+        </div>
+        <div class="legend" aria-label="Architecture filters">
+          <button type="button" data-highlight="all" class="active">All</button><button type="button" data-highlight="workflow">Durability</button><button type="button" data-highlight="proof">Evidence</button><button type="button" data-highlight="human">Human control</button><button type="button" data-highlight="observe">Observability</button><button type="button" data-highlight="data">Data</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section shell" id="workflow">
+      <div class="section-head">
+        <div><div class="kicker">Flowchart</div><h2>One pull request, seven steps</h2></div>
+        <p class="section-intro">Select a step to see owner and output.</p>
+      </div>
+      <div class="card flow-card">
+        <div class="flow-nav" id="flowNav"></div>
+        <div class="flow-detail"><div class="flow-number" id="flowNumber">01</div><div><h3 id="flowTitle"></h3><p id="flowText"></p></div><span class="flow-owner" id="flowOwner"></span></div>
+      </div>
+    </section>
+
+    <section class="section shell" id="state">
+      <div class="section-head">
+        <div><div class="kicker">Run state machine</div><h2>Every run can recover</h2></div>
+        <p class="section-intro">Temporal owns execution state. PostgreSQL stores the product record and append-only audit events.</p>
+      </div>
+      <div class="state-grid">
+        <div class="state"><strong>queued</strong><span>Webhook accepted and deduplicated.</span></div>
+        <div class="state"><strong>selecting_context</strong><span>Relevant files chosen under budget.</span></div>
+        <div class="state"><strong>analyzing</strong><span>Agent produces typed findings.</span></div>
+        <div class="state"><strong>verifying</strong><span>Tests and Proof of Work run.</span></div>
+        <div class="state"><strong>awaiting_approval</strong><span>Verified output waits for a person.</span></div>
+        <div class="state terminal"><strong>published</strong><span>Approved comment sent once.</span></div>
+        <div class="state terminal"><strong>rejected</strong><span>Human rejects proposed output.</span></div>
+        <div class="state terminal"><strong>failed / cancelled</strong><span>Reason recorded; safe retry allowed.</span></div>
+      </div>
+    </section>
+
+    <section class="section shell" id="data">
+      <div class="section-head">
+        <div><div class="kicker">Data model</div><h2>Facts first</h2></div>
+        <p class="section-intro">Public IDs use ULIDs. Internal joins use bigint IDs. Every table carries <span class="mono">owner_id</span> from day one.</p>
+      </div>
+      <div class="card schema">
+        <div class="entity"><h3>repositories</h3><ul><li>id, public_id</li><li>owner_id</li><li>github_installation_id</li><li>github_repository_id</li></ul></div>
+        <div class="entity"><h3>pull_requests</h3><ul><li>repository_id</li><li>github_pr_number</li><li>head_sha, base_sha</li><li>title, author</li></ul></div>
+        <div class="entity"><h3>runs</h3><ul><li>pull_request_id</li><li>workflow_id</li><li>status, attempt</li><li>budget_usd_micros</li></ul></div>
+        <div class="entity"><h3>findings</h3><ul><li>run_id</li><li>severity, category</li><li>file_path, line</li><li>claim, evidence</li></ul></div>
+        <div class="entity"><h3>approvals</h3><ul><li>run_id, finding_id</li><li>actor_github_id</li><li>decision</li><li>decided_at</li></ul></div>
+        <div class="entity"><h3>run_events</h3><ul><li>run_id, sequence</li><li>event_type</li><li>safe_payload_json</li><li>created_at</li></ul></div>
+      </div>
+    </section>
+
+    <section class="section shell" id="decisions">
+      <div class="section-head">
+        <div><div class="kicker">Hard-to-reverse choices</div><h2>Decide early</h2></div>
+        <p class="section-intro">These choices affect stored data, security, or every future agent.</p>
+      </div>
+      <div class="decision-grid">
+        <article class="card decision"><div class="kicker">Workflow</div><h3 class="choice">Temporal from first vertical slice</h3><p>Durable retries, cancellation, timers, and human waits belong in workflow history, not ad-hoc background jobs.</p></article>
+        <article class="card decision"><div class="kicker">Agent output</div><h3 class="choice">Versioned JSON contract</h3><p>Agents return findings, evidence, confidence, and proposed action. Free-form prose is presentation only.</p></article>
+        <article class="card decision"><div class="kicker">Ownership</div><h3 class="choice">GitHub installation is tenant boundary</h3><p>Every repo, run, artifact, and approval resolves through one installation and owner.</p></article>
+        <article class="card decision"><div class="kicker">Writes</div><h3 class="choice">Idempotency key per external action</h3><p>Publishing uses <span class="mono">run_id + action_type + target_sha</span>. Retries cannot post twice.</p></article>
+        <article class="card decision"><div class="kicker">Evidence</div><h3 class="choice">Fail closed</h3><p>If tests, sandbox, or Proof of Work cannot complete, finding stays unpublished and run shows why.</p></article>
+        <article class="card decision"><div class="kicker">Secrets</div><h3 class="choice">Short-lived scoped tokens</h3><p>Workers receive only repo-specific, time-limited access. Prompts and logs never store secrets.</p></article>
+      </div>
+    </section>
+
+    <section class="section shell" id="roadmap">
+      <div class="section-head">
+        <div><div class="kicker">Implementation plan</div><h2>Baseline before specialists</h2></div>
+        <p class="section-intro">Open each phase. Each ends with a checkable result.</p>
+      </div>
+      <div class="roadmap">
+        <div class="phase-label"><strong>Phase 0</strong><span>Today · 1 day</span></div>
+        <details class="phase" open><summary>Freeze contracts and scaffold repo</summary><div class="phase-body"><ul><li>Create service, worker, web, infrastructure, and evaluation folders.</li><li>Write version-one run state, finding JSON, webhook event, and approval contracts.</li><li>Create one tiny PR fixture with one known bug.</li></ul><p class="deliverable">Done: local command creates one queued run from fixture metadata.</p></div></details>
+        <div class="phase-label"><strong>Phase 1</strong><span>Week 1</span></div>
+        <details class="phase"><summary>Prove single-agent local baseline</summary><div class="phase-body"><ul><li>Select changed files plus direct imports under fixed token budget.</li><li>Run one provider through a narrow <span class="mono">ModelClient</span> interface.</li><li>Validate structured findings; record tokens, duration, and exact reported cost.</li></ul><p class="deliverable">Done: agent finds seeded defect and emits valid evidence JSON.</p></div></details>
+        <div class="phase-label"><strong>Phase 2</strong><span>Week 2</span></div>
+        <details class="phase"><summary>Add GitHub and durable orchestration</summary><div class="phase-body"><ul><li>Verify webhook signature before parsing payload.</li><li>Deduplicate deliveries and start one Temporal workflow per head SHA.</li><li>Support timeout, retry, cancellation, and superseded-commit handling.</li></ul><p class="deliverable">Done: closing or updating PR safely cancels or replaces run.</p></div></details>
+        <div class="phase-label"><strong>Phase 3</strong><span>Week 3</span></div>
+        <details class="phase"><summary>Add sandbox, evidence gate, and approval</summary><div class="phase-body"><ul><li>Run tests in disposable container with CPU, memory, time, filesystem, and network limits.</li><li>Wrap existing Proof of Work gate behind stable adapter.</li><li>Show verified findings; require approval before GitHub comment.</li></ul><p class="deliverable">Done: retry posts at most one approved comment.</p></div></details>
+        <div class="phase-label"><strong>Phase 4</strong><span>Week 4</span></div>
+        <details class="phase"><summary>Measure reliability</summary><div class="phase-body"><ul><li>Add traces for model calls, tools, retries, waits, latency, and cost.</li><li>Build 10 golden PR tasks; label true defects and allowed findings.</li><li>Publish baseline defect recall, false-positive rate, latency, and cost.</li></ul><p class="deliverable">Done: repeatable HTML report with honest unknowns.</p></div></details>
+        <div class="phase-label"><strong>Phase 5</strong><span>After baseline</span></div>
+        <details class="phase"><summary>Test specialist agents, then deploy</summary><div class="phase-body"><ul><li>Add test and security specialists behind routing rules.</li><li>Compare single-agent and multi-agent runs on same frozen corpus.</li><li>Keep specialists only when benefit beats cost and latency thresholds.</li><li>Deploy, run on five external repos, collect 100 real runs.</li></ul><p class="deliverable">Done: public comparison, threat model, runbook, dashboard, demo, and postmortem.</p></div></details>
+      </div>
+    </section>
+
+    <section class="section shell" id="metrics">
+      <div class="section-head">
+        <div><div class="kicker">Success measures</div><h2>Numbers that matter</h2></div>
+        <p class="section-intro">Quality first. Speed and cost matter only after findings are trustworthy.</p>
+      </div>
+      <div class="metric-grid">
+        <div class="card metric"><strong>≥80%</strong><span>Defect recall target</span></div>
+        <div class="card metric"><strong>≤15%</strong><span>False-positive target</span></div>
+        <div class="card metric"><strong>p95</strong><span>End-to-end latency</span></div>
+        <div class="card metric"><strong>$/run</strong><span>Exact known cost</span></div>
+        <div class="card metric"><strong>100</strong><span>Real runs before claim</span></div>
+      </div>
+    </section>
+
+    <section class="section shell" id="files">
+      <div class="section-head">
+        <div><div class="kicker">File map</div><h2>What changes</h2></div>
+        <p class="section-intro"><span class="reuse">Reuse</span> existing verifier. <span class="new">Add</span> new platform beside it.</p>
+      </div>
+      <div class="card file-tree"><pre>C:\Agentic-Engineer-Roadmap\
+├── <span class="reuse">proof-of-work\</span>                     # existing v0.2.0 package
+│   ├── <span class="reuse">proofofwork\engine.py</span>            # deterministic checks
+│   ├── <span class="reuse">proofofwork\eval\gate.py</span>         # fail-closed gate
+│   └── <span class="reuse">proofofwork\eval\report.py</span>       # evidence reporting pattern
+└── <span class="new">pr-reliability-platform\</span>            # new repository
+    ├── <span class="new">apps\api\</span>                        # FastAPI webhooks and REST API
+    ├── <span class="new">apps\web\</span>                        # runs and approvals UI
+    ├── <span class="new">workers\workflows\</span>                # Temporal workflows
+    ├── <span class="new">workers\activities\</span>               # context, agent, tests, publish
+    ├── <span class="new">packages\contracts\</span>               # versioned typed JSON shapes
+    ├── <span class="new">packages\proof_adapter\</span>           # stable Proof of Work boundary
+    ├── <span class="new">evals\golden_prs\</span>                 # frozen PR fixtures
+    ├── <span class="new">infra\</span>                            # local compose and deployment
+    └── <span class="new">tests\</span>                            # unit, contract, integration, E2E</pre></div>
+    </section>
+
+    <section class="section shell" id="scope">
+      <div class="two-col">
+        <article class="card list-card"><div class="kicker">MVP includes</div><h3>One trustworthy review path</h3><ul><li>One GitHub organization and installation flow.</li><li>One single-agent analyzer.</li><li>Changed-file plus dependency context.</li><li>Sandboxed test execution.</li><li>Proof of Work gate.</li><li>Manual approve or reject.</li><li>Run, quality, latency, and cost metrics.</li></ul></article>
+        <article class="card list-card"><div class="kicker">Deferred</div><h3>Earn complexity later</h3><ul><li>Automatic patches or commits.</li><li>Multi-agent debate on every PR.</li><li>RepoGraph and vector retrieval.</li><li>Fine-tuned models.</li><li>Enterprise billing and policy builder.</li><li>Support beyond GitHub.</li><li>Untrusted execution without real isolation.</li></ul></article>
+      </div>
+    </section>
+
+    <section class="section shell" id="risks">
+      <div class="section-head">
+        <div><div class="kicker">Risk controls</div><h2>Failure is visible and safe</h2></div>
+      </div>
+      <div class="two-col">
+        <article class="card list-card"><h3>Likely risk</h3><ul><li>Webhook retries create duplicate runs.</li><li>Agent invents evidence.</li><li>Tests escape worker process.</li><li>New commit makes old finding stale.</li><li>Provider usage is missing.</li></ul></article>
+        <article class="card list-card"><h3>Control</h3><ul><li>Delivery ID and head SHA idempotency.</li><li>Evidence must map to file, line, or reproducible test.</li><li>Disposable container; blocked network; hard limits.</li><li>Cancel superseded workflow; bind findings to SHA.</li><li>Show unknown; never estimate or convert to zero.</li></ul></article>
+      </div>
+    </section>
+
+    <section class="section shell" id="first-day">
+      <div class="section-head">
+        <div><div class="kicker">Start here</div><h2>Today’s build checklist</h2></div>
+        <p class="section-intro">Progress saves only in this browser.</p>
+      </div>
+      <div class="card checklist">
+        <strong id="progressLabel">0 of 6 complete</strong>
+        <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+        <div id="checklist"></div>
+      </div>
+    </section>
+
+    <section class="section shell" id="questions">
+      <div class="section-head">
+        <div><div class="kicker">Open questions</div><h2>Confirm before implementation</h2></div>
+        <p class="section-intro">Recommended defaults are selected. Choices save locally.</p>
+      </div>
+      <div class="card question" data-question="provider"><h3>Which model provider should power first baseline?</h3><div class="options"><button class="option selected" type="button" data-value="openai">OpenAI API</button><button class="option" type="button" data-value="anthropic">Anthropic API</button><button class="option" type="button" data-value="local">Local CLI</button></div><div class="recommended-note">Recommended: OpenAI API behind provider-neutral interface. Local CLI remains evaluation adapter.</div></div>
+      <div class="card question" data-question="deployment"><h3>Where should first public version run?</h3><div class="options"><button class="option selected" type="button" data-value="single-vm">Single cloud VM</button><button class="option" type="button" data-value="managed">Managed containers</button><button class="option" type="button" data-value="local">Local demo only</button></div><div class="recommended-note">Recommended: single VM after local milestone. Cheapest path to real users and full observability.</div></div>
+      <div class="card question" data-question="repository"><h3>Repository shape?</h3><div class="options"><button class="option selected" type="button" data-value="new">New repository</button><button class="option" type="button" data-value="monorepo">Inside Proof of Work</button></div><div class="recommended-note">Recommended: new repository. Proof of Work stays focused and versioned as dependency.</div></div>
+    </section>
+
+    <section class="section shell">
+      <div class="callout"><strong>Approval gate:</strong> Review architecture, scope, file map, and three choices above. Implementation starts only after direction is approved.</div>
+    </section>
+  </main>
+
+  <footer class="shell">Plan grounded in <span class="mono">02-Roadmap/ROADMAP.md</span>, <span class="mono">03-Project-Blueprints/02-multi-agent-orchestrator.md</span>, and Proof of Work v0.2.0 source.</footer>
+
+  <script>
+    const storageKey = 'pr-reliability-plan-v1';
+    const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    const persist = (patch) => localStorage.setItem(storageKey, JSON.stringify(Object.assign(saved, patch)));
+
+    const themeButton = document.getElementById('themeToggle');
+    const initialTheme = saved.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.dataset.theme = initialTheme;
+    themeButton.textContent = initialTheme === 'dark' ? 'Light mode' : 'Dark mode';
+    themeButton.addEventListener('click', () => {
+      const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = next;
+      themeButton.textContent = next === 'dark' ? 'Light mode' : 'Dark mode';
+      saved.theme = next; persist(saved);
+    });
+    document.getElementById('printPlan').addEventListener('click', () => window.print());
+
+    document.getElementById('demoApprove').addEventListener('click', (event) => {
+      event.currentTarget.textContent = 'Approved';
+      event.currentTarget.disabled = true;
+      event.currentTarget.closest('.approval').querySelector('strong').textContent = 'Demo approval recorded.';
+    });
+
+    const flows = [
+      ['Receive', 'Verify GitHub signature, store delivery ID, and bind request to repository installation.', 'FastAPI'],
+      ['Queue', 'Create one durable workflow for the pull request head SHA. Duplicate delivery returns same run.', 'Temporal'],
+      ['Context', 'Select changed files and direct dependencies until token budget is full.', 'Context service'],
+      ['Analyze', 'Single agent returns versioned JSON findings. Invalid output is rejected.', 'Agent worker'],
+      ['Verify', 'Run tests and Proof of Work against captured workspace. Failure blocks output.', 'Sandbox + gate'],
+      ['Approve', 'Human reads claim and evidence, then approves or rejects proposed GitHub action.', 'Reviewer'],
+      ['Publish', 'Idempotent activity posts approved comment once and records GitHub result.', 'Publisher']
+    ];
+    const flowNav = document.getElementById('flowNav');
+    function showFlow(index) {
+      document.getElementById('flowNumber').textContent = String(index + 1).padStart(2, '0');
+      document.getElementById('flowTitle').textContent = flows[index][0];
+      document.getElementById('flowText').textContent = flows[index][1];
+      document.getElementById('flowOwner').textContent = flows[index][2];
+      [...flowNav.children].forEach((item, i) => item.classList.toggle('active', i === index));
+    }
+    flows.forEach((flow, index) => {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'flow-button'; button.textContent = `${index + 1}. ${flow[0]}`;
+      button.addEventListener('click', () => showFlow(index)); flowNav.appendChild(button);
+    });
+    showFlow(0);
+
+    document.querySelectorAll('[data-highlight]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const layer = button.dataset.highlight;
+        document.querySelectorAll('[data-highlight]').forEach(item => item.classList.toggle('active', item === button));
+        document.querySelectorAll('.node[data-layer]').forEach(node => node.classList.toggle('lit', layer === 'all' || node.dataset.layer === layer));
+      });
+    });
+
+    const tasks = [
+      ['Create new repository skeleton', 'FastAPI API, worker, web, contracts, evaluations, infrastructure.'],
+      ['Write version-one contracts', 'Run state, finding JSON, webhook envelope, approval command.'],
+      ['Create first golden PR fixture', 'Tiny real repository diff with one known, testable defect.'],
+      ['Add PostgreSQL schema migration', 'Repositories, pull requests, runs, findings, approvals, run events.'],
+      ['Start local Temporal workflow', 'Queued run reaches a safe terminal state and survives worker restart.'],
+      ['Record baseline evidence', 'One agent run with outcome, duration, usage coverage, and honest limitations.']
+    ];
+    const taskState = saved.tasks || {};
+    const checklist = document.getElementById('checklist');
+    function updateProgress() {
+      const done = Object.values(taskState).filter(Boolean).length;
+      document.getElementById('progressLabel').textContent = `${done} of ${tasks.length} complete`;
+      document.getElementById('progressBar').style.width = `${done / tasks.length * 100}%`;
+      saved.tasks = taskState; persist(saved);
+    }
+    tasks.forEach((task, index) => {
+      const row = document.createElement('div'); row.className = 'check-row';
+      const input = document.createElement('input'); input.type = 'checkbox'; input.id = `task-${index}`; input.checked = Boolean(taskState[index]);
+      const label = document.createElement('label'); label.htmlFor = input.id; label.innerHTML = `<strong>${task[0]}</strong><small>${task[1]}</small>`;
+      input.addEventListener('change', () => { taskState[index] = input.checked; updateProgress(); });
+      row.append(input, label); checklist.appendChild(row);
+    });
+    updateProgress();
+
+    const answers = saved.answers || {};
+    document.querySelectorAll('.question').forEach((question) => {
+      const key = question.dataset.question;
+      const chosen = answers[key];
+      if (chosen) question.querySelectorAll('.option').forEach(option => option.classList.toggle('selected', option.dataset.value === chosen));
+      question.querySelectorAll('.option').forEach(option => option.addEventListener('click', () => {
+        question.querySelectorAll('.option').forEach(item => item.classList.remove('selected'));
+        option.classList.add('selected'); answers[key] = option.dataset.value; saved.answers = answers; persist(saved);
+      }));
+    });
+  </script>
+</body>
+</html>

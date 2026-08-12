@@ -1,0 +1,50 @@
+name: Feature
+description: Plan and track one product or engineering feature.
+title: "feat: "
+labels:
+  - feature
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What user-visible or system result should exist?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What work is included and excluded?
+    validations:
+      required: true
+  - type: input
+    id: decision
+    attributes:
+      label: Linked decision
+      description: Link to a DEC section in plan/v1.md.
+      placeholder: plan/v1.md#dec-000
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Expected files
+      description: Name folders or files expected to change.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use a short checklist with observable results.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Name unit, contract, integration, or end-to-end checks.
+    validations:
+      required: true
+

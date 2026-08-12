@@ -1,0 +1,28 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  repository-shape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check required project files
+        shell: bash
+        run: |
+          test -f plan/v1.md
+          test -f plan/interactive.html
+          test -f docs/README.md
+          test -f Changes.md
+          test -f AGENTS.md
+      - name: Check Python syntax when source exists
+        shell: bash
+        run: |
+          python -m compileall -q apps workers packages
+
