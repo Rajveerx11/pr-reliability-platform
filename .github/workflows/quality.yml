@@ -24,7 +24,7 @@ jobs:
       - name: Check Python syntax when source exists
         shell: bash
         run: |
-          python -m compileall -q apps workers packages
+          python -m compileall -q apps workers packages evals
 
   python-quality:
     runs-on: ubuntu-latest

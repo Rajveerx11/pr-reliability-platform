@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "python-pagination-003",
+  "title": "Handle an empty result page",
+  "language": "python",
+  "category": "edge-case",
+  "difficulty": "easy",
+  "instruction": "Return no next cursor when the result page is empty.",
+  "known_defects": ["The cursor function indexes the last item even when the page is empty."],
+  "allowed_findings": ["Return None for an empty item list."],
+  "fixture": "fixture",
+  "reference_fix": "reference_fix",
+  "verifier": "verifier.py",
+  "protected_paths": ["verifier.py"]
+}

@@ -15,6 +15,7 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = [
+  ".",
   "packages/contracts/src",
   "packages/proof_adapter/src",
 ]
@@ -23,11 +24,16 @@ testpaths = [
   "workers/tests",
   "packages/contracts/tests",
   "packages/proof_adapter/tests",
+  "evals/tests",
 ]
 
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+"evals/golden_prs/tasks/python-money-rounding-008/reference_fix/money.py" = ["I001"]
+"evals/golden_prs/tasks/python-timezone-009/**/timestamps.py" = ["FURB162"]
 
 [build-system]
 requires = ["hatchling"]

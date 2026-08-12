@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "python-money-rounding-008",
+  "title": "Round money to cents correctly",
+  "language": "python",
+  "category": "correctness",
+  "difficulty": "medium",
+  "instruction": "Convert decimal money text to integer cents using half-up rounding.",
+  "known_defects": ["Float multiplication and integer truncation lose a cent for some values."],
+  "allowed_findings": ["Parse with Decimal and quantize using ROUND_HALF_UP."],
+  "fixture": "fixture",
+  "reference_fix": "reference_fix",
+  "verifier": "verifier.py",
+  "protected_paths": ["verifier.py"]
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "python-timezone-009",
+  "title": "Preserve timezone-aware timestamps",
+  "language": "python",
+  "category": "data-integrity",
+  "difficulty": "easy",
+  "instruction": "Parse API timestamps without removing timezone information.",
+  "known_defects": ["The parser explicitly strips timezone information after parsing."],
+  "allowed_findings": ["Return the aware datetime and normalize Z to +00:00."],
+  "fixture": "fixture",
+  "reference_fix": "reference_fix",
+  "verifier": "verifier.py",
+  "protected_paths": ["verifier.py"]
+}

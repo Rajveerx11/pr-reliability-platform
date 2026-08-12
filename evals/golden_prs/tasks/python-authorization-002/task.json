@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "python-authorization-002",
+  "title": "Enforce organization ownership",
+  "language": "python",
+  "category": "authorization",
+  "difficulty": "easy",
+  "instruction": "Allow edits only when the user and resource belong to the same organization.",
+  "known_defects": ["The authorization function permits every edit."],
+  "allowed_findings": ["Compare the user organization with the resource organization."],
+  "fixture": "fixture",
+  "reference_fix": "reference_fix",
+  "verifier": "verifier.py",
+  "protected_paths": ["verifier.py"]
+}

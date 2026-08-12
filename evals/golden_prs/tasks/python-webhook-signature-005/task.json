@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "python-webhook-signature-005",
+  "title": "Verify GitHub signature format safely",
+  "language": "python",
+  "category": "security",
+  "difficulty": "medium",
+  "instruction": "Verify a GitHub sha256 signature using constant-time comparison.",
+  "known_defects": ["The verifier ignores the sha256= prefix and uses normal string equality."],
+  "allowed_findings": ["Compare the full prefixed digest with hmac.compare_digest."],
+  "fixture": "fixture",
+  "reference_fix": "reference_fix",
+  "verifier": "verifier.py",
+  "protected_paths": ["verifier.py"]
+}
