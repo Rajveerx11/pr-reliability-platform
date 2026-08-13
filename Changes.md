@@ -5,6 +5,20 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added deterministic pull request context selection
+
+- Issue: [#5](https://github.com/Rajveerx11/pr-reliability-platform/issues/5)
+- Decision: [DEC-002 — Single-agent baseline](plan/v1.md#dec-002--start-with-one-agent)
+- Reason: The review agent needs reproducible changed-file and direct-dependency context that
+  cannot exceed its configured token budget.
+- Changed files:
+  - `workers/src/pr_reliability_workers/context/` — safe paths, local Python dependency
+    resolution, changed-file priority, truncation, and budget enforcement.
+  - `workers/tests/context/test_selector.py` — priority, determinism, exclusion, dependency,
+    truncation, and budget tests.
+  - `pyproject.toml` — worker imports and wheel packaging.
+  - `docs/architecture.md` — context-selection boundary.
+
 ### Added first frozen golden pull request corpus
 
 - Issue: [#4](https://github.com/Rajveerx11/pr-reliability-platform/issues/4)
