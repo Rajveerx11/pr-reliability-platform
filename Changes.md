@@ -5,6 +5,21 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added PostgreSQL product schema and migration runner
+
+- Issue: [#3](https://github.com/Rajveerx11/pr-reliability-platform/issues/3)
+- Decision: [DEC-005 — PostgreSQL ownership](plan/v1.md#dec-005--use-postgresql-with-stable-ownership-fields)
+- Reason: Product records need stable public identities, tenant-safe relationships, and database
+  constraints that make retries idempotent.
+- Changed files:
+  - `migrations/0001_initial.sql` — owned product tables, external-action idempotency,
+    append-only audit enforcement, constraints, and indexes.
+  - `apps/api/src/pr_reliability_api/db/` — ordered, checksummed migration runner.
+  - `apps/api/tests/test_migrations.py` — real PostgreSQL migration and constraint tests.
+  - `pyproject.toml` and `uv.lock` — PostgreSQL driver plus packaged API and migrations.
+  - `docs/architecture.md` and `docs/development.md` — persistence and test guidance.
+  - `.github/workflows/quality.yml` — PostgreSQL service for mandatory migration tests.
+
 ### Added first frozen golden pull request corpus
 
 - Issue: [#4](https://github.com/Rajveerx11/pr-reliability-platform/issues/4)
