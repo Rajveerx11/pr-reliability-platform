@@ -56,6 +56,7 @@ def require_transition(current: RunState, target: RunState) -> None:
 
 
 class StartRunCommand(RunMessage):
+    generation: StrictInt = Field(ge=1)
     repository_id: Ulid
     pull_request_id: Ulid
     pull_request_number: StrictInt = Field(ge=1)

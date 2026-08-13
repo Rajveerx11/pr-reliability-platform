@@ -325,7 +325,11 @@ def test_equal_timestamp_synchronize_chain_advances_to_latest_head(
     assert latest.json()["command_id"] is not None
     with connection_factory() as connection:
         head_sha = connection.execute("SELECT head_sha FROM pull_requests").fetchone()[0]
+        generations = connection.execute(
+            "SELECT generation FROM runs ORDER BY generation"
+        ).fetchall()
     assert head_sha == latest_head
+    assert generations == [(1,), (2,)]
 
 
 def test_out_of_order_synchronize_chain_does_not_regress_latest_head(
@@ -373,6 +377,7 @@ def test_persists_complete_versioned_start_run_command(
     command = StartRunCommand.model_validate(event_data)
     assert command.public_id == response.json()["command_id"]
     assert command.owner_id == OWNER_ID
+    assert command.generation == 1
     assert command.head_sha == HEAD_SHA
     assert command.pull_request_number == 12
     assert command.base_sha == BASE_SHA

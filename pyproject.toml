@@ -7,8 +7,14 @@ dependencies = [
   "fastapi>=0.116,<1",
   "pydantic>=2.11,<3",
   "psycopg[binary]>=3.2,<4",
+  "temporalio>=1.30,<2",
   "uvicorn>=0.35,<1",
 ]
+
+[project.scripts]
+pr-reliability-command-dispatcher = "pr_reliability_workers.dispatch:main"
+pr-reliability-workflow-worker = "pr_reliability_workers.worker:workflow_main"
+pr-reliability-activity-worker = "pr_reliability_workers.worker:activity_main"
 
 [project.optional-dependencies]
 dev = [
@@ -21,6 +27,7 @@ dev = [
 pythonpath = [
   ".",
   "apps/api/src",
+  "workers/src",
   "packages/contracts/src",
   "packages/proof_adapter/src",
 ]
@@ -48,6 +55,7 @@ build-backend = "hatchling.build"
 packages = [
   "apps/api/src/pr_reliability_api",
   "packages/contracts/src/pr_reliability_contracts",
+  "workers/src/pr_reliability_workers",
 ]
 
 [tool.hatch.build.targets.wheel.force-include]

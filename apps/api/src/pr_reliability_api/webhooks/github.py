@@ -352,16 +352,17 @@ def _create_run(
     force_new: bool,
 ) -> str | None:
     run_public_id = id_factory()
-    generation = 1
-    if force_new:
-        generation = connection.execute(
-            """
-            SELECT COALESCE(MAX(generation), 0) + 1
-            FROM runs
-            WHERE pull_request_id = %s AND head_sha = %s
-            """,
+    generation = connection.execute(
+        "SELECT COALESCE(MAX(generation), 0) + 1 FROM runs WHERE pull_request_id = %s",
+        (pull_request_id,),
+    ).fetchone()[0]
+    if not force_new:
+        existing = connection.execute(
+            "SELECT 1 FROM runs WHERE pull_request_id = %s AND head_sha = %s",
             (pull_request_id, resolved_head_sha),
-        ).fetchone()[0]
+        ).fetchone()
+        if existing is not None:
+            return None
     run = connection.execute(
         """
         INSERT INTO runs (
@@ -391,6 +392,7 @@ def _create_run(
         public_id=command_public_id,
         owner_id=settings.owner_id,
         run_id=run[1],
+        generation=generation,
         head_sha=resolved_head_sha,
         repository_id=repository_public_id,
         pull_request_id=pull_request_public_id,
