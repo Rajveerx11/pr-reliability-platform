@@ -20,6 +20,7 @@ pythonpath = [
   "apps/api/src",
   "packages/contracts/src",
   "packages/proof_adapter/src",
+  "workers/src",
 ]
 testpaths = [
   "apps/api/tests",
@@ -45,6 +46,7 @@ build-backend = "hatchling.build"
 packages = [
   "apps/api/src/pr_reliability_api",
   "packages/contracts/src/pr_reliability_contracts",
+  "workers/src/pr_reliability_workers",
 ]
 
 [tool.hatch.build.targets.wheel.force-include]

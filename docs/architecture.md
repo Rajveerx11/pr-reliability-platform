@@ -70,6 +70,15 @@ queued -> selecting_context -> analyzing -> verifying -> awaiting_approval
 
 Active states may also end as `failed` or `cancelled`. Terminal states cannot restart.
 
+## Context boundary
+
+Context selection is deterministic. Changed files are ordered first, followed by their direct
+local Python imports. Repository paths are normalized and unsafe paths are rejected. Configured
+generated or dependency directories are excluded. When the budget cannot hold a complete file,
+the selector records a truncated prefix; remaining eligible files are recorded as excluded.
+The selector accepts the model adapter's token counter so the final rendered context stays within
+the configured model budget.
+
 ## Persistence boundary
 
 PostgreSQL stores summaries and safe evidence references. It does not store repository source,
