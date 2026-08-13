@@ -40,6 +40,21 @@ flowchart TB
 One run is identified by repository, pull request number, and head SHA. A new head SHA creates
 a new run and cancels the older active run. Findings never move between commits.
 
+GitHub webhook intake verifies the HMAC SHA-256 signature over raw bytes before decoding JSON.
+Only pull request opened, reopened, synchronize, and closed actions are accepted. Delivery IDs are
+inserted in the same database transaction as repository, pull request, run, and command-event
+records. A repeated owner and delivery ID returns success without creating another command.
+The configured GitHub App installation is bound to one owner; validly signed events from other
+installations are rejected before any database write. Command events store the complete versioned
+`StartRunCommand`, never raw webhook payloads.
+GitHub's pull request `updated_at` timestamp prevents older deliveries from regressing current
+head or state. Reopening a pull request creates a new run generation even when its head SHA did
+not change.
+When opposite state events have the same source timestamp, open wins. This conservative rule can
+cause an extra review but cannot let an ambiguous delayed close suppress a review.
+Equal-time synchronize events use GitHub's required `before` and `after` SHA chain, including
+out-of-order delivery, so a delayed predecessor cannot replace its known descendant.
+
 ## Message boundary
 
 Messages use strict versioned JSON. A contract includes:
@@ -70,6 +85,38 @@ queued -> selecting_context -> analyzing -> verifying -> awaiting_approval
 
 Active states may also end as `failed` or `cancelled`. Terminal states cannot restart.
 
+## Durable workflow boundary
+
+One Temporal workflow ID is stable for an owner and pull request. Intake uses Temporal's atomic
+signal-with-start operation: the first command starts the workflow, while a command for a new
+head SHA signals the active execution. The old run records an explicit cancelled outcome and
+continues as new with the replacement run, so two heads are never active in one workflow.
+Webhook intake commits each command to the PostgreSQL outbox before returning. A production
+dispatcher locks one pending command, sends its stable request ID to Temporal, then appends a
+dispatch receipt. Before retrying, it rejects mismatched command identities and receipts commands
+whose database generation is superseded or whose run is terminal. A superseded command that never
+left the queue is cancelled with a terminal audit event in the same transaction. Active-run
+retries use the same Temporal request, workflow generation, activity IDs, and provider idempotency
+keys.
+Database run generation travels in every start command. The workflow keeps only the highest
+pending generation, so delayed signals cannot replace a newer commit or reopen generation.
+Generation increases across every run for a pull request, including both new heads and reopens.
+If an approved publish has already started, it settles before supersession; the old run records
+the truthful publish outcome, then the replacement continues as new.
+
+Context selection, analysis, verification, terminal recording, and publish are activities with
+bounded timeouts, three retry attempts, stable activity IDs, and deterministic idempotency keys.
+The production workflow worker polls workflow tasks from the configured queue. One provider
+activity-worker deployment must register the complete activity set on that queue through the
+`ActivityOperations` factory contract. The provider image may deploy or scale independently, but
+partial activity sets must not compete on one queue. Missing activity workers fail within the
+bounded schedule-to-start timeout instead of waiting forever.
+Activity implementations must use those keys for database or provider writes. Human approval has
+its own timeout. Human cancellation, rejection, timeout, and supersession are separate outcomes.
+Activities heartbeat while running; cancellation waits for the current operation to stop before
+recording a terminal outcome. Identity-valid early approvals wait until verification completes.
+Temporal history stores identities and safe output references, not repository source, prompts,
+model output, comment bodies, or secrets.
 ## Context boundary
 
 Context selection is deterministic. Changed files are ordered first, followed by their direct

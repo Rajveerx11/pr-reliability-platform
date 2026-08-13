@@ -12,7 +12,7 @@ jobs:
   repository-shape:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Check required project files
         shell: bash
         run: |
@@ -25,12 +25,24 @@ jobs:
         shell: bash
         run: |
           python -m compileall -q apps workers packages evals
+      - name: Validate production process manifest
+        env:
+          ACTIVITY_WORKER_IMAGE: example.invalid/pr-reliability-activities:ci
+          DATABASE_URL: postgresql://example.invalid/product
+          GITHUB_INSTALLATION_ID: "1"
+          GITHUB_WEBHOOK_SECRET: test-only
+          OWNER_ID: 01J00000000000000000000001
+          REVIEW_ACTIVITY_OPERATIONS_FACTORY: provider:create_operations
+          TEMPORAL_ADDRESS: temporal.example.invalid:7233
+        run: docker compose -f infra/compose/compose.yaml config --quiet
+      - name: Build production process image
+        run: docker build --file infra/compose/Dockerfile --tag pr-reliability-platform:ci .
 
   python-quality:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
         env:
           POSTGRES_DB: pr_reliability_test
           POSTGRES_PASSWORD: postgres
@@ -45,8 +57,8 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/pr_reliability_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           python-version: "3.12"
           enable-cache: true
@@ -57,4 +69,34 @@ jobs:
       - name: Check formatting
         run: uv run ruff format --check .
       - name: Test
-        run: uv run pytest
+        run: uv run pytest --ignore=workers/tests
+
+  temporal-workflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+        env:
+          POSTGRES_DB: pr_reliability_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pr_reliability_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/pr_reliability_test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install project
+        run: uv sync --frozen --extra dev
+      - name: Test Temporal execution and replay
+        run: uv run pytest workers/tests -q

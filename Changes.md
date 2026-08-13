@@ -5,6 +5,45 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added durable Temporal pull request workflow
+
+- Issue: [#8](https://github.com/Rajveerx11/pr-reliability-platform/issues/8)
+- Decision: [DEC-004 — Temporal workflows](plan/v1.md#dec-004--use-temporal-for-durable-workflows)
+- Reason: Long review runs need durable retries, explicit waits and cancellation, and safe
+  replacement when a pull request receives a new commit.
+- Changed files:
+  - `workers/src/pr_reliability_workers/workflows/` — deterministic review orchestration,
+    approval signals, explicit terminal outcomes, and continue-as-new supersession.
+  - `workers/src/pr_reliability_workers/activities/` — stable activity names and idempotency-key
+    boundary for context, analysis, verification, publish, and terminal persistence.
+  - `workers/src/pr_reliability_workers/dispatch.py` and `worker.py` — PostgreSQL outbox consumer,
+    atomic signal-with-start dispatch, production dispatcher/workflow/activity-worker entry
+    points, provider factory contract, and combined test-worker assembly.
+  - `packages/contracts/src/pr_reliability_contracts/runs.py` — monotonic run generation in each
+    start command for ordered supersession.
+  - `migrations/0003_order_run_generations.sql` — safe upgrade that renumbers existing runs and
+    enforces monotonic generation per pull request.
+  - `workers/tests/` — retry, timeout, cancellation, supersession, and replay integration tests.
+  - `.github/workflows/quality.yml` — dedicated Temporal execution, outbox, and replay CI job with
+    immutable action references.
+  - `infra/compose/` — shared application image and separate API, dispatcher, workflow-worker, and
+    externally supplied provider activity-worker processes.
+  - `pyproject.toml` and `uv.lock` — Temporal SDK and packaged worker runtime.
+
+### Added signed and deduplicated GitHub webhook intake
+
+- Issue: [#7](https://github.com/Rajveerx11/pr-reliability-platform/issues/7)
+- Decision: [DEC-001 — Approval-first GitHub App](plan/v1.md#dec-001--build-an-approval-first-github-app)
+- Reason: Pull request commands must start only after signature verification and delivery replay
+  protection.
+- Changed files:
+  - `apps/api/src/pr_reliability_api/app.py` and `webhooks/` — runnable API, signature-first
+    validation, supported pull request actions, stale-event protection, reopen generations,
+    atomic delivery deduplication, and run-command persistence.
+  - `migrations/0002_github_webhook_deliveries.sql` — durable delivery identity and metadata.
+  - `apps/api/tests/test_github_webhooks.py` — real PostgreSQL and FastAPI integration tests.
+  - `pyproject.toml` and `uv.lock` — FastAPI, Uvicorn, and test-client dependencies.
+
 ### Added deterministic pull request context selection
 
 - Issue: [#5](https://github.com/Rajveerx11/pr-reliability-platform/issues/5)

@@ -41,6 +41,39 @@ idea across many tiny files. A file should be easy to understand in one sitting.
 Copy `.env.example` to `.env`. Never commit `.env`, API keys, GitHub private keys, or tokens.
 Local containers must use development-only credentials.
 
+Run the API after setting the required values in `.env`:
+
+```text
+uvicorn --factory pr_reliability_api.app:create_app_from_environment
+```
+
+Webhook startup requires `DATABASE_URL`, `OWNER_ID`, `GITHUB_INSTALLATION_ID`, and
+`GITHUB_WEBHOOK_SECRET`.
+
+Run the durable command dispatcher with `DATABASE_URL`, `TEMPORAL_ADDRESS`,
+`TEMPORAL_NAMESPACE`, and `TEMPORAL_TASK_QUEUE` configured:
+
+```text
+pr-reliability-command-dispatcher
+```
+
+It drains committed `run.command_created` events, starts or supersedes the matching Temporal
+workflow, and appends a dispatch receipt. Run one or more replicas; row locking prevents
+concurrent delivery while stable command IDs make crash retries safe.
+
+Repository deployment configuration launches the API, command dispatcher, Temporal workflow
+worker, and provider activity worker as separate processes:
+
+```text
+docker compose --env-file .env -f infra/compose/compose.yaml up --build
+```
+
+The configured PostgreSQL and Temporal addresses must be reachable from their consuming services.
+`ACTIVITY_WORKER_IMAGE` must name an image built from this project that also installs a provider
+package. `REVIEW_ACTIVITY_OPERATIONS_FACTORY` must use `module:factory` and return one complete
+`ActivityOperations` value containing context, model, verification, publish, and terminal
+operations. Registering partial activity sets on the same queue is not supported.
+
 ## Quality commands
 
 Commands will be finalized with the first implementation issue. Expected checks are:
@@ -53,6 +86,15 @@ pytest
 
 Integration tests must use isolated databases and queues. End-to-end tests must use a test
 GitHub App or recorded fixture, never a production repository.
+
+Temporal workflow tests start the SDK's time-skipping test server. They exercise activity retries,
+approval timeout, cancellation, signal-with-start supersession, continue-as-new, and history replay:
+
+```text
+uv run pytest workers/tests -q
+```
+
+CI runs these tests in the dedicated `temporal-workflow` job.
 
 PostgreSQL integration tests require `TEST_DATABASE_URL`. Tests create a random schema, apply all
 migrations, and remove that schema afterward. Example local value:

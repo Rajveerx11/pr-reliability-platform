@@ -4,12 +4,21 @@ version = "0.1.0"
 description = "Approval-first, evidence-backed AI pull request review platform."
 requires-python = ">=3.12"
 dependencies = [
+  "fastapi>=0.116,<1",
   "pydantic>=2.11,<3",
   "psycopg[binary]>=3.2,<4",
+  "temporalio>=1.30,<2",
+  "uvicorn>=0.35,<1",
 ]
+
+[project.scripts]
+pr-reliability-command-dispatcher = "pr_reliability_workers.dispatch:main"
+pr-reliability-workflow-worker = "pr_reliability_workers.worker:workflow_main"
+pr-reliability-activity-worker = "pr_reliability_workers.worker:activity_main"
 
 [project.optional-dependencies]
 dev = [
+  "httpx>=0.28,<1",
   "pytest>=8",
   "ruff>=0.16",
 ]
@@ -18,9 +27,9 @@ dev = [
 pythonpath = [
   ".",
   "apps/api/src",
+  "workers/src",
   "packages/contracts/src",
   "packages/proof_adapter/src",
-  "workers/src",
 ]
 testpaths = [
   "apps/api/tests",
