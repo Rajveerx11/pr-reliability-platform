@@ -71,7 +71,8 @@ def database() -> Iterator[Connection[tuple[object, ...]]]:
 def migrated_database(
     database: Connection[tuple[object, ...]],
 ) -> Connection[tuple[object, ...]]:
-    assert apply_migrations(database) == ("0001",)
+    expected = tuple(migration.version for migration in load_migrations())
+    assert apply_migrations(database) == expected
     assert apply_migrations(database) == ()
     return database
 
@@ -112,8 +113,11 @@ def _seed_run(connection: Connection[tuple[object, ...]]) -> tuple[int, int, int
 def test_loads_numbered_migrations_with_stable_checksum() -> None:
     migrations = load_migrations()
 
-    assert [migration.version for migration in migrations] == ["0001"]
-    assert re.fullmatch(r"[0-9a-f]{64}", migrations[0].checksum)
+    assert [migration.version for migration in migrations] == sorted(
+        migration.version for migration in migrations
+    )
+    assert [migration.version for migration in migrations][:2] == ["0001", "0002"]
+    assert all(re.fullmatch(r"[0-9a-f]{64}", migration.checksum) for migration in migrations)
 
 
 def test_creates_owned_tables_with_public_and_internal_ids(
@@ -335,7 +339,8 @@ def test_rejects_an_applied_migration_that_changed(
     migrated_database: Connection[tuple[object, ...]], tmp_path: Path
 ) -> None:
     copied_migration = tmp_path / "0001_initial.sql"
-    shutil.copy(MIGRATIONS / copied_migration.name, copied_migration)
+    for migration in MIGRATIONS.glob("*.sql"):
+        shutil.copy(migration, tmp_path / migration.name)
     copied_migration.write_text(
         copied_migration.read_text(encoding="utf-8") + "\nSELECT 1;\n",
         encoding="utf-8",

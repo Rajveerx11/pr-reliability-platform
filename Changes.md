@@ -5,6 +5,19 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added signed and deduplicated GitHub webhook intake
+
+- Issue: [#7](https://github.com/Rajveerx11/pr-reliability-platform/issues/7)
+- Decision: [DEC-001 — Approval-first GitHub App](plan/v1.md#dec-001--build-an-approval-first-github-app)
+- Reason: Pull request commands must start only after signature verification and delivery replay
+  protection.
+- Changed files:
+  - `apps/api/src/pr_reliability_api/webhooks/` — signature-first validation, supported pull
+    request actions, atomic delivery deduplication, and run-command persistence.
+  - `migrations/0002_github_webhook_deliveries.sql` — durable delivery identity and metadata.
+  - `apps/api/tests/test_github_webhooks.py` — real PostgreSQL and FastAPI integration tests.
+  - `pyproject.toml` and `uv.lock` — FastAPI and test-client dependencies.
+
 ### Added PostgreSQL product schema and migration runner
 
 - Issue: [#3](https://github.com/Rajveerx11/pr-reliability-platform/issues/3)

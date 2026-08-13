@@ -40,6 +40,14 @@ flowchart TB
 One run is identified by repository, pull request number, and head SHA. A new head SHA creates
 a new run and cancels the older active run. Findings never move between commits.
 
+GitHub webhook intake verifies the HMAC SHA-256 signature over raw bytes before decoding JSON.
+Only pull request opened, reopened, synchronize, and closed actions are accepted. Delivery IDs are
+inserted in the same database transaction as repository, pull request, run, and command-event
+records. A repeated owner and delivery ID returns success without creating another command.
+The configured GitHub App installation is bound to one owner; validly signed events from other
+installations are rejected before any database write. Command events store the complete versioned
+`StartRunCommand`, never raw webhook payloads.
+
 ## Message boundary
 
 Messages use strict versioned JSON. A contract includes:
