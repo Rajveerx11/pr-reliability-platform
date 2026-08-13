@@ -11,6 +11,9 @@ dependencies = [
   "uvicorn>=0.35,<1",
 ]
 
+[project.scripts]
+pr-reliability-command-dispatcher = "pr_reliability_workers.dispatch:main"
+
 [project.optional-dependencies]
 dev = [
   "httpx>=0.28,<1",

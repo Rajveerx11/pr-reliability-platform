@@ -91,6 +91,13 @@ One Temporal workflow ID is stable for an owner and pull request. Intake uses Te
 signal-with-start operation: the first command starts the workflow, while a command for a new
 head SHA signals the active execution. The old run records an explicit cancelled outcome and
 continues as new with the replacement run, so two heads are never active in one workflow.
+Webhook intake commits each command to the PostgreSQL outbox before returning. A production
+dispatcher locks one pending command, sends its stable request ID to Temporal, then appends a
+dispatch receipt. Before retrying, it rejects mismatched command identities and receipts commands
+whose database generation is superseded or whose run is terminal. A superseded command that never
+left the queue is cancelled with a terminal audit event in the same transaction. Active-run
+retries use the same Temporal request, workflow generation, activity IDs, and provider idempotency
+keys.
 Database run generation travels in every start command. The workflow keeps only the highest
 pending generation, so delayed signals cannot replace a newer commit or reopen generation.
 Generation increases across every run for a pull request, including both new heads and reopens.

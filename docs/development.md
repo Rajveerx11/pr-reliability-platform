@@ -50,6 +50,17 @@ uvicorn --factory pr_reliability_api.app:create_app_from_environment
 Webhook startup requires `DATABASE_URL`, `OWNER_ID`, `GITHUB_INSTALLATION_ID`, and
 `GITHUB_WEBHOOK_SECRET`.
 
+Run the durable command dispatcher with `DATABASE_URL`, `TEMPORAL_ADDRESS`,
+`TEMPORAL_NAMESPACE`, and `TEMPORAL_TASK_QUEUE` configured:
+
+```text
+pr-reliability-command-dispatcher
+```
+
+It drains committed `run.command_created` events, starts or supersedes the matching Temporal
+workflow, and appends a dispatch receipt. Run one or more replicas; row locking prevents
+concurrent delivery while stable command IDs make crash retries safe.
+
 ## Quality commands
 
 Commands will be finalized with the first implementation issue. Expected checks are:
