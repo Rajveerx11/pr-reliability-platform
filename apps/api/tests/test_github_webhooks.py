@@ -14,6 +14,7 @@ import psycopg
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pr_reliability_api.app import create_app
 from pr_reliability_api.db import apply_migrations
 from pr_reliability_api.webhooks import GithubWebhookSettings, create_github_webhook_router
 from pr_reliability_contracts import StartRunCommand
@@ -79,17 +80,40 @@ def client(connection_factory: Callable[[], Connection[object]]) -> TestClient:
     return TestClient(app)
 
 
-def payload(action: str = "opened", head_sha: str = HEAD_SHA) -> dict[str, object]:
-    return {
+def test_production_app_factory_registers_webhook(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    app = create_app(
+        GithubWebhookSettings(owner_id=OWNER_ID, installation_id=71, webhook_secret=SECRET),
+        connection_factory,
+    )
+
+    assert "/webhooks/github" in app.openapi()["paths"]
+
+
+def payload(
+    action: str = "opened",
+    head_sha: str = HEAD_SHA,
+    *,
+    updated_at: str = "2026-08-13T08:00:00Z",
+    full_name: str = "owner/repository",
+    before_sha: str = HEAD_SHA,
+) -> dict[str, object]:
+    data = {
         "action": action,
         "installation": {"id": 71},
-        "repository": {"id": 91, "full_name": "owner/repository"},
+        "repository": {"id": 91, "full_name": full_name},
         "pull_request": {
             "number": 12,
+            "updated_at": updated_at,
             "base": {"sha": BASE_SHA},
             "head": {"sha": head_sha},
         },
     }
+    if action == "synchronize":
+        data["before"] = before_sha
+        data["after"] = head_sha
+    return data
 
 
 def headers(body: bytes, *, delivery: str = "delivery-1") -> dict[str, str]:
@@ -167,6 +191,176 @@ def test_different_delivery_for_same_head_creates_no_duplicate_command(
     assert scalar(connection_factory, "SELECT count(*) FROM github_webhook_deliveries") == 2
     assert scalar(connection_factory, "SELECT count(*) FROM runs") == 1
     assert scalar(connection_factory, "SELECT count(*) FROM run_events") == 1
+
+
+def test_reopen_same_head_creates_new_run_generation(
+    client: TestClient, connection_factory: Callable[[], Connection[object]]
+) -> None:
+    opened = post(client, payload(updated_at="2026-08-13T08:00:00Z"), delivery="opened")
+    closed = post(
+        client,
+        payload("closed", updated_at="2026-08-13T08:01:00Z"),
+        delivery="closed",
+    )
+    reopened = post(
+        client,
+        payload("reopened", updated_at="2026-08-13T08:02:00Z"),
+        delivery="reopened",
+    )
+
+    assert opened.json()["command_id"] is not None
+    assert closed.json()["command_id"] is None
+    assert reopened.json()["command_id"] is not None
+    assert scalar(connection_factory, "SELECT count(*) FROM runs") == 2
+    with connection_factory() as connection:
+        generations = connection.execute(
+            "SELECT generation FROM runs ORDER BY generation"
+        ).fetchall()
+    assert generations == [(1,), (2,)]
+
+
+def test_older_delivery_does_not_regress_pull_request(
+    client: TestClient, connection_factory: Callable[[], Connection[object]]
+) -> None:
+    newest_head = "c" * 40
+    newest = post(
+        client,
+        payload("synchronize", newest_head, updated_at="2026-08-13T08:02:00Z"),
+        delivery="newest",
+    )
+    stale = post(
+        client,
+        payload("closed", HEAD_SHA, updated_at="2026-08-13T08:01:00Z"),
+        delivery="stale",
+    )
+
+    assert newest.json()["command_id"] is not None
+    assert stale.json()["command_id"] is None
+    with connection_factory() as connection:
+        state = connection.execute("SELECT head_sha, state FROM pull_requests").fetchone()
+    assert state == (newest_head, "open")
+
+
+def test_equal_timestamp_uses_delivery_order_for_state_transition(
+    client: TestClient, connection_factory: Callable[[], Connection[object]]
+) -> None:
+    timestamp = "2026-08-13T08:00:00Z"
+    post(client, payload("closed", updated_at=timestamp), delivery="delivery-closed")
+    reopened = post(
+        client,
+        payload("reopened", updated_at=timestamp),
+        delivery="delivery-reopened",
+    )
+
+    assert reopened.json()["command_id"] is not None
+    with connection_factory() as connection:
+        state = connection.execute("SELECT state FROM pull_requests").fetchone()[0]
+    assert state == "open"
+
+
+def test_equal_timestamp_delayed_close_cannot_suppress_reopened_state(
+    client: TestClient, connection_factory: Callable[[], Connection[object]]
+) -> None:
+    timestamp = "2026-08-13T08:00:00Z"
+    reopened = post(
+        client,
+        payload("reopened", updated_at=timestamp),
+        delivery="delivery-reopened-first",
+    )
+    delayed_close = post(
+        client,
+        payload("closed", updated_at=timestamp),
+        delivery="delivery-closed-late",
+    )
+
+    assert reopened.json()["command_id"] is not None
+    assert delayed_close.json()["command_id"] is None
+    with connection_factory() as connection:
+        state = connection.execute("SELECT state FROM pull_requests").fetchone()[0]
+    assert state == "open"
+
+
+def test_stale_delivery_does_not_regress_repository_name(
+    client: TestClient, connection_factory: Callable[[], Connection[object]]
+) -> None:
+    post(
+        client,
+        payload(updated_at="2026-08-13T08:02:00Z", full_name="owner/new-name"),
+        delivery="new-name",
+    )
+    post(
+        client,
+        payload(updated_at="2026-08-13T08:01:00Z", full_name="owner/old-name"),
+        delivery="old-name",
+    )
+
+    with connection_factory() as connection:
+        full_name = connection.execute("SELECT full_name FROM repositories").fetchone()[0]
+    assert full_name == "owner/new-name"
+
+
+def test_equal_timestamp_synchronize_chain_advances_to_latest_head(
+    client: TestClient, connection_factory: Callable[[], Connection[object]]
+) -> None:
+    first_head = "c" * 40
+    latest_head = "d" * 40
+    timestamp = "2026-08-13T08:00:00Z"
+    first = post(
+        client,
+        payload("synchronize", first_head, updated_at=timestamp),
+        delivery="sync-first",
+    )
+    latest = post(
+        client,
+        payload(
+            "synchronize",
+            latest_head,
+            updated_at=timestamp,
+            before_sha=first_head,
+        ),
+        delivery="sync-latest",
+    )
+
+    assert first.json()["command_id"] is not None
+    assert latest.json()["command_id"] is not None
+    with connection_factory() as connection:
+        head_sha = connection.execute("SELECT head_sha FROM pull_requests").fetchone()[0]
+    assert head_sha == latest_head
+
+
+def test_out_of_order_synchronize_chain_does_not_regress_latest_head(
+    client: TestClient, connection_factory: Callable[[], Connection[object]]
+) -> None:
+    earlier_head = "c" * 40
+    latest_head = "d" * 40
+    timestamp = "2026-08-13T08:00:00Z"
+    latest = post(
+        client,
+        payload(
+            "synchronize",
+            latest_head,
+            updated_at=timestamp,
+            before_sha=earlier_head,
+        ),
+        delivery="sync-latest-first",
+    )
+    delayed = post(
+        client,
+        payload("synchronize", earlier_head, updated_at=timestamp),
+        delivery="sync-earlier-late",
+    )
+
+    assert latest.json()["command_id"] is not None
+    assert delayed.json()["command_id"] is None
+    with connection_factory() as connection:
+        head_sha = connection.execute("SELECT head_sha FROM pull_requests").fetchone()[0]
+        run_heads = connection.execute("SELECT head_sha FROM runs").fetchall()
+        command_heads = connection.execute(
+            "SELECT event_data ->> 'head_sha' FROM run_events"
+        ).fetchall()
+    assert head_sha == latest_head
+    assert run_heads == [(latest_head,)]
+    assert command_heads == [(latest_head,)]
 
 
 def test_persists_complete_versioned_start_run_command(

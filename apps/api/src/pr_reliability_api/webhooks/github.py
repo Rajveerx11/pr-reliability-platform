@@ -16,7 +16,15 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from pr_reliability_contracts import PullRequestAction, StartRunCommand
 from psycopg import Connection
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    ValidationError,
+    model_validator,
+)
 
 ConnectionFactory = Callable[[], Connection[Any]]
 IdFactory = Callable[[], str]
@@ -60,6 +68,7 @@ class _Branch(BaseModel):
 class _PullRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     number: StrictInt = Field(gt=0)
+    updated_at: AwareDatetime
     base: _Branch
     head: _Branch
 
@@ -67,9 +76,19 @@ class _PullRequest(BaseModel):
 class _PullRequestPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
     action: PullRequestAction
+    before: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    after: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     installation: _Installation
     repository: _Repository
     pull_request: _PullRequest
+
+    @model_validator(mode="after")
+    def validate_synchronize_chain(self) -> _PullRequestPayload:
+        if self.action is PullRequestAction.SYNCHRONIZE and (
+            self.before is None or self.after != self.pull_request.head.sha
+        ):
+            raise ValueError("synchronize payload requires matching before and after SHAs")
+        return self
 
 
 def create_github_webhook_router(
@@ -110,9 +129,9 @@ def create_github_webhook_router(
                 INSERT INTO github_webhook_deliveries (
                     public_id, owner_id, delivery_id, event_type, action,
                     installation_id, repository_github_id, pull_request_number,
-                    head_sha, received_at
+                    head_sha, before_sha, after_sha, pull_request_updated_at, received_at
                 )
-                VALUES (%s, %s, %s, 'pull_request', %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, 'pull_request', %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (owner_id, delivery_id) DO NOTHING
                 RETURNING id
                 """,
@@ -125,6 +144,9 @@ def create_github_webhook_router(
                     payload.repository.id,
                     payload.pull_request.number,
                     payload.pull_request.head.sha,
+                    payload.before,
+                    payload.after,
+                    payload.pull_request.updated_at.astimezone(UTC),
                     received_at,
                 ),
             ).fetchone()
@@ -134,19 +156,31 @@ def create_github_webhook_router(
             repository_id, repository_public_id = _upsert_repository(
                 connection, settings.owner_id, payload, id_factory
             )
-            pull_request_id, pull_request_public_id = _upsert_pull_request(
-                connection, settings.owner_id, repository_id, payload, id_factory
+            resolved_head_sha = _resolve_head_sha(connection, settings.owner_id, payload)
+            pull_request_id, pull_request_public_id, current_delivery = _upsert_pull_request(
+                connection,
+                settings.owner_id,
+                repository_id,
+                payload,
+                resolved_head_sha,
+                received_at,
+                x_github_delivery,
+                id_factory,
             )
+            if current_delivery:
+                _update_repository_name(connection, repository_id, payload.repository.full_name)
             command_public_id = None
-            if payload.action is not PullRequestAction.CLOSED:
+            if current_delivery and payload.action is not PullRequestAction.CLOSED:
                 command_public_id = _create_run(
                     connection,
                     settings,
                     payload,
+                    resolved_head_sha,
                     pull_request_id,
                     repository_public_id,
                     pull_request_public_id,
                     id_factory,
+                    force_new=payload.action is PullRequestAction.REOPENED,
                 )
             connection.execute(
                 "UPDATE github_webhook_deliveries SET command_public_id = %s WHERE id = %s",
@@ -181,11 +215,20 @@ def _upsert_repository(
             public_id, owner_id, github_repository_id, full_name
         ) VALUES (%s, %s, %s, %s)
         ON CONFLICT (owner_id, github_repository_id) DO UPDATE
-        SET full_name = EXCLUDED.full_name, updated_at = now()
+        SET full_name = repositories.full_name
         RETURNING id, public_id
         """,
         (id_factory(), owner_id, payload.repository.id, payload.repository.full_name),
     ).fetchone()
+
+
+def _update_repository_name(
+    connection: Connection[Any], repository_id: int, full_name: str
+) -> None:
+    connection.execute(
+        "UPDATE repositories SET full_name = %s, updated_at = now() WHERE id = %s",
+        (full_name, repository_id),
+    )
 
 
 def _upsert_pull_request(
@@ -193,21 +236,42 @@ def _upsert_pull_request(
     owner_id: str,
     repository_id: int,
     payload: _PullRequestPayload,
+    resolved_head_sha: str,
+    received_at: datetime,
+    delivery_id: str,
     id_factory: IdFactory,
-) -> tuple[int, str]:
+) -> tuple[int, str, bool]:
     pr_state = "closed" if payload.action is PullRequestAction.CLOSED else "open"
-    return connection.execute(
+    updated = connection.execute(
         """
         INSERT INTO pull_requests (
             public_id, owner_id, repository_id, github_number,
-            base_sha, head_sha, state
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            base_sha, head_sha, state, github_updated_at,
+            github_delivery_received_at, github_delivery_id
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (repository_id, github_number) DO UPDATE
         SET base_sha = EXCLUDED.base_sha,
             head_sha = EXCLUDED.head_sha,
             state = EXCLUDED.state,
+            github_updated_at = EXCLUDED.github_updated_at,
+            github_delivery_received_at = EXCLUDED.github_delivery_received_at,
+            github_delivery_id = EXCLUDED.github_delivery_id,
             updated_at = now()
-        RETURNING id, public_id
+        WHERE pull_requests.github_updated_at IS NULL
+           OR pull_requests.github_updated_at < EXCLUDED.github_updated_at
+           OR (
+               pull_requests.github_updated_at = EXCLUDED.github_updated_at
+               AND pull_requests.state = 'closed'
+               AND EXCLUDED.state = 'open'
+           )
+           OR (
+               %s
+               AND pull_requests.github_updated_at = EXCLUDED.github_updated_at
+               AND pull_requests.state = 'open'
+               AND EXCLUDED.state = 'open'
+               AND pull_requests.head_sha <> EXCLUDED.head_sha
+           )
+        RETURNING id, public_id, true
         """,
         (
             id_factory(),
@@ -215,29 +279,96 @@ def _upsert_pull_request(
             repository_id,
             payload.pull_request.number,
             payload.pull_request.base.sha,
-            payload.pull_request.head.sha,
+            resolved_head_sha,
             pr_state,
+            payload.pull_request.updated_at.astimezone(UTC),
+            received_at,
+            delivery_id,
+            payload.action is PullRequestAction.SYNCHRONIZE,
         ),
     ).fetchone()
+    if updated is not None:
+        return updated
+    existing = connection.execute(
+        """
+        SELECT id, public_id, false
+        FROM pull_requests
+        WHERE repository_id = %s AND github_number = %s
+        """,
+        (repository_id, payload.pull_request.number),
+    ).fetchone()
+    if existing is None:
+        raise RuntimeError("pull request disappeared during webhook processing")
+    return existing
+
+
+def _resolve_head_sha(
+    connection: Connection[Any], owner_id: str, payload: _PullRequestPayload
+) -> str:
+    if payload.action is not PullRequestAction.SYNCHRONIZE:
+        return payload.pull_request.head.sha
+    return connection.execute(
+        """
+        WITH RECURSIVE chain (sha, depth, path) AS (
+            VALUES (%s::varchar(40), 0, ARRAY[%s::varchar(40)])
+            UNION ALL
+            SELECT delivery.after_sha, chain.depth + 1,
+                   (chain.path || delivery.after_sha)::varchar(40)[]
+            FROM chain
+            JOIN github_webhook_deliveries AS delivery
+              ON delivery.owner_id = %s
+             AND delivery.repository_github_id = %s
+             AND delivery.pull_request_number = %s
+             AND delivery.action = 'synchronize'
+             AND delivery.pull_request_updated_at = %s
+             AND delivery.before_sha = chain.sha
+            WHERE delivery.after_sha IS NOT NULL
+              AND NOT delivery.after_sha = ANY(chain.path)
+              AND chain.depth < 100
+        )
+        SELECT sha FROM chain ORDER BY depth DESC, sha DESC LIMIT 1
+        """,
+        (
+            payload.after,
+            payload.after,
+            owner_id,
+            payload.repository.id,
+            payload.pull_request.number,
+            payload.pull_request.updated_at.astimezone(UTC),
+        ),
+    ).fetchone()[0]
 
 
 def _create_run(
     connection: Connection[Any],
     settings: GithubWebhookSettings,
     payload: _PullRequestPayload,
+    resolved_head_sha: str,
     pull_request_id: int,
     repository_public_id: str,
     pull_request_public_id: str,
     id_factory: IdFactory,
+    *,
+    force_new: bool,
 ) -> str | None:
     run_public_id = id_factory()
+    generation = 1
+    if force_new:
+        generation = connection.execute(
+            """
+            SELECT COALESCE(MAX(generation), 0) + 1
+            FROM runs
+            WHERE pull_request_id = %s AND head_sha = %s
+            """,
+            (pull_request_id, resolved_head_sha),
+        ).fetchone()[0]
     run = connection.execute(
         """
         INSERT INTO runs (
             public_id, owner_id, pull_request_id, base_sha, head_sha,
-            token_budget, cost_budget_usd_micros
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (pull_request_id, head_sha) DO NOTHING
+            token_budget, cost_budget_usd_micros, generation
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (pull_request_id, head_sha, generation) DO NOTHING
         RETURNING id, public_id
         """,
         (
@@ -245,9 +376,10 @@ def _create_run(
             settings.owner_id,
             pull_request_id,
             payload.pull_request.base.sha,
-            payload.pull_request.head.sha,
+            resolved_head_sha,
             settings.token_budget,
             settings.cost_budget_usd_micros,
+            generation,
         ),
     ).fetchone()
     if run is None:
@@ -259,7 +391,7 @@ def _create_run(
         public_id=command_public_id,
         owner_id=settings.owner_id,
         run_id=run[1],
-        head_sha=payload.pull_request.head.sha,
+        head_sha=resolved_head_sha,
         repository_id=repository_public_id,
         pull_request_id=pull_request_public_id,
         pull_request_number=payload.pull_request.number,

@@ -41,6 +41,15 @@ idea across many tiny files. A file should be easy to understand in one sitting.
 Copy `.env.example` to `.env`. Never commit `.env`, API keys, GitHub private keys, or tokens.
 Local containers must use development-only credentials.
 
+Run the API after setting the required values in `.env`:
+
+```text
+uvicorn --factory pr_reliability_api.app:create_app_from_environment
+```
+
+Webhook startup requires `DATABASE_URL`, `OWNER_ID`, `GITHUB_INSTALLATION_ID`, and
+`GITHUB_WEBHOOK_SECRET`.
+
 ## Quality commands
 
 Commands will be finalized with the first implementation issue. Expected checks are:

@@ -47,6 +47,13 @@ records. A repeated owner and delivery ID returns success without creating anoth
 The configured GitHub App installation is bound to one owner; validly signed events from other
 installations are rejected before any database write. Command events store the complete versioned
 `StartRunCommand`, never raw webhook payloads.
+GitHub's pull request `updated_at` timestamp prevents older deliveries from regressing current
+head or state. Reopening a pull request creates a new run generation even when its head SHA did
+not change.
+When opposite state events have the same source timestamp, open wins. This conservative rule can
+cause an extra review but cannot let an ambiguous delayed close suppress a review.
+Equal-time synchronize events use GitHub's required `before` and `after` SHA chain, including
+out-of-order delivery, so a delayed predecessor cannot replace its known descendant.
 
 ## Message boundary
 

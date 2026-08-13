@@ -12,11 +12,12 @@ them and names the affected files.
 - Reason: Pull request commands must start only after signature verification and delivery replay
   protection.
 - Changed files:
-  - `apps/api/src/pr_reliability_api/webhooks/` — signature-first validation, supported pull
-    request actions, atomic delivery deduplication, and run-command persistence.
+  - `apps/api/src/pr_reliability_api/app.py` and `webhooks/` — runnable API, signature-first
+    validation, supported pull request actions, stale-event protection, reopen generations,
+    atomic delivery deduplication, and run-command persistence.
   - `migrations/0002_github_webhook_deliveries.sql` — durable delivery identity and metadata.
   - `apps/api/tests/test_github_webhooks.py` — real PostgreSQL and FastAPI integration tests.
-  - `pyproject.toml` and `uv.lock` — FastAPI and test-client dependencies.
+  - `pyproject.toml` and `uv.lock` — FastAPI, Uvicorn, and test-client dependencies.
 
 ### Added PostgreSQL product schema and migration runner
 
