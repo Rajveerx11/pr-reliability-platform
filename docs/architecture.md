@@ -79,6 +79,15 @@ the selector records a truncated prefix; remaining eligible files are recorded a
 The selector accepts the model adapter's token counter so the final rendered context stays within
 the configured model budget.
 
+## Model boundary
+
+Workflow code calls one `ModelClient` protocol. Provider adapters return raw JSON plus usage facts;
+they do not enter workflow code. The review agent accepts output only when every finding matches
+the strict finding contract and current run identity. Invalid JSON, unknown fields, invalid
+evidence, mismatched runs, and provider failures return no partial result. Usage coverage keeps
+missing token counts and costs unknown. Reported cost uses integer micro-dollars, avoiding
+floating-point rounding. Duration uses a monotonic clock.
+
 ## Persistence boundary
 
 PostgreSQL stores summaries and safe evidence references. It does not store repository source,

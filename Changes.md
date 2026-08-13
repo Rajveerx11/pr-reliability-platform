@@ -5,6 +5,19 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added provider-neutral single review agent
+
+- Issue: [#6](https://github.com/Rajveerx11/pr-reliability-platform/issues/6)
+- Decision: [DEC-012 — Provider-neutral model interface](plan/v1.md#dec-012--start-with-openai-behind-a-provider-neutral-interface)
+- Reason: Version one needs one validated review baseline while keeping provider details outside
+  workflow and product contracts.
+- Changed files:
+  - `workers/src/pr_reliability_workers/agents/` — provider-neutral client protocol, request and
+    response boundary, and fail-closed review agent.
+  - `packages/contracts/src/pr_reliability_contracts/reviews.py` — review command, result, usage
+    coverage, duration, and exact reported cost contracts.
+  - `workers/tests/agents/test_review_agent.py` — fake-client success and failure coverage.
+
 ### Added deterministic pull request context selection
 
 - Issue: [#5](https://github.com/Rajveerx11/pr-reliability-platform/issues/5)

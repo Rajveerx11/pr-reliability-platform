@@ -12,6 +12,7 @@ from .base import (
 )
 from .findings import Evidence, EvidenceKind, Finding, FindingSeverity
 from .github import PullRequestAction, PullRequestWebhook
+from .reviews import ModelUsage, ReviewCommand, ReviewResult, UsageCoverage
 from .runs import (
     TERMINAL_RUN_STATES,
     CancelRunCommand,
@@ -32,16 +33,20 @@ __all__ = [
     "Finding",
     "FindingSeverity",
     "GitSha",
+    "ModelUsage",
     "NonEmptyText",
     "PublishCommentCommand",
     "PullRequestAction",
     "PullRequestWebhook",
+    "ReviewCommand",
+    "ReviewResult",
     "RunMessage",
     "RunState",
     "SchemaVersion",
     "StartRunCommand",
     "TimedRunMessage",
     "Ulid",
+    "UsageCoverage",
     "can_transition",
     "require_transition",
 ]
