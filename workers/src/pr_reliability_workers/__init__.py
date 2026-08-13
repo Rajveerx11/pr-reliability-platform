@@ -1,1 +1,1 @@
-"""Durable worker runtime."""
+"""Durable PR review worker components."""

@@ -117,6 +117,14 @@ Activities heartbeat while running; cancellation waits for the current operation
 recording a terminal outcome. Identity-valid early approvals wait until verification completes.
 Temporal history stores identities and safe output references, not repository source, prompts,
 model output, comment bodies, or secrets.
+## Context boundary
+
+Context selection is deterministic. Changed files are ordered first, followed by their direct
+local Python imports. Repository paths are normalized and unsafe paths are rejected. Configured
+generated or dependency directories are excluded. When the budget cannot hold a complete file,
+the selector records a truncated prefix; remaining eligible files are recorded as excluded.
+The selector accepts the model adapter's token counter so the final rendered context stays within
+the configured model budget.
 
 ## Persistence boundary
 
