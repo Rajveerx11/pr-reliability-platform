@@ -24,6 +24,7 @@ from .workflows import PullRequestReviewWorkflow, ReviewWorkflowInput, Supersede
 ConnectionFactory = Callable[[], Connection[Any]]
 _TERMINAL_RUN_STATES = frozenset({"published", "rejected", "failed", "cancelled"})
 _TRANSIENT_ERRORS = (psycopg.Error, RPCError, ConnectionError, TimeoutError)
+_TEMPORAL_RPC_TIMEOUT = timedelta(seconds=10)
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -64,6 +65,7 @@ async def dispatch_start_run(
         start_signal="supersede",
         start_signal_args=[SupersedeSignal(request)],
         request_id=command.public_id,
+        rpc_timeout=_TEMPORAL_RPC_TIMEOUT,
     )
 
 
@@ -73,6 +75,7 @@ async def dispatch_next_command(
     *,
     task_queue: str,
     id_factory: Callable[[], str] = lambda: _new_ulid(),
+    dispatch_timeout_seconds: float = 11.0,
 ) -> bool:
     """Dispatch one pending outbox command and append its durable receipt.
 
@@ -81,6 +84,8 @@ async def dispatch_next_command(
     but before the receipt commits.
     """
 
+    if dispatch_timeout_seconds <= 0:
+        raise ValueError("dispatch_timeout_seconds must be positive")
     with connection_factory() as connection, connection.transaction():
         row = connection.execute(
             """
@@ -111,7 +116,7 @@ async def dispatch_next_command(
                     AND receipt.event_key = command.event_key || ':dispatched'
               )
             ORDER BY command.id
-            FOR UPDATE OF command SKIP LOCKED
+            FOR UPDATE OF command, run SKIP LOCKED
             LIMIT 1
             """
         ).fetchone()
@@ -193,7 +198,8 @@ async def dispatch_next_command(
             )
             return True
 
-        handle = await dispatch_start_run(client, command, task_queue=task_queue)
+        async with asyncio.timeout(dispatch_timeout_seconds):
+            handle = await dispatch_start_run(client, command, task_queue=task_queue)
         _insert_receipt(
             connection,
             command,

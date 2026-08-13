@@ -156,6 +156,7 @@ def test_pending_command_is_dispatched_once_and_receipted(
     assert request.generation == command.generation
     assert options["request_id"] == command.public_id
     assert options["id"] == workflow_id_for(command)
+    assert options["rpc_timeout"].total_seconds() == 10
     with connection_factory() as connection:
         receipt = connection.execute(
             """
@@ -242,6 +243,101 @@ def test_concurrent_dispatchers_do_not_send_same_command(
         assert second is False
         assert await first is True
         assert len(client.calls) == 1
+
+    asyncio.run(run())
+
+
+def test_dispatch_holds_run_lock_until_temporal_receipt_commits(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    command = seed_command(connection_factory)
+
+    async def run() -> None:
+        class BlockingTemporalClient(RecordingTemporalClient):
+            def __init__(self) -> None:
+                super().__init__()
+                self.started = asyncio.Event()
+                self.release = asyncio.Event()
+
+            async def start_workflow(self, workflow, request, **options):
+                self.started.set()
+                await self.release.wait()
+                return await super().start_workflow(workflow, request, **options)
+
+        client = BlockingTemporalClient()
+        dispatch = asyncio.create_task(
+            dispatch_next_command(
+                connection_factory,
+                client,
+                task_queue=TASK_QUEUE,
+                id_factory=lambda: public_id(6),
+            )
+        )
+        await client.started.wait()
+
+        def mark_terminal() -> None:
+            with connection_factory() as connection, connection.transaction():
+                connection.execute(
+                    "UPDATE runs SET state = 'failed' WHERE public_id = %s",
+                    (command.run_id,),
+                )
+
+        terminal_update = asyncio.create_task(asyncio.to_thread(mark_terminal))
+        await asyncio.sleep(0.05)
+        assert not terminal_update.done()
+
+        client.release.set()
+        assert await dispatch is True
+        await terminal_update
+
+        with connection_factory() as connection:
+            state = connection.execute(
+                "SELECT state FROM runs WHERE public_id = %s", (command.run_id,)
+            ).fetchone()[0]
+        assert state == "failed"
+
+    asyncio.run(run())
+
+
+def test_dispatch_timeout_releases_run_lock_and_leaves_command_pending(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    command = seed_command(connection_factory)
+
+    async def run() -> None:
+        class HangingTemporalClient(RecordingTemporalClient):
+            async def start_workflow(self, _workflow, _request, **_options):
+                await asyncio.Event().wait()
+
+        with pytest.raises(TimeoutError):
+            await dispatch_next_command(
+                connection_factory,
+                HangingTemporalClient(),
+                task_queue=TASK_QUEUE,
+                id_factory=lambda: public_id(6),
+                dispatch_timeout_seconds=0.05,
+            )
+
+        def mark_terminal() -> None:
+            with connection_factory() as connection, connection.transaction():
+                connection.execute(
+                    "UPDATE runs SET state = 'failed' WHERE public_id = %s",
+                    (command.run_id,),
+                )
+
+        await asyncio.wait_for(asyncio.to_thread(mark_terminal), timeout=1)
+        with connection_factory() as connection:
+            state, receipt_count = connection.execute(
+                """
+                SELECT state, (
+                    SELECT count(*) FROM run_events WHERE event_type = 'run.command_dispatched'
+                )
+                FROM runs WHERE public_id = %s
+                """,
+                (command.run_id,),
+            ).fetchone()
+        assert state == "failed"
+        assert receipt_count == 0
 
     asyncio.run(run())
 
