@@ -25,6 +25,18 @@ jobs:
         shell: bash
         run: |
           python -m compileall -q apps workers packages evals
+      - name: Validate production process manifest
+        env:
+          ACTIVITY_WORKER_IMAGE: example.invalid/pr-reliability-activities:ci
+          DATABASE_URL: postgresql://example.invalid/product
+          GITHUB_INSTALLATION_ID: "1"
+          GITHUB_WEBHOOK_SECRET: test-only
+          OWNER_ID: 01J00000000000000000000001
+          REVIEW_ACTIVITY_OPERATIONS_FACTORY: provider:create_operations
+          TEMPORAL_ADDRESS: temporal.example.invalid:7233
+        run: docker compose -f infra/compose/compose.yaml config --quiet
+      - name: Build production process image
+        run: docker build --file infra/compose/Dockerfile --tag pr-reliability-platform:ci .
 
   python-quality:
     runs-on: ubuntu-latest

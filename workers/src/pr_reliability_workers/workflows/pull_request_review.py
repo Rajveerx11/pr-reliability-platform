@@ -199,6 +199,7 @@ class PullRequestReviewWorkflow:
         request = self._required_input()
         return {
             "activity_id": self._key(name),
+            "schedule_to_start_timeout": timedelta(seconds=request.activity_timeout_seconds),
             "start_to_close_timeout": timedelta(seconds=request.activity_timeout_seconds),
             "heartbeat_timeout": timedelta(seconds=1),
             "retry_policy": RetryPolicy(

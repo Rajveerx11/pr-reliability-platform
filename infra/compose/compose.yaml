@@ -1,0 +1,57 @@
+name: pr-reliability-platform
+
+x-app: &app
+  build:
+    context: ../..
+    dockerfile: infra/compose/Dockerfile
+  image: pr-reliability-platform:local
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *app
+    command:
+      - uvicorn
+      - --factory
+      - pr_reliability_api.app:create_app_from_environment
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:?GITHUB_INSTALLATION_ID is required}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?GITHUB_WEBHOOK_SECRET is required}
+      OWNER_ID: ${OWNER_ID:?OWNER_ID is required}
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+  command-dispatcher:
+    <<: *app
+    command:
+      - pr-reliability-command-dispatcher
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?TEMPORAL_ADDRESS is required}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-pr-review}
+
+  workflow-worker:
+    <<: *app
+    command:
+      - pr-reliability-workflow-worker
+    environment:
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?TEMPORAL_ADDRESS is required}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-pr-review}
+
+  activity-worker:
+    image: ${ACTIVITY_WORKER_IMAGE:?ACTIVITY_WORKER_IMAGE is required}
+    restart: unless-stopped
+    command:
+      - pr-reliability-activity-worker
+    environment:
+      REVIEW_ACTIVITY_OPERATIONS_FACTORY: ${REVIEW_ACTIVITY_OPERATIONS_FACTORY:?REVIEW_ACTIVITY_OPERATIONS_FACTORY is required}
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?TEMPORAL_ADDRESS is required}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-pr-review}

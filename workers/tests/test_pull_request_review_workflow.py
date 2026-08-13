@@ -8,7 +8,11 @@ from collections import Counter
 from pr_reliability_contracts import StartRunCommand
 from pr_reliability_workers.activities import ActivityOperations, ReviewActivities
 from pr_reliability_workers.dispatch import dispatch_start_run, workflow_id_for
-from pr_reliability_workers.worker import create_worker
+from pr_reliability_workers.worker import (
+    create_activity_worker,
+    create_worker,
+    create_workflow_worker,
+)
 from pr_reliability_workers.workflows import (
     ApprovalSignal,
     PullRequestReviewWorkflow,
@@ -203,6 +207,30 @@ def test_retry_uses_stable_keys_and_history_replays() -> None:
         assert len(operations.completed_keys) == 5
         replay = await Replayer(workflows=[PullRequestReviewWorkflow]).replay_workflow(history)
         assert replay.replay_failure is None
+
+    asyncio.run(run())
+
+
+def test_split_production_workers_advance_through_all_registered_activities() -> None:
+    async def run() -> None:
+        environment = await WorkflowEnvironment.start_time_skipping()
+        operations = RecordingOperations()
+        workflow_worker = create_workflow_worker(environment.client, TASK_QUEUE)
+        activity_worker = create_activity_worker(
+            environment.client,
+            TASK_QUEUE,
+            operations.activities(),
+        )
+        async with environment, workflow_worker, activity_worker:
+            handle = await environment.client.start_workflow(
+                PullRequestReviewWorkflow.run,
+                workflow_input(),
+                id="production-workflow-worker",
+                task_queue=TASK_QUEUE,
+            )
+            status = await wait_for_status(handle, "awaiting_approval")
+            assert status.run_id == RUN_ID
+            await handle.cancel()
 
     asyncio.run(run())
 

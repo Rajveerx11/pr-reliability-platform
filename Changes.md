@@ -17,7 +17,8 @@ them and names the affected files.
   - `workers/src/pr_reliability_workers/activities/` — stable activity names and idempotency-key
     boundary for context, analysis, verification, publish, and terminal persistence.
   - `workers/src/pr_reliability_workers/dispatch.py` and `worker.py` — PostgreSQL outbox consumer,
-    atomic signal-with-start dispatch, production command entry point, and worker assembly.
+    atomic signal-with-start dispatch, production dispatcher/workflow/activity-worker entry
+    points, provider factory contract, and combined test-worker assembly.
   - `packages/contracts/src/pr_reliability_contracts/runs.py` — monotonic run generation in each
     start command for ordered supersession.
   - `migrations/0003_order_run_generations.sql` — safe upgrade that renumbers existing runs and
@@ -25,6 +26,8 @@ them and names the affected files.
   - `workers/tests/` — retry, timeout, cancellation, supersession, and replay integration tests.
   - `.github/workflows/quality.yml` — dedicated Temporal execution, outbox, and replay CI job with
     immutable action references.
+  - `infra/compose/` — shared application image and separate API, dispatcher, workflow-worker, and
+    externally supplied provider activity-worker processes.
   - `pyproject.toml` and `uv.lock` — Temporal SDK and packaged worker runtime.
 
 ### Added signed and deduplicated GitHub webhook intake

@@ -106,6 +106,11 @@ the truthful publish outcome, then the replacement continues as new.
 
 Context selection, analysis, verification, terminal recording, and publish are activities with
 bounded timeouts, three retry attempts, stable activity IDs, and deterministic idempotency keys.
+The production workflow worker polls workflow tasks from the configured queue. One provider
+activity-worker deployment must register the complete activity set on that queue through the
+`ActivityOperations` factory contract. The provider image may deploy or scale independently, but
+partial activity sets must not compete on one queue. Missing activity workers fail within the
+bounded schedule-to-start timeout instead of waiting forever.
 Activity implementations must use those keys for database or provider writes. Human approval has
 its own timeout. Human cancellation, rejection, timeout, and supersession are separate outcomes.
 Activities heartbeat while running; cancellation waits for the current operation to stop before

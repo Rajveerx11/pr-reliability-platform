@@ -13,6 +13,8 @@ dependencies = [
 
 [project.scripts]
 pr-reliability-command-dispatcher = "pr_reliability_workers.dispatch:main"
+pr-reliability-workflow-worker = "pr_reliability_workers.worker:workflow_main"
+pr-reliability-activity-worker = "pr_reliability_workers.worker:activity_main"
 
 [project.optional-dependencies]
 dev = [

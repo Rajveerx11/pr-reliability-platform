@@ -61,6 +61,19 @@ It drains committed `run.command_created` events, starts or supersedes the match
 workflow, and appends a dispatch receipt. Run one or more replicas; row locking prevents
 concurrent delivery while stable command IDs make crash retries safe.
 
+Repository deployment configuration launches the API, command dispatcher, Temporal workflow
+worker, and provider activity worker as separate processes:
+
+```text
+docker compose --env-file .env -f infra/compose/compose.yaml up --build
+```
+
+The configured PostgreSQL and Temporal addresses must be reachable from their consuming services.
+`ACTIVITY_WORKER_IMAGE` must name an image built from this project that also installs a provider
+package. `REVIEW_ACTIVITY_OPERATIONS_FACTORY` must use `module:factory` and return one complete
+`ActivityOperations` value containing context, model, verification, publish, and terminal
+operations. Registering partial activity sets on the same queue is not supported.
+
 ## Quality commands
 
 Commands will be finalized with the first implementation issue. Expected checks are:
