@@ -85,6 +85,17 @@ PostgreSQL stores summaries and safe evidence references. It does not store repo
 secrets, raw prompts, full agent output, or sandbox contents. Temporal history stores safe
 workflow arguments only.
 
+The first migration creates repositories, pull requests, runs, findings, approvals, external
+actions, and append-only run events. Every product row has a public ULID and an `owner_id` ULID.
+Relationships use bigint identity keys plus composite foreign keys that require child and parent
+ownership to match. A pull request can have only one run for each head SHA. Finding keys,
+approval decisions, external action targets, and event keys are unique within their retry
+boundary. PostgreSQL rejects updates and deletes against the audit-event table.
+
+Migrations run in filename order under a PostgreSQL advisory lock. Applied checksums are stored
+in `schema_migrations`; changing an applied migration stops startup instead of silently changing
+database history.
+
 ## Write boundary
 
 Every external write follows this order:
