@@ -57,4 +57,18 @@ jobs:
       - name: Check formatting
         run: uv run ruff format --check .
       - name: Test
-        run: uv run pytest
+        run: uv run pytest --ignore=workers/tests
+
+  temporal-workflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install project
+        run: uv sync --frozen --extra dev
+      - name: Test Temporal execution and replay
+        run: uv run pytest workers/tests -q

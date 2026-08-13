@@ -63,6 +63,15 @@ pytest
 Integration tests must use isolated databases and queues. End-to-end tests must use a test
 GitHub App or recorded fixture, never a production repository.
 
+Temporal workflow tests start the SDK's time-skipping test server. They exercise activity retries,
+approval timeout, cancellation, signal-with-start supersession, continue-as-new, and history replay:
+
+```text
+uv run pytest workers/tests -q
+```
+
+CI runs these tests in the dedicated `temporal-workflow` job.
+
 PostgreSQL integration tests require `TEST_DATABASE_URL`. Tests create a random schema, apply all
 migrations, and remove that schema afterward. Example local value:
 

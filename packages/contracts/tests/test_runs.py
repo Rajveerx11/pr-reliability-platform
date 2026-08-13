@@ -16,6 +16,7 @@ from pydantic import ValidationError
 def test_start_run_round_trips_and_keeps_identity(run_identity: dict) -> None:
     command = StartRunCommand(
         **run_identity,
+        generation=1,
         repository_id=REPOSITORY_ID,
         pull_request_id=PULL_REQUEST_ID,
         pull_request_number=17,
@@ -38,6 +39,7 @@ def test_start_run_requires_identity(run_identity: dict, field: str) -> None:
     with pytest.raises(ValidationError):
         StartRunCommand(
             **run_identity,
+            generation=1,
             repository_id=REPOSITORY_ID,
             pull_request_id=PULL_REQUEST_ID,
             pull_request_number=17,
@@ -80,6 +82,7 @@ def test_missing_schema_version_is_rejected(run_identity: dict) -> None:
     ("field", "value"),
     [
         ("pull_request_number", "17"),
+        ("generation", "1"),
         ("pull_request_number", True),
         ("token_budget", "12000"),
         ("cost_budget_usd_micros", 1.5),
@@ -90,6 +93,7 @@ def test_start_run_rejects_coerced_json_types(
 ) -> None:
     payload = {
         **run_identity,
+        "generation": 1,
         "repository_id": REPOSITORY_ID,
         "pull_request_id": PULL_REQUEST_ID,
         "pull_request_number": 17,

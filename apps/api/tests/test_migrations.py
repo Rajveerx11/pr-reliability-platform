@@ -117,6 +117,7 @@ def test_loads_numbered_migrations_with_stable_checksum() -> None:
         migration.version for migration in migrations
     )
     assert [migration.version for migration in migrations][:2] == ["0001", "0002"]
+    assert [migration.version for migration in migrations][-1] == "0003"
     assert all(re.fullmatch(r"[0-9a-f]{64}", migration.checksum) for migration in migrations)
 
 
@@ -357,3 +358,48 @@ def test_rejects_missing_applied_migration_history(
 
     with pytest.raises(MigrationHistoryError, match="0001"):
         apply_migrations(migrated_database, tmp_path)
+
+
+def test_generation_migration_updates_existing_command_events(
+    database: Connection[tuple[object, ...]], tmp_path: Path
+) -> None:
+    for name in ("0001_initial.sql", "0002_github_webhook_deliveries.sql"):
+        shutil.copy(MIGRATIONS / name, tmp_path / name)
+    assert apply_migrations(database, tmp_path) == ("0001", "0002")
+    _, pull_request_id, first_run_id = _seed_run(database)
+    second_run_id = database.execute(
+        """
+        INSERT INTO runs (
+            public_id, owner_id, pull_request_id, base_sha, head_sha,
+            token_budget, cost_budget_usd_micros
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (_public_id(31), OWNER_ID, pull_request_id, BASE_SHA, "c" * 40, 10_000, 500_000),
+    ).fetchone()[0]
+    for sequence, run_id in enumerate((first_run_id, second_run_id), start=40):
+        database.execute(
+            """
+            INSERT INTO run_events (
+                public_id, owner_id, run_id, event_key, event_type, event_data, occurred_at
+            ) VALUES (%s, %s, %s, %s, 'run.command_created', %s::jsonb, now())
+            """,
+            (
+                _public_id(sequence),
+                OWNER_ID,
+                run_id,
+                f"command-{sequence}",
+                '{"schema_version":"1"}',
+            ),
+        )
+    database.commit()
+    shutil.copy(MIGRATIONS / "0003_order_run_generations.sql", tmp_path)
+
+    assert apply_migrations(database, tmp_path) == ("0003",)
+    generations = database.execute("SELECT generation FROM runs ORDER BY id").fetchall()
+    event_generations = database.execute(
+        "SELECT (event_data ->> 'generation')::integer FROM run_events ORDER BY run_id"
+    ).fetchall()
+
+    assert generations == [(1,), (2,)]
+    assert event_generations == [(1,), (2,)]

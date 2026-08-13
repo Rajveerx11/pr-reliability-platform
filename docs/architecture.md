@@ -85,6 +85,27 @@ queued -> selecting_context -> analyzing -> verifying -> awaiting_approval
 
 Active states may also end as `failed` or `cancelled`. Terminal states cannot restart.
 
+## Durable workflow boundary
+
+One Temporal workflow ID is stable for an owner and pull request. Intake uses Temporal's atomic
+signal-with-start operation: the first command starts the workflow, while a command for a new
+head SHA signals the active execution. The old run records an explicit cancelled outcome and
+continues as new with the replacement run, so two heads are never active in one workflow.
+Database run generation travels in every start command. The workflow keeps only the highest
+pending generation, so delayed signals cannot replace a newer commit or reopen generation.
+Generation increases across every run for a pull request, including both new heads and reopens.
+If an approved publish has already started, it settles before supersession; the old run records
+the truthful publish outcome, then the replacement continues as new.
+
+Context selection, analysis, verification, terminal recording, and publish are activities with
+bounded timeouts, three retry attempts, stable activity IDs, and deterministic idempotency keys.
+Activity implementations must use those keys for database or provider writes. Human approval has
+its own timeout. Human cancellation, rejection, timeout, and supersession are separate outcomes.
+Activities heartbeat while running; cancellation waits for the current operation to stop before
+recording a terminal outcome. Identity-valid early approvals wait until verification completes.
+Temporal history stores identities and safe output references, not repository source, prompts,
+model output, comment bodies, or secrets.
+
 ## Persistence boundary
 
 PostgreSQL stores summaries and safe evidence references. It does not store repository source,
