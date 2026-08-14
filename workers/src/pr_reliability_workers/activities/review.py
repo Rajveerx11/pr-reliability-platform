@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from temporalio import activity
 
 from ..workflows.types import PublishRequest, StageRequest, StageResult, TerminalRequest
+from .sandbox import SandboxVerificationOperation
 
 StageOperation = Callable[[StageRequest], Awaitable[StageResult]]
 PublishOperation = Callable[[PublishRequest], Awaitable[None]]
@@ -25,9 +26,13 @@ class ActivityOperations:
 
     select_context: StageOperation
     analyze: StageOperation
-    verify: StageOperation
+    verify: SandboxVerificationOperation
     publish: PublishOperation
     record_terminal: TerminalOperation
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.verify, SandboxVerificationOperation):
+            raise TypeError("verify must use SandboxVerificationOperation")
 
 
 class ReviewActivities:

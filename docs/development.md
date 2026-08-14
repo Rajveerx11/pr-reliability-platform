@@ -96,6 +96,20 @@ uv run pytest workers/tests -q
 
 CI runs these tests in the dedicated `temporal-workflow` job.
 
+Sandbox unit tests use an injected fake Docker boundary and run with the normal worker suite. Real
+isolation tests require a reachable Linux Docker engine and an immutable local image ID:
+
+```text
+docker build --file infra/sandbox/Dockerfile --tag pr-reliability-sandbox:test .
+SANDBOX_TEST_IMAGE=$(docker image inspect --format '{{.Id}}' pr-reliability-sandbox:test) \
+RUN_DOCKER_SANDBOX_TESTS=1 uv run pytest workers/tests/sandbox -q
+```
+
+CI runs real network, workspace-destruction, timeout, output, tmpfs, CPU, memory, and process-limit
+checks in the dedicated `sandbox-integration` job. If Docker is missing or its daemon is not a
+Linux engine, production verification raises `SandboxUnavailableError`; it never executes the
+command on the host.
+
 PostgreSQL integration tests require `TEST_DATABASE_URL`. Tests create a random schema, apply all
 migrations, and remove that schema afterward. Example local value:
 

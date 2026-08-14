@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from pathlib import Path
 
+import pytest
 from pr_reliability_contracts import StartRunCommand
-from pr_reliability_workers.activities import ActivityOperations, ReviewActivities
+from pr_reliability_workers.activities import (
+    ActivityOperations,
+    ReviewActivities,
+    SandboxVerificationOperation,
+)
 from pr_reliability_workers.dispatch import dispatch_start_run, workflow_id_for
+from pr_reliability_workers.sandbox import SandboxRequest, SandboxResult
 from pr_reliability_workers.worker import (
     create_activity_worker,
     create_worker,
@@ -40,6 +47,13 @@ HEAD_SHA = "b" * 40
 NEXT_HEAD_SHA = "c" * 40
 LATEST_HEAD_SHA = "d" * 40
 TASK_QUEUE = "review-workflow-tests"
+SANDBOX_IMAGE = f"sha256:{'a' * 64}"
+
+
+class RecordingSandboxRunner:
+    async def run(self, request: SandboxRequest) -> SandboxResult:
+        assert request.image == SANDBOX_IMAGE
+        return SandboxResult(exit_code=0, stdout="", stderr="", duration_ms=1)
 
 
 class RecordingOperations:
@@ -80,6 +94,21 @@ class RecordingOperations:
     async def verify(self, request: StageRequest) -> StageResult:
         return self._complete("verify", request, "verification-ref")
 
+    async def prepare_verification(self, request: StageRequest) -> SandboxRequest:
+        return SandboxRequest(
+            image=SANDBOX_IMAGE,
+            workspace=Path.cwd(),
+            command=("true", request.idempotency_key),
+        )
+
+    async def record_verification(
+        self,
+        request: StageRequest,
+        result: SandboxResult,
+    ) -> StageResult:
+        assert result.succeeded
+        return await self.verify(request)
+
     async def publish(self, request: PublishRequest) -> None:
         self.calls.append(("publish", request.idempotency_key))
         if self.fail_publish:
@@ -103,7 +132,11 @@ class RecordingOperations:
             ActivityOperations(
                 select_context=self.select_context,
                 analyze=self.analyze,
-                verify=self.verify,
+                verify=SandboxVerificationOperation(
+                    prepare=self.prepare_verification,
+                    runner=RecordingSandboxRunner(),
+                    record=self.record_verification,
+                ),
                 publish=self.publish,
                 record_terminal=self.record_terminal,
             )
@@ -131,6 +164,19 @@ def workflow_input(
         approval_timeout_seconds=approval_timeout_seconds,
         activity_timeout_seconds=30,
     )
+
+
+def test_activity_operations_reject_unsandboxed_verification() -> None:
+    operations = RecordingOperations()
+
+    with pytest.raises(TypeError, match="SandboxVerificationOperation"):
+        ActivityOperations(
+            select_context=operations.select_context,
+            analyze=operations.analyze,
+            verify=operations.verify,  # type: ignore[arg-type]
+            publish=operations.publish,
+            record_terminal=operations.record_terminal,
+        )
 
 
 def start_command(

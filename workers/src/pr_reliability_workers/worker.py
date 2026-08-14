@@ -11,6 +11,7 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from .activities import ActivityOperations, ReviewActivities
+from .sandbox import DockerSandboxRunner
 from .workflows import PullRequestReviewWorkflow
 
 
@@ -103,6 +104,9 @@ def load_activity_operations(factory_path: str) -> ActivityOperations:
     operations = factory()
     if not isinstance(operations, ActivityOperations):
         raise TypeError("activity operations factory returned the wrong type")
+    runner = operations.verify.runner
+    if type(runner) is not DockerSandboxRunner or not runner.production_isolation_enabled:
+        raise TypeError("production verification must use DockerSandboxRunner")
     return operations
 
 

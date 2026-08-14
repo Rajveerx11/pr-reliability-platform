@@ -5,6 +5,22 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added disposable pull request command sandbox
+
+- Issue: [#9](https://github.com/Rajveerx11/pr-reliability-platform/issues/9)
+- Decision: [DEC-008 — Disposable sandbox](plan/v1.md#dec-008--run-untrusted-commands-inside-a-real-sandbox)
+- Reason: Pull request tests must run with enforced isolation and must never fall back to the host.
+- Changed files:
+  - `workers/src/pr_reliability_workers/sandbox/` — immutable-image Docker runner with network,
+    privilege, CPU, memory, process, filesystem, staging, output, and time limits plus forced cleanup.
+  - `workers/src/pr_reliability_workers/activities/` — mandatory verification adapter that admits
+    only successful sandbox execution results to approval and records failed bounded evidence.
+  - `workers/tests/sandbox/` — fake-runtime failure coverage and real Docker isolation tests.
+  - `infra/sandbox/Dockerfile` — pinned Python fixture image for the real CI boundary.
+  - `.github/workflows/quality.yml` — dedicated Linux Docker sandbox integration job.
+  - `docs/architecture.md`, `docs/security.md`, and `docs/development.md` — trust boundary,
+    operational requirements, failure behavior, and local test guidance.
+
 ### Added durable Temporal pull request workflow
 
 - Issue: [#8](https://github.com/Rajveerx11/pr-reliability-platform/issues/8)

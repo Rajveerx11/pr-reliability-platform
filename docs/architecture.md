@@ -143,6 +143,30 @@ Migrations run in filename order under a PostgreSQL advisory lock. Applied check
 in `schema_migrations`; changing an applied migration stops startup instead of silently changing
 database history.
 
+## Sandbox boundary
+
+Pull request commands run only through `SandboxVerificationOperation` and the Docker sandbox
+runner. Its trusted prepare and record callbacks may resolve inputs and persist bounded evidence;
+they must never execute pull request commands. The worker copies the reviewed checkout into a
+temporary source directory without `.git`, with byte, entry-count, and staging-time limits. It
+mounts that copy read-only and copies it again inside the container to a size-limited tmpfs
+workspace. The original checkout is never writable by pull request code. The container uses an
+immutable image digest, no network, a read-only root filesystem, no Linux capabilities,
+no-new-privileges, an unprivileged numeric
+user, and hard CPU, memory, swap, process, workspace, temporary-file, output, and time limits.
+Container logging is disabled so untrusted output cannot accumulate in the Docker daemon.
+
+The worker invokes Docker with an argument vector, never a host shell. Timeout or output overflow
+kills the container. Cancellation cannot interrupt cleanup; the worker confirms container absence
+before accepting any result. Every path removes the container and temporary source copy; cleanup
+failure blocks verification. A missing CLI, unreachable daemon, non-Linux engine, mutable image
+reference, or invalid exit status also fails closed. Sandbox output is bounded evidence for the
+verification adapter and must not be written to logs or long-term storage.
+The production activity loader accepts only the fixed Docker CLI runner. Before staging or create,
+the runner requires a Linux engine that reports memory, swap, CPU-quota, and PID-limit support.
+Failed command evidence is recorded, then verification raises a typed non-retryable failure; a
+failed sandbox command can never advance to approval.
+
 ## Write boundary
 
 Every external write follows this order:
