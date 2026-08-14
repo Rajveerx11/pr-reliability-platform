@@ -19,6 +19,28 @@ their GitHub signature is verified.
 - Make publish actions idempotent.
 - Fail closed when validation, sandboxing, tests, or Proof of Work fails.
 
+## Sandbox operations
+
+- Use a dedicated Linux Docker engine for sandbox workloads. Access to a Docker daemon is a
+  privileged control-plane capability; never expose its socket, API, credentials, or host mounts
+  inside a pull request container.
+- Configure only reviewed images addressed by a full `sha256` image ID or repository digest.
+  Mutable tags such as `latest` are rejected.
+- Preinstall required test runtimes and dependencies in the reviewed image. The sandbox has no
+  network and must not receive provider, GitHub, database, or Docker credentials.
+- The worker accepts command arguments, not a host shell command. A requested shell may run only
+  inside the sandbox container.
+- Source is copied without `.git` into a temporary read-only mount under byte, entry-count, and
+  staging-time limits. The command runs from a second, size-limited tmpfs copy that disappears with
+  the container.
+- Verification activity providers must use `SandboxVerificationOperation`. Its prepare and record
+  callbacks may resolve inputs and persist bounded results, but must never run pull request code.
+- Treat timeout, output overflow, non-zero exit, runtime failure, and cleanup failure as distinct
+  failed-verification evidence. After recording bounded command evidence, raise a non-retryable
+  verification failure. Never fall back to host execution.
+- Production startup accepts only the default Docker CLI runner. It requires Linux plus memory,
+  swap, CPU-quota, and PID-limit support before any pull request source is staged or executed.
+
 ## Stored data
 
 Allowed:

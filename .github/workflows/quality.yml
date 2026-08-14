@@ -100,3 +100,24 @@ jobs:
         run: uv sync --frozen --extra dev
       - name: Test Temporal execution and replay
         run: uv run pytest workers/tests -q
+
+  sandbox-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install project
+        run: uv sync --frozen --extra dev
+      - name: Build immutable sandbox fixture
+        shell: bash
+        run: |
+          docker build --file infra/sandbox/Dockerfile --tag pr-reliability-sandbox:ci .
+          echo "SANDBOX_TEST_IMAGE=$(docker image inspect --format '{{.Id}}' pr-reliability-sandbox:ci)" >> "$GITHUB_ENV"
+      - name: Test real sandbox isolation
+        env:
+          RUN_DOCKER_SANDBOX_TESTS: "1"
+        run: uv run pytest workers/tests/sandbox -q
