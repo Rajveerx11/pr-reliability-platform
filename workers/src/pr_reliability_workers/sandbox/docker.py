@@ -397,10 +397,11 @@ async def _capture_process(
         chunks: list[bytes],
     ) -> None:
         nonlocal remaining
-        while True:
-            chunk = await stream.read(min(65_536, remaining + 1))
+        while remaining > 0:
+            chunk = await stream.read(min(65_536, remaining))
             if not chunk:
                 return
+            # Recheck after the await because the other stream shares this budget.
             if len(chunk) > remaining:
                 chunks.append(chunk[:remaining])
                 remaining = 0
@@ -408,6 +409,11 @@ async def _capture_process(
                 return
             chunks.append(chunk)
             remaining -= len(chunk)
+
+        # Exactly filling the inclusive budget is allowed. Probe one extra byte so
+        # overflow is distinguished from EOF without storing evidence past the cap.
+        if await stream.read(1):
+            limit_reached.set()
 
     readers = (
         asyncio.create_task(read_stream(process.stdout, stdout_chunks)),

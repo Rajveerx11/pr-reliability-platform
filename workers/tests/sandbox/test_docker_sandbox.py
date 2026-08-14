@@ -392,6 +392,13 @@ def test_unsafe_limit_values_are_rejected(field_name: str, value: object) -> Non
 def test_local_runtime_enforces_output_and_time_bounds() -> None:
     runtime = LocalDockerRuntime(sys.executable)
 
+    exact_limit = asyncio.run(
+        runtime.execute(
+            ("-c", "import sys; sys.stdout.buffer.write(b'x' * 1024)"),
+            timeout_seconds=5,
+            output_limit_bytes=1024,
+        )
+    )
     output_limited = asyncio.run(
         runtime.execute(
             ("-c", "print('x' * 100000)"),
@@ -407,6 +414,9 @@ def test_local_runtime_enforces_output_and_time_bounds() -> None:
         )
     )
 
+    assert exact_limit.return_code == 0
+    assert not exact_limit.output_limit_exceeded
+    assert len(exact_limit.stdout) == 1024
     assert output_limited.output_limit_exceeded
     assert len(output_limited.stdout) + len(output_limited.stderr) == 1024
     assert timed_out.timed_out
