@@ -14,12 +14,14 @@ them and names the affected files.
 - Changed files:
   - `workers/src/pr_reliability_workers/activities/publish.py` — database approval and head checks,
     exclusive recoverable publication claims, stable marker recovery, sanitized failures, and
-    bounded success/failure audit.
+    immutable publish-payload fingerprints with bounded success/failure audit.
   - `workers/src/pr_reliability_workers/activities/github.py` — repository-scoped GitHub REST
     client with complete pagination and authenticated App-author marker checks.
   - `workers/tests/test_publish_activity.py` and `test_github_comment_client.py` — unapproved,
     stale, concurrent retry, crash-recovery, privacy, pagination, ownership, and audit coverage.
   - `packages/contracts/` — one-to-one finding/approval mapping and stable publish-key validation.
+  - `migrations/0004_bind_external_action_payload.sql` — required canonical payload fingerprint
+    on every reserved external action.
   - `pyproject.toml` and `uv.lock` — production HTTP client dependency for GitHub publishing.
   - `docs/architecture.md`, `docs/security.md`, and `docs/development.md` — publish flow, safety
     boundary, and provider requirements.

@@ -117,7 +117,7 @@ def test_loads_numbered_migrations_with_stable_checksum() -> None:
         migration.version for migration in migrations
     )
     assert [migration.version for migration in migrations][:2] == ["0001", "0002"]
-    assert [migration.version for migration in migrations][-1] == "0003"
+    assert [migration.version for migration in migrations][-1] == "0004"
     assert all(re.fullmatch(r"[0-9a-f]{64}", migration.checksum) for migration in migrations)
 
 
@@ -251,11 +251,20 @@ def test_deduplicates_runs_approvals_and_events(
     migrated_database.execute(
         """
         INSERT INTO external_actions (
-            public_id, owner_id, run_id, action_type, target_sha, idempotency_key
+            public_id, owner_id, run_id, action_type, target_sha, idempotency_key,
+            payload_fingerprint
         )
-        VALUES (%s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
-        (_public_id(12), OWNER_ID, run_id, "github_comment", HEAD_SHA, "publish-comment-1"),
+        (
+            _public_id(12),
+            OWNER_ID,
+            run_id,
+            "github_comment",
+            HEAD_SHA,
+            "publish-comment-1",
+            "d" * 64,
+        ),
     )
     migrated_database.commit()
 
@@ -281,8 +290,9 @@ def test_deduplicates_runs_approvals_and_events(
         (
             """
             INSERT INTO external_actions (
-                public_id, owner_id, run_id, action_type, target_sha, idempotency_key
-            ) VALUES (%s, %s, %s, %s, %s, %s)
+                public_id, owner_id, run_id, action_type, target_sha, idempotency_key,
+                payload_fingerprint
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 _public_id(13),
@@ -291,6 +301,7 @@ def test_deduplicates_runs_approvals_and_events(
                 "github_comment",
                 HEAD_SHA,
                 "publish-comment-2",
+                "e" * 64,
             ),
         ),
         (
@@ -403,3 +414,39 @@ def test_generation_migration_updates_existing_command_events(
 
     assert generations == [(1,), (2,)]
     assert event_generations == [(1,), (2,)]
+
+
+def test_publish_payload_migration_backfills_existing_actions_fail_closed(
+    database: Connection[tuple[object, ...]], tmp_path: Path
+) -> None:
+    for name in (
+        "0001_initial.sql",
+        "0002_github_webhook_deliveries.sql",
+        "0003_order_run_generations.sql",
+    ):
+        shutil.copy(MIGRATIONS / name, tmp_path / name)
+    assert apply_migrations(database, tmp_path) == ("0001", "0002", "0003")
+    _, _, run_id = _seed_run(database)
+    database.execute(
+        """
+        INSERT INTO external_actions (
+            public_id, owner_id, run_id, action_type, target_sha, idempotency_key
+        ) VALUES (%s, %s, %s, 'github.pull_request_comment', %s, 'legacy-publish')
+        """,
+        (_public_id(50), OWNER_ID, run_id, HEAD_SHA),
+    )
+    database.commit()
+    shutil.copy(MIGRATIONS / "0004_bind_external_action_payload.sql", tmp_path)
+
+    assert apply_migrations(database, tmp_path) == ("0004",)
+    fingerprint = database.execute(
+        "SELECT payload_fingerprint FROM external_actions WHERE public_id = %s",
+        (_public_id(50),),
+    ).fetchone()[0]
+    assert fingerprint == "0" * 64
+
+    with pytest.raises(CheckViolation), database.transaction():
+        database.execute(
+            "UPDATE external_actions SET payload_fingerprint = 'invalid' WHERE public_id = %s",
+            (_public_id(50),),
+        )

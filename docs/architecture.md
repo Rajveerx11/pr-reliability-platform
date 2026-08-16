@@ -114,6 +114,9 @@ The worker holds a PostgreSQL session advisory claim for that key across marker 
 creation, and audit recording. A concurrent retry waits for the claim; a worker crash releases it.
 Recovery checks all comments from the authenticated GitHub App identity before deciding whether a
 new write is allowed, including when the pull request head advanced after the first write.
+Each action also stores a SHA-256 fingerprint of the canonical finding/approval pairs, approved
+body reference, and rendered comment. A retry with the same run and head but different content
+fails before the published fast path or marker recovery can reuse the earlier action.
 
 Context selection, analysis, verification, terminal recording, and publish are activities with
 bounded timeouts, three retry attempts, stable activity IDs, and deterministic idempotency keys.

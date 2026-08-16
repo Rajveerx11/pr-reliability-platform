@@ -69,6 +69,7 @@ class _PreparedPublish:
     head_sha: str
     marker: str
     body: str
+    payload_fingerprint: str
     remote_id: str | None = None
     create_block_code: str | None = None
 
@@ -191,7 +192,8 @@ class GitHubCommentPublishOperation:
 
             existing = connection.execute(
                 """
-                SELECT public_id, status, remote_id, target_sha, run_id, action_type
+                SELECT public_id, status, remote_id, target_sha, run_id, action_type,
+                       payload_fingerprint
                 FROM external_actions
                 WHERE owner_id = %s AND idempotency_key = %s
                 FOR UPDATE
@@ -199,44 +201,28 @@ class GitHubCommentPublishOperation:
                 (request.owner_id, request.idempotency_key),
             ).fetchone()
             if existing is not None:
-                action_id, action_status, remote_id, target_sha, action_run_id, action_type = (
-                    existing
-                )
+                (
+                    action_id,
+                    action_status,
+                    remote_id,
+                    target_sha,
+                    action_run_id,
+                    action_type,
+                    stored_payload_fingerprint,
+                ) = existing
                 if target_sha != request.head_sha:
                     raise PublishBlockedError("idempotency key targets another commit")
                 if action_run_id != internal_run_id or action_type != "github.pull_request_comment":
                     raise PublishBlockedError("idempotency key targets another action")
-                if action_status == "published":
-                    if remote_id is None:
-                        raise PublishBlockedError("published action has no remote identity")
-                    return _PreparedPublish(
-                        action_id,
-                        repository,
-                        request.pull_request_number,
-                        request.head_sha,
-                        _comment_marker(request.idempotency_key),
-                        "",
-                        remote_id,
-                    )
 
             create_block_code = None
             if run_state != "awaiting_approval":
                 create_block_code = "authorization_changed"
             elif current_head_sha != request.head_sha:
                 create_block_code = "stale_head"
-            if existing is not None and create_block_code is not None:
-                return _PreparedPublish(
-                    action_id,
-                    repository,
-                    request.pull_request_number,
-                    request.head_sha,
-                    _comment_marker(request.idempotency_key),
-                    "",
-                    create_block_code=create_block_code,
-                )
-            if create_block_code == "authorization_changed":
+            if existing is None and create_block_code == "authorization_changed":
                 raise PublishBlockedError("run is not awaiting approval")
-            if create_block_code == "stale_head":
+            if existing is None and create_block_code == "stale_head":
                 raise PublishBlockedError("pull request head is stale")
 
             findings = connection.execute(
@@ -273,14 +259,17 @@ class GitHubCommentPublishOperation:
 
             marker = _comment_marker(request.idempotency_key)
             body = _render_comment(findings, marker)
+            payload_fingerprint = _payload_fingerprint(request, findings, body)
             if existing is None:
                 action_id = self.id_factory()
                 connection.execute(
                     """
                     INSERT INTO external_actions (
                         public_id, owner_id, run_id, action_type, target_sha,
-                        idempotency_key, status
-                    ) VALUES (%s, %s, %s, 'github.pull_request_comment', %s, %s, 'publishing')
+                        idempotency_key, payload_fingerprint, status
+                    ) VALUES (
+                        %s, %s, %s, 'github.pull_request_comment', %s, %s, %s, 'publishing'
+                    )
                     """,
                     (
                         action_id,
@@ -288,10 +277,36 @@ class GitHubCommentPublishOperation:
                         internal_run_id,
                         request.head_sha,
                         request.idempotency_key,
+                        payload_fingerprint,
                     ),
                 )
             else:
-                action_id = existing[0]
+                if stored_payload_fingerprint != payload_fingerprint:
+                    raise PublishBlockedError("idempotency key targets another publish payload")
+                if action_status == "published":
+                    if remote_id is None:
+                        raise PublishBlockedError("published action has no remote identity")
+                    return _PreparedPublish(
+                        action_id=action_id,
+                        repository=repository,
+                        pull_request_number=request.pull_request_number,
+                        head_sha=request.head_sha,
+                        marker=marker,
+                        body="",
+                        payload_fingerprint=payload_fingerprint,
+                        remote_id=remote_id,
+                    )
+                if create_block_code is not None:
+                    return _PreparedPublish(
+                        action_id=action_id,
+                        repository=repository,
+                        pull_request_number=request.pull_request_number,
+                        head_sha=request.head_sha,
+                        marker=marker,
+                        body="",
+                        payload_fingerprint=payload_fingerprint,
+                        create_block_code=create_block_code,
+                    )
                 connection.execute(
                     """
                     UPDATE external_actions
@@ -301,12 +316,13 @@ class GitHubCommentPublishOperation:
                     (request.owner_id, action_id),
                 )
         return _PreparedPublish(
-            action_id,
-            repository,
-            request.pull_request_number,
-            request.head_sha,
-            marker,
-            body,
+            action_id=action_id,
+            repository=repository,
+            pull_request_number=request.pull_request_number,
+            head_sha=request.head_sha,
+            marker=marker,
+            body=body,
+            payload_fingerprint=payload_fingerprint,
         )
 
     def _record_success(
@@ -328,6 +344,7 @@ class GitHubCommentPublishOperation:
                   AND action.public_id = %s
                   AND run.public_id = %s
                   AND action.target_sha = %s
+                  AND action.payload_fingerprint = %s
                 RETURNING action.run_id
                 """,
                 (
@@ -336,6 +353,7 @@ class GitHubCommentPublishOperation:
                     prepared.action_id,
                     request.run_id,
                     request.head_sha,
+                    prepared.payload_fingerprint,
                 ),
             ).fetchone()
             if action is None:
@@ -360,6 +378,7 @@ class GitHubCommentPublishOperation:
                             "head_sha": request.head_sha,
                             "finding_ids": list(request.finding_ids),
                             "approval_ids": list(request.approval_ids),
+                            "payload_fingerprint": prepared.payload_fingerprint,
                         }
                     ),
                     occurred_at,
@@ -430,6 +449,26 @@ def _validate_request_shape(request: PublishRequest) -> None:
 def _comment_marker(idempotency_key: str) -> str:
     digest = hashlib.sha256(idempotency_key.encode()).hexdigest()
     return f"<!-- pr-reliability:{digest} -->"
+
+
+def _payload_fingerprint(
+    request: PublishRequest,
+    findings: list[tuple[Any, ...]],
+    body: str,
+) -> str:
+    approval_pairs = sorted((str(row[0]), str(row[3])) for row in findings)
+    canonical = json.dumps(
+        {
+            "schema_version": 1,
+            "approval_pairs": approval_pairs,
+            "comment_body_ref": request.comment_body_ref,
+            "rendered_body": body,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _render_comment(findings: list[tuple[Any, ...]], marker: str) -> str:

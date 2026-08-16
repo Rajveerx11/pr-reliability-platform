@@ -67,6 +67,8 @@ workflow-signal events but performs no external write.
   creating a comment and reuses the existing remote ID. The marker is not an authorization secret.
 - One database-backed session claim serializes lookup, create, and receipt recording for the
   stable publish key. A crashed worker releases the claim so marker recovery can continue safely.
+- The action stores a canonical payload fingerprint. Reusing its key with different findings,
+  approvals, body reference, or rendered comment fails before any remote lookup or write.
 - Audit events store bounded IDs, commit SHA, and result codes. They never store the comment body,
   GitHub token, response body, or exception text. Provider exceptions are removed before Temporal
   records an activity failure.
