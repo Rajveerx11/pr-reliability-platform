@@ -1,22 +1,22 @@
 """Temporal activity definitions."""
 
-from .github import GitHubRestCommentClient
+from .github import GitHubRestReviewClient
 from .publish import (
-    GitHubComment,
-    GitHubCommentClient,
-    GitHubCommentPayloadMismatch,
-    GitHubCommentPublishOperation,
+    GitHubReview,
+    GitHubReviewClient,
+    GitHubReviewPayloadMismatch,
+    GitHubReviewPublishOperation,
 )
 from .review import ActivityOperations, ReviewActivities
 from .sandbox import SandboxRunner, SandboxVerificationOperation
 
 __all__ = [
     "ActivityOperations",
-    "GitHubComment",
-    "GitHubCommentClient",
-    "GitHubCommentPayloadMismatch",
-    "GitHubCommentPublishOperation",
-    "GitHubRestCommentClient",
+    "GitHubRestReviewClient",
+    "GitHubReview",
+    "GitHubReviewClient",
+    "GitHubReviewPayloadMismatch",
+    "GitHubReviewPublishOperation",
     "ReviewActivities",
     "SandboxRunner",
     "SandboxVerificationOperation",

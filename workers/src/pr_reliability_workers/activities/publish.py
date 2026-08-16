@@ -1,4 +1,4 @@
-"""Approval-bound, idempotent GitHub comment publishing."""
+"""Approval-bound, idempotent GitHub pull request review publishing."""
 
 from __future__ import annotations
 
@@ -18,52 +18,59 @@ from ..workflows.types import PublishRequest
 ConnectionFactory = Callable[[], Connection[Any]]
 IdFactory = Callable[[], str]
 Now = Callable[[], datetime]
-_MAX_COMMENT_CHARACTERS = 60_000
+_MAX_REVIEW_BODY_CHARACTERS = 60_000
 
 
 @dataclass(frozen=True)
-class GitHubComment:
-    """Minimum remote comment identity needed for retry recovery."""
+class GitHubReview:
+    """Commit-bound remote review identity needed for retry recovery."""
 
     remote_id: str
+    commit_sha: str
 
     def __post_init__(self) -> None:
         if not self.remote_id or len(self.remote_id) > 128 or not self.remote_id.isascii():
-            raise ValueError("GitHub comment ID must be bounded ASCII text")
+            raise ValueError("GitHub review ID must be bounded ASCII text")
+        if len(self.commit_sha) != 40 or any(
+            value not in "0123456789abcdef" for value in self.commit_sha
+        ):
+            raise ValueError("GitHub review commit must be a lowercase SHA")
 
 
-class GitHubCommentClient(Protocol):
+class GitHubReviewClient(Protocol):
     """Repository-scoped GitHub operations supplied by the provider worker.
 
-    ``find_comment`` must return only an exact expected-body match authored by
-    the authenticated GitHub App identity with the marker in terminal position.
+    ``find_review`` must return only an exact expected-body and commit match
+    authored by the authenticated GitHub App identity with a terminal marker.
     The marker is an idempotency aid, not an authorization secret.
     """
 
     async def current_head_sha(self, repository: str, pull_request_number: int) -> str: ...
 
-    async def find_comment(
+    async def find_review(
         self,
         repository: str,
         pull_request_number: int,
+        expected_head_sha: str,
         marker: str,
         expected_body: str,
-    ) -> GitHubComment | None: ...
+    ) -> GitHubReview | None: ...
 
-    async def create_comment(
+    async def create_review(
         self,
         repository: str,
         pull_request_number: int,
+        expected_head_sha: str,
         body: str,
-    ) -> GitHubComment: ...
+    ) -> GitHubReview: ...
 
 
 class PublishBlockedError(RuntimeError):
     """Requested external write is not authorized by current database state."""
 
 
-class GitHubCommentPayloadMismatch(RuntimeError):
-    """An App-authored recovery marker has edited or unexpected content."""
+class GitHubReviewPayloadMismatch(RuntimeError):
+    """An App-authored review has an unexpected body or commit binding."""
 
 
 @dataclass(frozen=True)
@@ -80,11 +87,11 @@ class _PreparedPublish:
 
 
 @dataclass(frozen=True)
-class GitHubCommentPublishOperation:
+class GitHubReviewPublishOperation:
     """Publish approved findings once and record only bounded audit facts."""
 
     connection_factory: ConnectionFactory
-    client: GitHubCommentClient
+    client: GitHubReviewClient
     id_factory: IdFactory
     now: Now = lambda: datetime.now(UTC)
 
@@ -108,13 +115,14 @@ class GitHubCommentPublishOperation:
                 return
 
             try:
-                comment = await self.client.find_comment(
+                review = await self.client.find_review(
                     prepared.repository,
                     prepared.pull_request_number,
+                    prepared.head_sha,
                     prepared.marker,
                     prepared.body,
                 )
-                if comment is None:
+                if review is None:
                     if prepared.create_block_code is not None:
                         await asyncio.to_thread(
                             self._record_failure,
@@ -143,21 +151,24 @@ class GitHubCommentPublishOperation:
                             type="PublishBlocked",
                             non_retryable=True,
                         )
-                    comment = await self.client.create_comment(
+                    review = await self.client.create_review(
                         prepared.repository,
                         prepared.pull_request_number,
+                        prepared.head_sha,
                         prepared.body,
                     )
-                await asyncio.to_thread(self._record_success, request, prepared, comment)
-            except GitHubCommentPayloadMismatch:
+                if review.commit_sha != prepared.head_sha:
+                    raise GitHubReviewPayloadMismatch
+                await asyncio.to_thread(self._record_success, request, prepared, review)
+            except GitHubReviewPayloadMismatch:
                 await asyncio.to_thread(
                     self._record_failure,
                     request,
                     prepared.action_id,
-                    "comment_payload_mismatch",
+                    "review_payload_mismatch",
                 )
                 raise ApplicationError(
-                    "GitHub recovery comment does not match the approved payload",
+                    "GitHub recovery review does not match the approved commit and payload",
                     type="PublishBlocked",
                     non_retryable=True,
                 ) from None
@@ -174,7 +185,7 @@ class GitHubCommentPublishOperation:
                     )
                 except Exception:  # noqa: BLE001
                     raise RuntimeError("GitHub publish failure audit failed") from None
-                raise RuntimeError("GitHub comment publish failed") from None
+                raise RuntimeError("GitHub review publish failed") from None
         finally:
             await _close_claim_connection(claim_connection)
 
@@ -230,7 +241,7 @@ class GitHubCommentPublishOperation:
                 ) = existing
                 if target_sha != request.head_sha:
                     raise PublishBlockedError("idempotency key targets another commit")
-                if action_run_id != internal_run_id or action_type != "github.pull_request_comment":
+                if action_run_id != internal_run_id or action_type != "github.pull_request_review":
                     raise PublishBlockedError("idempotency key targets another action")
 
             create_block_code = None
@@ -275,8 +286,8 @@ class GitHubCommentPublishOperation:
             if returned_approvals != set(request.approval_ids):
                 raise PublishBlockedError("approval set does not match finding set")
 
-            marker = _comment_marker(request.idempotency_key)
-            body = _render_comment(findings, marker)
+            marker = _review_marker(request.idempotency_key)
+            body = _render_review_body(findings, marker)
             payload_fingerprint = _payload_fingerprint(request, findings, body)
             if existing is None:
                 action_id = self.id_factory()
@@ -286,7 +297,7 @@ class GitHubCommentPublishOperation:
                         public_id, owner_id, run_id, action_type, target_sha,
                         idempotency_key, payload_fingerprint, status
                     ) VALUES (
-                        %s, %s, %s, 'github.pull_request_comment', %s, %s, %s, 'publishing'
+                        %s, %s, %s, 'github.pull_request_review', %s, %s, %s, 'publishing'
                     )
                     """,
                     (
@@ -347,7 +358,7 @@ class GitHubCommentPublishOperation:
         self,
         request: PublishRequest,
         prepared: _PreparedPublish,
-        comment: GitHubComment,
+        review: GitHubReview,
     ) -> None:
         occurred_at = self.now().astimezone(UTC)
         with self.connection_factory() as connection, connection.transaction():
@@ -366,7 +377,7 @@ class GitHubCommentPublishOperation:
                 RETURNING action.run_id
                 """,
                 (
-                    comment.remote_id,
+                    review.remote_id,
                     request.owner_id,
                     prepared.action_id,
                     request.run_id,
@@ -381,7 +392,7 @@ class GitHubCommentPublishOperation:
                 INSERT INTO run_events (
                     public_id, owner_id, run_id, event_key, event_type,
                     event_data, occurred_at
-                ) VALUES (%s, %s, %s, %s, 'github.comment_published', %s::jsonb, %s)
+                ) VALUES (%s, %s, %s, %s, 'github.review_published', %s::jsonb, %s)
                 ON CONFLICT (run_id, event_key) DO NOTHING
                 """,
                 (
@@ -392,7 +403,7 @@ class GitHubCommentPublishOperation:
                     json.dumps(
                         {
                             "action_id": prepared.action_id,
-                            "remote_comment_id": comment.remote_id,
+                            "remote_review_id": review.remote_id,
                             "head_sha": request.head_sha,
                             "finding_ids": list(request.finding_ids),
                             "approval_ids": list(request.approval_ids),
@@ -432,7 +443,7 @@ class GitHubCommentPublishOperation:
                 INSERT INTO run_events (
                     public_id, owner_id, run_id, event_key, event_type,
                     event_data, occurred_at
-                ) VALUES (%s, %s, %s, %s, 'github.comment_publish_failed', %s::jsonb, %s)
+                ) VALUES (%s, %s, %s, %s, 'github.review_publish_failed', %s::jsonb, %s)
                 ON CONFLICT (run_id, event_key) DO NOTHING
                 """,
                 (
@@ -464,7 +475,7 @@ def _validate_request_shape(request: PublishRequest) -> None:
         raise PublishBlockedError("publish idempotency key is invalid")
 
 
-def _comment_marker(idempotency_key: str) -> str:
+def _review_marker(idempotency_key: str) -> str:
     digest = hashlib.sha256(idempotency_key.encode()).hexdigest()
     return f"<!-- pr-reliability:{digest} -->"
 
@@ -489,14 +500,14 @@ def _payload_fingerprint(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _render_comment(findings: list[tuple[Any, ...]], marker: str) -> str:
+def _render_review_body(findings: list[tuple[Any, ...]], marker: str) -> str:
     sections = ["## PR Reliability review"]
     for _, severity, claim, *_ in findings:
         sections.append(f"### {severity.title()} finding\n\n{claim}")
     sections.append(marker)
     body = "\n\n".join(sections)
-    if len(body) > _MAX_COMMENT_CHARACTERS:
-        raise PublishBlockedError("approved comment exceeds the publish limit")
+    if len(body) > _MAX_REVIEW_BODY_CHARACTERS:
+        raise PublishBlockedError("approved review exceeds the publish limit")
     return body
 
 

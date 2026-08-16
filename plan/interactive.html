@@ -368,7 +368,7 @@
                 <div><h3>Retry path can charge twice</h3><p><span class="mono">checkout.ts:91</span> creates a new payment before checking the idempotency key. Reproduced by generated test <span class="mono">checkout.retry.test.ts</span>.</p></div>
                 <span class="gate">Evidence passed</span>
               </div>
-              <div class="approval"><div><strong>Write action blocked.</strong><br><span style="font-size:13px;color:var(--muted)">Approve before posting this finding to GitHub.</span></div><button class="approve" type="button" id="demoApprove">Approve comment</button></div>
+              <div class="approval"><div><strong>Write action blocked.</strong><br><span style="font-size:13px;color:var(--muted)">Approve before posting this finding to GitHub.</span></div><button class="approve" type="button" id="demoApprove">Approve review</button></div>
             </div>
           </div>
         </div>
@@ -414,7 +414,7 @@
           <div class="lane">
             <div class="lane-title">Outputs</div>
             <div class="node" data-layer="human"><strong>Approval inbox</strong><span>No auto-write in MVP</span></div>
-            <div class="node" data-layer="github"><strong>GitHub comment</strong><span>Approved findings only</span></div>
+            <div class="node" data-layer="github"><strong>GitHub review summary</strong><span>Bound to the approved commit</span></div>
             <div class="node" data-layer="observe"><strong>Metrics dashboard</strong><span>Quality and operations</span></div>
           </div>
         </div>
@@ -446,7 +446,7 @@
         <div class="state"><strong>analyzing</strong><span>Agent produces typed findings.</span></div>
         <div class="state"><strong>verifying</strong><span>Tests and Proof of Work run.</span></div>
         <div class="state"><strong>awaiting_approval</strong><span>Verified output waits for a person.</span></div>
-        <div class="state terminal"><strong>published</strong><span>Approved comment sent once.</span></div>
+        <div class="state terminal"><strong>published</strong><span>Commit-bound review sent once.</span></div>
         <div class="state terminal"><strong>rejected</strong><span>Human rejects proposed output.</span></div>
         <div class="state terminal"><strong>failed / cancelled</strong><span>Reason recorded; safe retry allowed.</span></div>
       </div>
@@ -495,7 +495,7 @@
         <div class="phase-label"><strong>Phase 2</strong><span>Week 2</span></div>
         <details class="phase"><summary>Add GitHub and durable orchestration</summary><div class="phase-body"><ul><li>Verify webhook signature before parsing payload.</li><li>Deduplicate deliveries and start one Temporal workflow per head SHA.</li><li>Support timeout, retry, cancellation, and superseded-commit handling.</li></ul><p class="deliverable">Done: closing or updating PR safely cancels or replaces run.</p></div></details>
         <div class="phase-label"><strong>Phase 3</strong><span>Week 3</span></div>
-        <details class="phase"><summary>Add sandbox, evidence gate, and approval</summary><div class="phase-body"><ul><li>Run tests in disposable container with CPU, memory, time, filesystem, and network limits.</li><li>Wrap existing Proof of Work gate behind stable adapter.</li><li>Show verified findings; require approval before GitHub comment.</li></ul><p class="deliverable">Done: retry posts at most one approved comment.</p></div></details>
+        <details class="phase"><summary>Add sandbox, evidence gate, and approval</summary><div class="phase-body"><ul><li>Run tests in disposable container with CPU, memory, time, filesystem, and network limits.</li><li>Wrap existing Proof of Work gate behind stable adapter.</li><li>Show verified findings; require approval before a commit-bound GitHub review.</li></ul><p class="deliverable">Done: retry posts at most one approved review.</p></div></details>
         <div class="phase-label"><strong>Phase 4</strong><span>Week 4</span></div>
         <details class="phase"><summary>Measure reliability</summary><div class="phase-body"><ul><li>Add traces for model calls, tools, retries, waits, latency, and cost.</li><li>Build 10 golden PR tasks; label true defects and allowed findings.</li><li>Publish baseline defect recall, false-positive rate, latency, and cost.</li></ul><p class="deliverable">Done: repeatable HTML report with honest unknowns.</p></div></details>
         <div class="phase-label"><strong>Phase 5</strong><span>After baseline</span></div>
@@ -615,7 +615,7 @@
       ['Analyze', 'Single agent returns versioned JSON findings. Invalid output is rejected.', 'Agent worker'],
       ['Verify', 'Run tests and Proof of Work against captured workspace. Failure blocks output.', 'Sandbox + gate'],
       ['Approve', 'Human reads claim and evidence, then approves or rejects proposed GitHub action.', 'Reviewer'],
-      ['Publish', 'Idempotent activity posts approved comment once and records GitHub result.', 'Publisher']
+      ['Publish', 'Idempotent activity posts one commit-bound review and records GitHub result.', 'Publisher']
     ];
     const flowNav = document.getElementById('flowNav');
     function showFlow(index) {

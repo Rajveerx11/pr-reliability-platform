@@ -104,21 +104,23 @@ Generation increases across every run for a pull request, including both new hea
 If an approved publish has already started, it settles before supersession; the old run records
 the truthful publish outcome, then the replacement continues as new.
 
-GitHub comment publishing rechecks the run, repository, pull request number, current head SHA,
-selected findings, and their matching approved decisions before any external call. The stable
+GitHub review publishing rechecks the run, repository, pull request number, current head SHA,
+selected findings, and their matching approved decisions before any external call. It creates a
+pull request review with event `COMMENT` and the approved head as GitHub's `commit_id`, so a head
+change between the remote precheck and write cannot move the review to the newer commit. The stable
 run/head publish key reserves one `external_actions` row. A hidden hash marker lets a retry find a
-comment created before its database receipt committed, so the retry records that comment instead
+review created before its database receipt committed, so the retry records that review instead
 of creating another. Append-only events keep only action, approval, finding, commit, result, and
-bounded failure-code facts; comment bodies and credentials are excluded.
-The worker holds a PostgreSQL session advisory claim for that key across marker lookup, comment
+bounded failure-code facts; review bodies and credentials are excluded.
+The worker holds a PostgreSQL session advisory claim for that key across marker lookup, review
 creation, and audit recording. A concurrent retry waits for the claim; a worker crash releases it.
-Recovery checks all comments from the authenticated GitHub App identity before deciding whether a
+Recovery checks all reviews from the authenticated GitHub App identity before deciding whether a
 new write is allowed, including when the pull request head advanced after the first write.
 Only an exact rendered-body match with the payload-bound marker in terminal position can recover a
-remote receipt. A marker quoted inside another approved claim is ignored; an App-authored comment
+remote receipt. A marker quoted inside another approved claim is ignored; an App-authored review
 with the right terminal marker but edited content blocks recovery and records a bounded failure.
 Each action also stores a SHA-256 fingerprint of the canonical finding/approval pairs, approved
-body reference, and rendered comment. A retry with the same run and head but different content
+body reference, and rendered review body. A retry with the same run and head but different content
 fails before the published fast path or marker recovery can reuse the earlier action.
 
 Context selection, analysis, verification, terminal recording, and publish are activities with
@@ -133,7 +135,7 @@ its own timeout. Human cancellation, rejection, timeout, and supersession are se
 Activities heartbeat while running; cancellation waits for the current operation to stop before
 recording a terminal outcome. Identity-valid early approvals wait until verification completes.
 Temporal history stores identities and safe output references, not repository source, prompts,
-model output, comment bodies, or secrets.
+model output, review bodies, or secrets.
 ## Context boundary
 
 Context selection is deterministic. Changed files are ordered first, followed by their direct

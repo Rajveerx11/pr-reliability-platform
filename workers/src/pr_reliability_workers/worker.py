@@ -12,8 +12,8 @@ from temporalio.worker import Worker
 
 from .activities import (
     ActivityOperations,
-    GitHubCommentPublishOperation,
-    GitHubRestCommentClient,
+    GitHubRestReviewClient,
+    GitHubReviewPublishOperation,
     ReviewActivities,
 )
 from .sandbox import DockerSandboxRunner
@@ -112,10 +112,10 @@ def load_activity_operations(factory_path: str) -> ActivityOperations:
     runner = operations.verify.runner
     if type(runner) is not DockerSandboxRunner or not runner.production_isolation_enabled:
         raise TypeError("production verification must use DockerSandboxRunner")
-    if not isinstance(operations.publish, GitHubCommentPublishOperation):
-        raise TypeError("production publishing must use GitHubCommentPublishOperation")
-    if type(operations.publish.client) is not GitHubRestCommentClient:
-        raise TypeError("production publishing must use GitHubRestCommentClient")
+    if not isinstance(operations.publish, GitHubReviewPublishOperation):
+        raise TypeError("production publishing must use GitHubReviewPublishOperation")
+    if type(operations.publish.client) is not GitHubRestReviewClient:
+        raise TypeError("production publishing must use GitHubRestReviewClient")
     return operations
 
 

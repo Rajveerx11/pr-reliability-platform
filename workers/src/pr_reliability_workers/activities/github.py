@@ -1,4 +1,4 @@
-"""Repository-scoped GitHub REST client for approved comment publishing."""
+"""Repository-scoped GitHub REST client for commit-bound review publishing."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from urllib.parse import quote
 
 import httpx
 
-from .publish import GitHubComment, GitHubCommentPayloadMismatch
+from .publish import GitHubReview, GitHubReviewPayloadMismatch
 
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
-_COMMENTS_PER_PAGE = 100
+_REVIEWS_PER_PAGE = 100
 
 
-class GitHubRestCommentClient:
+class GitHubRestReviewClient:
     """Use one installation token and verified App author for GitHub writes."""
 
     __slots__ = (
@@ -62,30 +62,32 @@ class GitHubRestCommentClient:
             raise RuntimeError("GitHub returned an invalid pull request head")
         return sha
 
-    async def find_comment(
+    async def find_review(
         self,
         repository: str,
         pull_request_number: int,
+        expected_head_sha: str,
         marker: str,
         expected_body: str,
-    ) -> GitHubComment | None:
+    ) -> GitHubReview | None:
+        _require_sha(expected_head_sha)
         if not marker.startswith("<!-- pr-reliability:") or len(marker) > 96:
             raise ValueError("invalid GitHub retry marker")
         terminal_marker = f"\n\n{marker}"
         if not expected_body.endswith(terminal_marker):
-            raise ValueError("expected GitHub comment must end with its retry marker")
-        path = _comments_path(repository, pull_request_number)
+            raise ValueError("expected GitHub review must end with its retry marker")
+        path = _reviews_path(repository, pull_request_number)
         page = 1
         mismatched_terminal_marker = False
         async with self._new_http_client() as client:
             while True:
                 response = await client.get(
                     path,
-                    params={"per_page": _COMMENTS_PER_PAGE, "page": page},
+                    params={"per_page": _REVIEWS_PER_PAGE, "page": page},
                 )
                 _raise_for_status(response)
-                comments = _json_list(response, "comments")
-                for value in comments:
+                reviews = _json_list(response, "reviews")
+                for value in reviews:
                     if not isinstance(value, dict):
                         continue
                     user = value.get("user")
@@ -93,31 +95,40 @@ class GitHubRestCommentClient:
                     body = value.get("body")
                     if author_id != self._authenticated_author_id or not isinstance(body, str):
                         continue
-                    if body == expected_body:
-                        return _comment_identity(value)
+                    commit_sha = value.get("commit_id")
+                    if body == expected_body and commit_sha == expected_head_sha:
+                        return _review_identity(value)
                     if body.endswith(terminal_marker):
                         mismatched_terminal_marker = True
-                if len(comments) < _COMMENTS_PER_PAGE:
+                if len(reviews) < _REVIEWS_PER_PAGE:
                     break
                 page += 1
         if mismatched_terminal_marker:
-            raise GitHubCommentPayloadMismatch(
-                "GitHub recovery comment does not match the approved payload"
+            raise GitHubReviewPayloadMismatch(
+                "GitHub recovery review does not match the approved commit and payload"
             )
         return None
 
-    async def create_comment(
+    async def create_review(
         self,
         repository: str,
         pull_request_number: int,
+        expected_head_sha: str,
         body: str,
-    ) -> GitHubComment:
-        path = _comments_path(repository, pull_request_number)
+    ) -> GitHubReview:
+        _require_sha(expected_head_sha)
+        path = _reviews_path(repository, pull_request_number)
         async with self._new_http_client() as client:
-            response = await client.post(path, json={"body": body})
+            response = await client.post(
+                path,
+                json={"body": body, "commit_id": expected_head_sha, "event": "COMMENT"},
+            )
             _raise_for_status(response)
-            payload = _json_object(response, "comment")
-        return _comment_identity(payload)
+            payload = _json_object(response, "review")
+        review = _review_identity(payload)
+        if review.commit_sha != expected_head_sha:
+            raise GitHubReviewPayloadMismatch("GitHub created a review for an unexpected commit")
+        return review
 
     def _new_http_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -137,8 +148,8 @@ def _pull_request_path(repository: str, pull_request_number: int) -> str:
     return f"repos/{_encoded_repository(repository)}/pulls/{_positive_number(pull_request_number)}"
 
 
-def _comments_path(repository: str, pull_request_number: int) -> str:
-    return f"repos/{_encoded_repository(repository)}/issues/{_positive_number(pull_request_number)}/comments"
+def _reviews_path(repository: str, pull_request_number: int) -> str:
+    return f"repos/{_encoded_repository(repository)}/pulls/{_positive_number(pull_request_number)}/reviews"
 
 
 def _encoded_repository(repository: str) -> str:
@@ -181,8 +192,16 @@ def _json_list(response: httpx.Response, subject: str) -> list[Any]:
     return payload
 
 
-def _comment_identity(payload: dict[str, Any]) -> GitHubComment:
+def _review_identity(payload: dict[str, Any]) -> GitHubReview:
     remote_id = payload.get("id")
     if not isinstance(remote_id, (str, int)) or isinstance(remote_id, bool):
-        raise TypeError("GitHub returned an invalid comment identity")
-    return GitHubComment(str(remote_id))
+        raise TypeError("GitHub returned an invalid review identity")
+    commit_sha = payload.get("commit_id")
+    if not isinstance(commit_sha, str):
+        raise TypeError("GitHub returned an invalid review commit")
+    return GitHubReview(str(remote_id), commit_sha)
+
+
+def _require_sha(value: str) -> None:
+    if _SHA.fullmatch(value) is None:
+        raise ValueError("expected GitHub review commit must be a lowercase SHA")

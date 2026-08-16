@@ -5,19 +5,19 @@ them and names the affected files.
 
 ## Unreleased
 
-### Added approval-bound idempotent GitHub comment publishing
+### Added approval-bound idempotent GitHub review publishing
 
 - Issue: [#12](https://github.com/Rajveerx11/pr-reliability-platform/issues/12)
 - Decision: [DEC-009 — Human approval](plan/v1.md#dec-009--require-human-approval-before-every-external-write)
-- Reason: Approved findings need one retry-safe GitHub write that rejects stale or incomplete
-  approval state and leaves a safe audit trail.
+- Reason: Approved findings need one retry-safe, commit-bound GitHub review summary that rejects
+  stale or incomplete approval state and leaves a safe audit trail.
 - Changed files:
   - `workers/src/pr_reliability_workers/activities/publish.py` — database approval and head checks,
     exclusive recoverable publication claims, stable marker recovery, sanitized failures, and
     immutable publish-payload fingerprints with bounded success/failure audit.
   - `workers/src/pr_reliability_workers/activities/github.py` — repository-scoped GitHub REST
-    client with complete pagination plus authenticated App-author, terminal marker, and exact
-    approved-body recovery checks.
+    client that creates commit-bound review summaries and recovers them with complete pagination,
+    authenticated App-author, commit, terminal-marker, and exact-body checks.
   - `workers/tests/test_publish_activity.py` and `test_github_comment_client.py` — unapproved,
     stale, concurrent retry, crash-recovery, edited-body, cross-marker, privacy, pagination,
     ownership, and audit coverage.
@@ -27,6 +27,7 @@ them and names the affected files.
   - `pyproject.toml` and `uv.lock` — production HTTP client dependency for GitHub publishing.
   - `docs/architecture.md`, `docs/security.md`, and `docs/development.md` — publish flow, safety
     boundary, and provider requirements.
+  - `plan/v1.md` — version-one output names the commit-bound review summary.
 
 ### Added human approval inbox
 

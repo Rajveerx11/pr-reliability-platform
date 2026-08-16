@@ -57,21 +57,23 @@ to the configured owner. A decision transaction locks the pull request row, so a
 update cannot race a stale approval into storage. The approval endpoint records audit and durable
 workflow-signal events but performs no external write.
 
-## GitHub comment publishing
+## GitHub review publishing
 
 - The activity accepts only the stable `{run_id}:{head_sha}:publish` idempotency key.
 - Every selected finding needs one matching `approved` decision for the same owner, run, and head.
-- Both the stored pull request head and GitHub's current head must match before comment creation.
-- The comment contains only reviewer-approved finding claims plus a hashed retry marker.
-- A retry searches only the authenticated GitHub App identity's comments for that marker before
-  creating a comment and reuses the existing remote ID only when the marker is terminal and the
-  complete body matches the approved rendering. Marker substrings and edited bodies are rejected.
-  The marker is not an authorization secret.
+- Both the stored pull request head and GitHub's current head must match before review creation.
+- The review request also sends that approved SHA as `commit_id`; a concurrent head change cannot
+  silently attach the write to a newer commit.
+- The review summary contains only reviewer-approved finding claims plus a hashed retry marker.
+- A retry searches only the authenticated GitHub App identity's reviews and reuses the existing
+  remote ID only when the commit SHA, terminal marker, and complete body match the approved
+  rendering. Marker substrings, edited bodies, and reviews on other commits are rejected. The
+  marker is not an authorization secret.
 - One database-backed session claim serializes lookup, create, and receipt recording for the
   stable publish key. A crashed worker releases the claim so marker recovery can continue safely.
 - The action stores a canonical payload fingerprint. Reusing its key with different findings,
-  approvals, body reference, or rendered comment fails before any remote lookup or write.
-- Audit events store bounded IDs, commit SHA, and result codes. They never store the comment body,
+  approvals, body reference, or rendered review body fails before any remote lookup or write.
+- Audit events store bounded IDs, commit SHA, and result codes. They never store the review body,
   GitHub token, response body, or exception text. Provider exceptions are removed before Temporal
   records an activity failure.
 

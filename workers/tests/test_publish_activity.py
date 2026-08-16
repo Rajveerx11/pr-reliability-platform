@@ -1,4 +1,4 @@
-"""Integration tests for approval-bound GitHub comment publishing."""
+"""Integration tests for approval-bound GitHub review publishing."""
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ import psycopg
 import pytest
 from pr_reliability_api.db import apply_migrations
 from pr_reliability_workers.activities import (
-    GitHubComment,
-    GitHubCommentPayloadMismatch,
-    GitHubCommentPublishOperation,
+    GitHubReview,
+    GitHubReviewPayloadMismatch,
+    GitHubReviewPublishOperation,
 )
 from pr_reliability_workers.workflows.types import PublishRequest
 from psycopg import Connection
@@ -67,10 +67,10 @@ def connection_factory() -> Iterator[Callable[[], Connection[object]]]:
             cleanup.execute(f'DROP SCHEMA "{schema}" CASCADE')
 
 
-class FakeGitHubClient:
+class FakeGitHubReviewClient:
     def __init__(self, *, current_head: str = HEAD_SHA) -> None:
         self.current_head = current_head
-        self.comments: list[tuple[GitHubComment, str]] = []
+        self.reviews: list[tuple[GitHubReview, str]] = []
         self.create_calls = 0
         self.find_calls = 0
 
@@ -79,86 +79,93 @@ class FakeGitHubClient:
         assert pull_request_number == 17
         return self.current_head
 
-    async def find_comment(
+    async def find_review(
         self,
         repository: str,
         pull_request_number: int,
+        expected_head_sha: str,
         marker: str,
         expected_body: str,
-    ) -> GitHubComment | None:
+    ) -> GitHubReview | None:
         assert repository == "owner/repository"
         assert pull_request_number == 17
         self.find_calls += 1
-        for comment, body in self.comments:
-            if body == expected_body:
-                return comment
-        if any(body.endswith(f"\n\n{marker}") for _, body in self.comments):
-            raise GitHubCommentPayloadMismatch
+        for review, body in self.reviews:
+            if body == expected_body and review.commit_sha == expected_head_sha:
+                return review
+        if any(body.endswith(f"\n\n{marker}") for _, body in self.reviews):
+            raise GitHubReviewPayloadMismatch
         return None
 
-    async def create_comment(
+    async def create_review(
         self,
         repository: str,
         pull_request_number: int,
+        expected_head_sha: str,
         body: str,
-    ) -> GitHubComment:
+    ) -> GitHubReview:
         assert repository == "owner/repository"
         assert pull_request_number == 17
         self.create_calls += 1
-        comment = GitHubComment(str(1000 + self.create_calls))
-        self.comments.append((comment, body))
-        return comment
+        review = GitHubReview(str(1000 + self.create_calls), expected_head_sha)
+        self.reviews.append((review, body))
+        return review
 
 
-class BlockingGitHubClient(FakeGitHubClient):
+class BlockingGitHubReviewClient(FakeGitHubReviewClient):
     def __init__(self, create_barrier: asyncio.Barrier, release_create: asyncio.Event) -> None:
         super().__init__()
         self.create_barrier = create_barrier
         self.release_create = release_create
 
-    async def create_comment(
+    async def create_review(
         self,
         repository: str,
         pull_request_number: int,
+        expected_head_sha: str,
         body: str,
-    ) -> GitHubComment:
+    ) -> GitHubReview:
         await self.create_barrier.wait()
         await self.release_create.wait()
-        return await super().create_comment(repository, pull_request_number, body)
+        return await super().create_review(repository, pull_request_number, expected_head_sha, body)
 
 
-class LeakyGitHubClient(FakeGitHubClient):
-    async def find_comment(
+class LeakyGitHubReviewClient(FakeGitHubReviewClient):
+    async def find_review(
         self,
         repository: str,
         pull_request_number: int,
+        expected_head_sha: str,
         marker: str,
         expected_body: str,
-    ) -> GitHubComment | None:
-        del repository, pull_request_number, marker, expected_body
+    ) -> GitHubReview | None:
+        del repository, pull_request_number, expected_head_sha, marker, expected_body
         raise RuntimeError("SECRET_GITHUB_RESPONSE_BODY")
 
 
 class SimulatedWorkerCrash(BaseException):
-    """Stop the activity after GitHub accepts a comment but before its receipt."""
+    """Stop the activity after GitHub accepts a review but before its receipt."""
 
 
-class CrashAfterCreateGitHubClient(FakeGitHubClient):
+class CrashAfterCreateGitHubReviewClient(FakeGitHubReviewClient):
     def __init__(self, *, current_head: str = HEAD_SHA) -> None:
         super().__init__(current_head=current_head)
         self.crashed = False
 
-    async def create_comment(
+    async def create_review(
         self,
         repository: str,
         pull_request_number: int,
+        expected_head_sha: str,
         body: str,
-    ) -> GitHubComment:
-        comment = await super().create_comment(repository, pull_request_number, body)
+    ) -> GitHubReview:
+        review = await super().create_review(
+            repository, pull_request_number, expected_head_sha, body
+        )
         if not self.crashed:
             self.crashed = True
             raise SimulatedWorkerCrash
-        return comment
+        return review
 
 
 def seed_review(
@@ -243,10 +250,10 @@ def publish_request() -> PublishRequest:
 
 def publisher(
     connection_factory: Callable[[], Connection[object]],
-    client: FakeGitHubClient,
-) -> GitHubCommentPublishOperation:
+    client: FakeGitHubReviewClient,
+) -> GitHubReviewPublishOperation:
     ids = iter(public_id(value) for value in range(20, 100))
-    return GitHubCommentPublishOperation(
+    return GitHubReviewPublishOperation(
         connection_factory,
         client,
         id_factory=lambda: next(ids),
@@ -258,31 +265,31 @@ def test_unapproved_finding_cannot_publish(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
     seed_review(connection_factory, decision=None)
-    github = FakeGitHubClient()
+    github = FakeGitHubReviewClient()
 
     with pytest.raises(ApplicationError) as raised:
         asyncio.run(publisher(connection_factory, github)(publish_request()))
 
     assert raised.value.type == "PublishBlocked"
     assert raised.value.non_retryable
-    assert github.comments == []
+    assert github.reviews == []
     with connection_factory() as connection:
         assert connection.execute("SELECT count(*) FROM external_actions").fetchone()[0] == 0
 
 
-def test_stable_retry_creates_one_comment_and_safe_audit(
+def test_stable_retry_creates_one_review_and_safe_audit(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
     seed_review(connection_factory)
-    github = FakeGitHubClient()
+    github = FakeGitHubReviewClient()
     operation = publisher(connection_factory, github)
 
     asyncio.run(operation(publish_request()))
     asyncio.run(operation(publish_request()))
 
     assert github.create_calls == 1
-    assert len(github.comments) == 1
-    assert "Null input crashes the request" in github.comments[0][1]
+    assert len(github.reviews) == 1
+    assert "Null input crashes the request" in github.reviews[0][1]
     with connection_factory() as connection:
         action = connection.execute(
             "SELECT status, remote_id, payload_fingerprint FROM external_actions"
@@ -290,10 +297,10 @@ def test_stable_retry_creates_one_comment_and_safe_audit(
         event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
     assert action[:2] == ("published", "1001")
     assert len(action[2]) == 64
-    assert event[0] == "github.comment_published"
+    assert event[0] == "github.review_published"
     assert event[1] == {
         "action_id": public_id(20),
-        "remote_comment_id": "1001",
+        "remote_review_id": "1001",
         "head_sha": HEAD_SHA,
         "finding_ids": [FINDING_ID],
         "approval_ids": [APPROVAL_ID],
@@ -307,10 +314,10 @@ def test_concurrent_retries_hold_one_publish_claim(
 ) -> None:
     seed_review(connection_factory)
 
-    async def scenario() -> BlockingGitHubClient:
+    async def scenario() -> BlockingGitHubReviewClient:
         create_barrier = asyncio.Barrier(2)
         release_create = asyncio.Event()
-        github = BlockingGitHubClient(create_barrier, release_create)
+        github = BlockingGitHubReviewClient(create_barrier, release_create)
         operation = publisher(connection_factory, github)
         first = asyncio.create_task(operation(publish_request()))
         await create_barrier.wait()
@@ -325,7 +332,7 @@ def test_concurrent_retries_hold_one_publish_claim(
     github = asyncio.run(scenario())
 
     assert github.create_calls == 1
-    assert len(github.comments) == 1
+    assert len(github.reviews) == 1
     with connection_factory() as connection:
         assert connection.execute("SELECT status, remote_id FROM external_actions").fetchone() == (
             "published",
@@ -334,12 +341,12 @@ def test_concurrent_retries_hold_one_publish_claim(
         assert connection.execute("SELECT count(*) FROM run_events").fetchone()[0] == 1
 
 
-def test_retry_recovers_comment_created_before_database_receipt(
+def test_retry_recovers_review_created_before_database_receipt(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
     seed_review(connection_factory)
     request = publish_request()
-    github = CrashAfterCreateGitHubClient()
+    github = CrashAfterCreateGitHubReviewClient()
     operation = publisher(connection_factory, github)
 
     with pytest.raises(SimulatedWorkerCrash):
@@ -355,12 +362,12 @@ def test_retry_recovers_comment_created_before_database_receipt(
         )
 
 
-def test_retry_reconciles_created_comment_after_head_advances(
+def test_retry_reconciles_created_review_after_head_advances(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
     seed_review(connection_factory)
     request = publish_request()
-    github = CrashAfterCreateGitHubClient()
+    github = CrashAfterCreateGitHubReviewClient()
     operation = publisher(connection_factory, github)
 
     with pytest.raises(SimulatedWorkerCrash):
@@ -382,7 +389,7 @@ def test_retry_reconciles_created_comment_after_head_advances(
             "1001",
         )
         assert connection.execute("SELECT event_type FROM run_events").fetchone()[0] == (
-            "github.comment_published"
+            "github.review_published"
         )
 
 
@@ -390,7 +397,7 @@ def test_published_retry_with_different_payload_fails_closed(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
     seed_review(connection_factory)
-    github = FakeGitHubClient()
+    github = FakeGitHubReviewClient()
     operation = publisher(connection_factory, github)
     request = publish_request()
     asyncio.run(operation(request))
@@ -412,7 +419,7 @@ def test_crash_recovery_with_different_payload_fails_before_marker_lookup(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
     seed_review(connection_factory)
-    github = CrashAfterCreateGitHubClient()
+    github = CrashAfterCreateGitHubReviewClient()
     operation = publisher(connection_factory, github)
     request = publish_request()
 
@@ -431,19 +438,19 @@ def test_crash_recovery_with_different_payload_fails_before_marker_lookup(
         )
 
 
-def test_crash_recovery_rejects_edited_comment_with_same_terminal_marker(
+def test_crash_recovery_rejects_edited_review_with_same_terminal_marker(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
     seed_review(connection_factory)
-    github = CrashAfterCreateGitHubClient()
+    github = CrashAfterCreateGitHubReviewClient()
     operation = publisher(connection_factory, github)
     request = publish_request()
 
     with pytest.raises(SimulatedWorkerCrash):
         asyncio.run(operation(request))
-    comment, original_body = github.comments[0]
+    review, original_body = github.reviews[0]
     marker = original_body.rsplit("\n\n", 1)[1]
-    github.comments[0] = (comment, f"edited after publication\n\n{marker}")
+    github.reviews[0] = (review, f"edited after publication\n\n{marker}")
 
     with pytest.raises(ApplicationError) as raised:
         asyncio.run(operation(request))
@@ -456,11 +463,11 @@ def test_crash_recovery_rejects_edited_comment_with_same_terminal_marker(
         event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
     assert action == ("failed", None)
     assert event == (
-        "github.comment_publish_failed",
+        "github.review_publish_failed",
         {
             "action_id": public_id(20),
             "head_sha": HEAD_SHA,
-            "failure_code": "comment_payload_mismatch",
+            "failure_code": "review_payload_mismatch",
         },
     )
 
@@ -471,9 +478,9 @@ def test_provider_failure_is_sanitized_before_temporal_conversion(
     seed_review(connection_factory)
 
     with pytest.raises(RuntimeError) as raised:
-        asyncio.run(publisher(connection_factory, LeakyGitHubClient())(publish_request()))
+        asyncio.run(publisher(connection_factory, LeakyGitHubReviewClient())(publish_request()))
 
-    assert str(raised.value) == "GitHub comment publish failed"
+    assert str(raised.value) == "GitHub review publish failed"
     assert raised.value.__cause__ is None
     failure = Failure()
     DefaultFailureConverter.default.to_failure(
@@ -488,32 +495,32 @@ def test_database_stale_head_blocks_before_github(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
     seed_review(connection_factory, current_head=NEXT_HEAD_SHA)
-    github = FakeGitHubClient()
+    github = FakeGitHubReviewClient()
 
     with pytest.raises(ApplicationError) as raised:
         asyncio.run(publisher(connection_factory, github)(publish_request()))
 
     assert raised.value.type == "PublishBlocked"
-    assert github.comments == []
+    assert github.reviews == []
 
 
 def test_remote_stale_head_blocks_and_records_safe_failure(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
     seed_review(connection_factory)
-    github = FakeGitHubClient(current_head=NEXT_HEAD_SHA)
+    github = FakeGitHubReviewClient(current_head=NEXT_HEAD_SHA)
 
     with pytest.raises(ApplicationError) as raised:
         asyncio.run(publisher(connection_factory, github)(publish_request()))
 
     assert raised.value.type == "PublishBlocked"
-    assert github.comments == []
+    assert github.reviews == []
     with connection_factory() as connection:
         action = connection.execute("SELECT status FROM external_actions").fetchone()[0]
         event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
     assert action == "failed"
     assert event == (
-        "github.comment_publish_failed",
+        "github.review_publish_failed",
         {
             "action_id": public_id(20),
             "head_sha": HEAD_SHA,

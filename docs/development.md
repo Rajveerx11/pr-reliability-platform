@@ -75,12 +75,13 @@ The configured PostgreSQL and Temporal addresses must be reachable from their co
 package. `REVIEW_ACTIVITY_OPERATIONS_FACTORY` must use `module:factory` and return one complete
 `ActivityOperations` value containing context, model, verification, publish, and terminal
 operations. Registering partial activity sets on the same queue is not supported.
-The publish operation must use `GitHubCommentPublishOperation` with `GitHubRestCommentClient`.
+The publish operation must use `GitHubReviewPublishOperation` with `GitHubRestReviewClient`.
 Configure that client with a short-lived repository installation token and the numeric user ID of
-the authenticated GitHub App bot. It pages through every comment and accepts a retry marker only
-from that author when the marker is terminal and the full body exactly matches the approved
-rendering. It never trusts another author's marker, a marker inside claim text, or edited content,
-and never includes tokens, comment bodies, GitHub response bodies, or provider exception text in
+the authenticated GitHub App bot. It creates pull request review summaries with event `COMMENT`
+and the approved head SHA as `commit_id`. It pages through every review and accepts a retry marker
+only from that author when the commit, terminal marker, and full body match. It never trusts another
+author's marker, a marker inside claim text, edited content, or a review bound to another commit,
+and never includes tokens, review bodies, GitHub response bodies, or provider exception text in
 activity failures.
 
 ## Quality commands

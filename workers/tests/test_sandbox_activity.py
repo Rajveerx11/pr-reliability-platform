@@ -12,9 +12,9 @@ from types import ModuleType
 import pytest
 from pr_reliability_workers.activities import (
     ActivityOperations,
-    GitHubComment,
-    GitHubCommentPublishOperation,
-    GitHubRestCommentClient,
+    GitHubRestReviewClient,
+    GitHubReview,
+    GitHubReviewPublishOperation,
     SandboxRunner,
     SandboxVerificationOperation,
 )
@@ -58,26 +58,27 @@ class FakeContainerRuntime:
         return RuntimeResult(0, b"", b"")
 
 
-class FakeGitHubClient:
+class FakeGitHubReviewClient:
     async def current_head_sha(self, repository: str, pull_request_number: int) -> str:
         del repository, pull_request_number
         return "a" * 40
 
-    async def find_comment(
+    async def find_review(
         self,
         repository: str,
         pull_request_number: int,
+        expected_head_sha: str,
         marker: str,
         expected_body: str,
-    ) -> GitHubComment | None:
-        del repository, pull_request_number, marker, expected_body
+    ) -> GitHubReview | None:
+        del repository, pull_request_number, expected_head_sha, marker, expected_body
         return None
 
-    async def create_comment(
-        self, repository: str, pull_request_number: int, body: str
-    ) -> GitHubComment:
+    async def create_review(
+        self, repository: str, pull_request_number: int, expected_head_sha: str, body: str
+    ) -> GitHubReview:
         del repository, pull_request_number, body
-        return GitHubComment("1")
+        return GitHubReview("1", expected_head_sha)
 
 
 def test_failed_result_is_recorded_then_fails_without_retry(tmp_path: Path) -> None:
@@ -126,18 +127,18 @@ def test_production_loader_requires_real_docker_runner(
         del request
 
     provider.create = lambda: replace(expected, publish=unsafe_publish)
-    with pytest.raises(TypeError, match="GitHubCommentPublishOperation"):
+    with pytest.raises(TypeError, match="GitHubReviewPublishOperation"):
         load_activity_operations(f"{provider.__name__}:create")
 
     provider.create = lambda: replace(  # type: ignore[attr-defined]
         expected,
-        publish=GitHubCommentPublishOperation(
+        publish=GitHubReviewPublishOperation(
             lambda: None,  # type: ignore[arg-type,return-value]
-            FakeGitHubClient(),
+            FakeGitHubReviewClient(),
             lambda: "01J00000000000000000000001",
         ),
     )
-    with pytest.raises(TypeError, match="GitHubRestCommentClient"):
+    with pytest.raises(TypeError, match="GitHubRestReviewClient"):
         load_activity_operations(f"{provider.__name__}:create")
 
     provider.create = lambda: expected  # type: ignore[attr-defined]
@@ -164,9 +165,9 @@ def _operations(runner: SandboxRunner) -> ActivityOperations:
         select_context=stage,
         analyze=stage,
         verify=SandboxVerificationOperation(prepare, runner, record),
-        publish=GitHubCommentPublishOperation(
+        publish=GitHubReviewPublishOperation(
             lambda: None,  # type: ignore[arg-type,return-value]
-            GitHubRestCommentClient("installation-token", 1),
+            GitHubRestReviewClient("installation-token", 1),
             lambda: "01J00000000000000000000001",
         ),
         record_terminal=terminal,
