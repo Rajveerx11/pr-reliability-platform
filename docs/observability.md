@@ -43,7 +43,9 @@ tokens, and exact micro-dollar cost become span attributes. `pr.usage.tokens_kno
   It returns `503` until both dependencies are ready. Each check is bounded by
   `HEALTH_CHECK_TIMEOUT_SECONDS`, which defaults to two seconds. PostgreSQL uses an async
   connection, server statement deadline, and guaranteed connection close on timeout, so repeated
-  failed probes do not leave blocked worker threads or open clients.
+  failed probes do not leave blocked worker threads or open clients. Concurrent readiness requests
+  share one active dependency probe, preventing probe storms from multiplying database connections
+  or Temporal RPCs.
 - The collector health endpoint is exposed on port `13133`.
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to another OTLP/HTTP collector to use a hosted trace and metrics

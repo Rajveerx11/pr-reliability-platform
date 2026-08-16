@@ -25,6 +25,8 @@ def create_health_router(
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("health check timeout must be positive")
     router = APIRouter()
+    probe_lock = asyncio.Lock()
+    active_probe: asyncio.Task[dict[str, str]] | None = None
 
     @router.get("/health/live")
     async def live() -> dict[str, str]:
@@ -32,11 +34,18 @@ def create_health_router(
 
     @router.get("/health/ready")
     async def ready():
-        database, workflow = await asyncio.gather(
-            _safe_check(database_health_check, timeout_seconds),
-            _safe_check(workflow_health_check, timeout_seconds),
-        )
-        dependencies = {"database": database, "workflow": workflow}
+        nonlocal active_probe
+        async with probe_lock:
+            if active_probe is None or active_probe.done():
+                active_probe = asyncio.create_task(
+                    _check_dependencies(
+                        database_health_check,
+                        workflow_health_check,
+                        timeout_seconds,
+                    )
+                )
+            probe = active_probe
+        dependencies = await asyncio.shield(probe)
         ready_status = all(value == "ready" for value in dependencies.values())
         body = {"status": "ready" if ready_status else "not_ready", "dependencies": dependencies}
         if not ready_status:
@@ -44,6 +53,18 @@ def create_health_router(
         return body
 
     return router
+
+
+async def _check_dependencies(
+    database_health_check: DatabaseHealthCheck,
+    workflow_health_check: WorkflowHealthCheck,
+    timeout_seconds: float,
+) -> dict[str, str]:
+    database, workflow = await asyncio.gather(
+        _safe_check(database_health_check, timeout_seconds),
+        _safe_check(workflow_health_check, timeout_seconds),
+    )
+    return {"database": database, "workflow": workflow}
 
 
 async def _safe_check(check: DependencyHealthCheck, timeout_seconds: float) -> str:

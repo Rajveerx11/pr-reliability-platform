@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 
+import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pr_reliability_api.app import _database_health_check
@@ -99,3 +100,37 @@ def test_repeated_database_timeouts_cancel_and_close_connections() -> None:
     assert all(response.status_code == 503 for response in responses)
     assert state == {"active": 0, "closed": 5, "started": 5}
     assert connect_options == [{"connect_timeout": 1, "options": "-c statement_timeout=20"}] * 5
+
+
+def test_concurrent_readiness_requests_share_one_dependency_probe() -> None:
+    calls = {"database": 0, "workflow": 0}
+
+    async def run() -> None:
+        release = asyncio.Event()
+
+        async def database_health() -> None:
+            calls["database"] += 1
+            await release.wait()
+
+        async def workflow_health() -> None:
+            calls["workflow"] += 1
+            await release.wait()
+
+        app = FastAPI()
+        app.include_router(create_health_router(database_health, workflow_health))
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            requests = [asyncio.create_task(client.get("/health/ready")) for _ in range(20)]
+            for _ in range(100):
+                if calls == {"database": 1, "workflow": 1}:
+                    break
+                await asyncio.sleep(0.001)
+            assert calls == {"database": 1, "workflow": 1}
+            release.set()
+            responses = await asyncio.gather(*requests)
+
+        assert all(response.status_code == 200 for response in responses)
+
+    asyncio.run(run())
+
+    assert calls == {"database": 1, "workflow": 1}
