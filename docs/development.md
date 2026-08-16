@@ -75,6 +75,10 @@ The configured PostgreSQL and Temporal addresses must be reachable from their co
 package. `REVIEW_ACTIVITY_OPERATIONS_FACTORY` must use `module:factory` and return one complete
 `ActivityOperations` value containing context, model, verification, publish, and terminal
 operations. Registering partial activity sets on the same queue is not supported.
+The publish operation should use `GitHubCommentPublishOperation` with a repository-scoped client.
+The client must page through comments authored by its authenticated GitHub App identity when
+searching for the supplied retry marker. It must never trust another author's copy of the marker
+or log tokens, comment bodies, or GitHub response bodies.
 
 ## Quality commands
 

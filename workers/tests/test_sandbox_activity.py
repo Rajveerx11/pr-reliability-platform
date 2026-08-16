@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 from pr_reliability_workers.activities import (
     ActivityOperations,
+    GitHubComment,
+    GitHubCommentPublishOperation,
     SandboxRunner,
     SandboxVerificationOperation,
 )
@@ -54,6 +57,24 @@ class FakeContainerRuntime:
         return RuntimeResult(0, b"", b"")
 
 
+class FakeGitHubClient:
+    async def current_head_sha(self, repository: str, pull_request_number: int) -> str:
+        del repository, pull_request_number
+        return "a" * 40
+
+    async def find_comment(
+        self, repository: str, pull_request_number: int, marker: str
+    ) -> GitHubComment | None:
+        del repository, pull_request_number, marker
+        return None
+
+    async def create_comment(
+        self, repository: str, pull_request_number: int, body: str
+    ) -> GitHubComment:
+        del repository, pull_request_number, body
+        return GitHubComment("1")
+
+
 def test_failed_result_is_recorded_then_fails_without_retry(tmp_path: Path) -> None:
     recorded: list[SandboxResult] = []
     failed = SandboxResult(exit_code=137, stdout="", stderr="oom", duration_ms=5)
@@ -95,6 +116,14 @@ def test_production_loader_requires_real_docker_runner(
         load_activity_operations(f"{provider.__name__}:create")
 
     expected = _operations(DockerSandboxRunner())
+
+    async def unsafe_publish(request: PublishRequest) -> None:
+        del request
+
+    provider.create = lambda: replace(expected, publish=unsafe_publish)
+    with pytest.raises(TypeError, match="GitHubCommentPublishOperation"):
+        load_activity_operations(f"{provider.__name__}:create")
+
     provider.create = lambda: expected  # type: ignore[attr-defined]
     assert load_activity_operations(f"{provider.__name__}:create") is expected
 
@@ -112,9 +141,6 @@ def _operations(runner: SandboxRunner) -> ActivityOperations:
         del request, result
         return StageResult("verification-ref")
 
-    async def publish(request: PublishRequest) -> None:
-        del request
-
     async def terminal(request: TerminalRequest) -> None:
         del request
 
@@ -122,6 +148,10 @@ def _operations(runner: SandboxRunner) -> ActivityOperations:
         select_context=stage,
         analyze=stage,
         verify=SandboxVerificationOperation(prepare, runner, record),
-        publish=publish,
+        publish=GitHubCommentPublishOperation(
+            lambda: None,  # type: ignore[arg-type,return-value]
+            FakeGitHubClient(),
+            lambda: "01J00000000000000000000001",
+        ),
         record_terminal=terminal,
     )

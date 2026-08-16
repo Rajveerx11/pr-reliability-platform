@@ -57,6 +57,17 @@ to the configured owner. A decision transaction locks the pull request row, so a
 update cannot race a stale approval into storage. The approval endpoint records audit and durable
 workflow-signal events but performs no external write.
 
+## GitHub comment publishing
+
+- The activity accepts only the stable `{run_id}:{head_sha}:publish` idempotency key.
+- Every selected finding needs one matching `approved` decision for the same owner, run, and head.
+- Both the stored pull request head and GitHub's current head must match before comment creation.
+- The comment contains only reviewer-approved finding claims plus a hashed retry marker.
+- A retry searches only the authenticated GitHub App identity's comments for that marker before
+  creating a comment and reuses the existing remote ID. The marker is not an authorization secret.
+- Audit events store bounded IDs, commit SHA, and result codes. They never store the comment body,
+  GitHub token, response body, or exception text.
+
 Not allowed:
 
 - GitHub App private keys

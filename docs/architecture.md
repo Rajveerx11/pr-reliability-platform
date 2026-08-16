@@ -104,6 +104,13 @@ Generation increases across every run for a pull request, including both new hea
 If an approved publish has already started, it settles before supersession; the old run records
 the truthful publish outcome, then the replacement continues as new.
 
+GitHub comment publishing rechecks the run, repository, pull request number, current head SHA,
+selected findings, and their matching approved decisions before any external call. The stable
+run/head publish key reserves one `external_actions` row. A hidden hash marker lets a retry find a
+comment created before its database receipt committed, so the retry records that comment instead
+of creating another. Append-only events keep only action, approval, finding, commit, result, and
+bounded failure-code facts; comment bodies and credentials are excluded.
+
 Context selection, analysis, verification, terminal recording, and publish are activities with
 bounded timeouts, three retry attempts, stable activity IDs, and deterministic idempotency keys.
 The production workflow worker polls workflow tasks from the configured queue. One provider

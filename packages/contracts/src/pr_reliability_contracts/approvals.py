@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from pydantic import Field, StrictInt, field_validator
+from pydantic import Field, StrictInt, field_validator, model_validator
 
 from .base import Contract, GitSha, NonEmptyText, RunMessage, Ulid
 from .findings import Evidence
@@ -89,3 +89,16 @@ class PublishCommentCommand(RunMessage):
     approval_ids: tuple[Ulid, ...] = Field(min_length=1)
     idempotency_key: NonEmptyText
     body: NonEmptyText
+
+    @model_validator(mode="after")
+    def require_stable_approval_mapping(self) -> "PublishCommentCommand":
+        if len(set(self.finding_ids)) != len(self.finding_ids):
+            raise ValueError("finding_ids must be unique")
+        if len(set(self.approval_ids)) != len(self.approval_ids):
+            raise ValueError("approval_ids must be unique")
+        if len(self.finding_ids) != len(self.approval_ids):
+            raise ValueError("each finding needs one approval")
+        expected_key = f"{self.run_id}:{self.head_sha}:publish"
+        if self.idempotency_key != expected_key:
+            raise ValueError("idempotency_key must bind run, head, and publish action")
+        return self

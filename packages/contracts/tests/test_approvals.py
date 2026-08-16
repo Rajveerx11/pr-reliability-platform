@@ -45,7 +45,7 @@ def test_publish_command_requires_approval_and_finding(run_identity: dict) -> No
         pull_request_number=17,
         finding_ids=(FINDING_ID,),
         approval_ids=(APPROVAL_ID,),
-        idempotency_key="run:comment:head",
+        idempotency_key=f"{RUN_ID}:{HEAD_SHA}:publish",
         body="Verified finding",
     )
 
@@ -58,11 +58,35 @@ def test_publish_command_requires_approval_and_finding(run_identity: dict) -> No
             pull_request_number=17,
             finding_ids=(),
             approval_ids=(),
-            idempotency_key="run:comment:head",
+            idempotency_key=f"{RUN_ID}:{HEAD_SHA}:publish",
             body="Verified finding",
         )
 
     assert error.value.error_count() == 2
+
+
+def test_publish_command_rejects_mismatched_or_duplicate_approvals(run_identity: dict) -> None:
+    with pytest.raises(ValidationError, match="each finding needs one approval"):
+        PublishCommentCommand(
+            **run_identity,
+            repository_id=REPOSITORY_ID,
+            pull_request_number=17,
+            finding_ids=(FINDING_ID,),
+            approval_ids=(APPROVAL_ID, "01J00000000000000000000009"),
+            idempotency_key=f"{RUN_ID}:{HEAD_SHA}:publish",
+            body="Verified finding",
+        )
+
+    with pytest.raises(ValidationError, match="idempotency_key"):
+        PublishCommentCommand(
+            **run_identity,
+            repository_id=REPOSITORY_ID,
+            pull_request_number=17,
+            finding_ids=(FINDING_ID,),
+            approval_ids=(APPROVAL_ID,),
+            idempotency_key="caller-selected-key",
+            body="Verified finding",
+        )
 
 
 def test_approval_inbox_contract_shows_decision_context() -> None:

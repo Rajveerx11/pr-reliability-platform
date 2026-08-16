@@ -5,6 +5,21 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added approval-bound idempotent GitHub comment publishing
+
+- Issue: [#12](https://github.com/Rajveerx11/pr-reliability-platform/issues/12)
+- Decision: [DEC-009 — Human approval](plan/v1.md#dec-009--require-human-approval-before-every-external-write)
+- Reason: Approved findings need one retry-safe GitHub write that rejects stale or incomplete
+  approval state and leaves a safe audit trail.
+- Changed files:
+  - `workers/src/pr_reliability_workers/activities/publish.py` — database approval and head checks,
+    stable marker recovery, injected GitHub client boundary, and bounded success/failure audit.
+  - `workers/tests/test_publish_activity.py` — fake-client coverage for unapproved, stale, retry,
+    crash-recovery, and audit behavior.
+  - `packages/contracts/` — one-to-one finding/approval mapping and stable publish-key validation.
+  - `docs/architecture.md`, `docs/security.md`, and `docs/development.md` — publish flow, safety
+    boundary, and provider requirements.
+
 ### Added human approval inbox
 
 - Issue: [#11](https://github.com/Rajveerx11/pr-reliability-platform/issues/11)
