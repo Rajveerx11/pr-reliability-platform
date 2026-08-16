@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -218,6 +220,21 @@ def test_decision_is_bound_to_finding_and_head_without_external_write(
     assert approval == (ACTOR_ID, value, "Evidence is sufficient", HEAD_SHA)
     assert events == [
         (
+            "approval.signal_created",
+            {
+                "schema_version": "1",
+                "public_id": receipt["approval_id"],
+                "owner_id": OWNER_ID,
+                "run_id": public_id(3),
+                "head_sha": HEAD_SHA,
+                "finding_id": finding_id,
+                "actor_id": ACTOR_ID,
+                "decision": value,
+                "reason": "Evidence is sufficient",
+                "decided_at": "2026-08-16T08:00:00Z",
+            },
+        ),
+        (
             "approval.decision_recorded",
             {
                 "approval_id": receipt["approval_id"],
@@ -225,7 +242,7 @@ def test_decision_is_bound_to_finding_and_head_without_external_write(
                 "finding_id": finding_id,
                 "head_sha": HEAD_SHA,
             },
-        )
+        ),
     ]
     assert external_action_count == 0
 
@@ -262,6 +279,31 @@ def test_stale_commit_cannot_be_decided(client: TestClient, finding_id: str) -> 
         headers=authorization(),
         json=decision(head_sha="c" * 40),
     )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "finding commit is stale"
+
+
+def test_head_update_cannot_race_approval_commit(
+    client: TestClient,
+    connection_factory: Callable[[], Connection[object]],
+    finding_id: str,
+) -> None:
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with connection_factory() as webhook_connection, webhook_connection.transaction():
+            webhook_connection.execute(
+                "UPDATE pull_requests SET head_sha = %s WHERE public_id = %s",
+                ("c" * 40, public_id(2)),
+            )
+            pending = pool.submit(
+                client.post,
+                f"/api/approval-inbox/{finding_id}/decision",
+                headers=authorization(),
+                json=decision(),
+            )
+            time.sleep(0.1)
+            assert not pending.done(), "approval must wait for the head-update row lock"
+        response = pending.result(timeout=2)
 
     assert response.status_code == 409
     assert response.json()["detail"] == "finding commit is stale"

@@ -19,6 +19,9 @@ them and names the affected files.
     receipt contracts.
   - `apps/api/tests/test_approval_inbox.py` and `packages/contracts/tests/test_approvals.py` —
     authorization, evidence display, commit binding, idempotency, and no-publish coverage.
+  - `workers/src/pr_reliability_workers/dispatch.py` and
+    `workers/tests/test_command_dispatcher.py` — durable, retry-safe delivery of recorded
+    decisions to the waiting Temporal workflow.
   - `.env.example`, `pyproject.toml`, `infra/compose/compose.yaml`, and
     `.github/workflows/quality.yml` — reviewer configuration and packaged browser shell.
   - `docs/architecture.md`, `docs/security.md`, and `docs/development.md` — approval boundary and

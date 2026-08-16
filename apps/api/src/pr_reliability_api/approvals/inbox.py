@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException, status
 from fastapi.responses import HTMLResponse
 from pr_reliability_contracts import (
+    ApprovalCommand,
     ApprovalDecision,
     ApprovalDecisionReceipt,
     ApprovalDecisionRequest,
@@ -125,7 +126,7 @@ def create_approval_inbox_router(
                   ON approval.finding_id = finding.id
                  AND approval.owner_id = finding.owner_id
                 WHERE finding.owner_id = %s AND finding.public_id = %s
-                FOR UPDATE OF finding, run
+                FOR UPDATE OF finding, run, pull_request
                 """,
                 (settings.owner_id, finding_id),
             ).fetchone()
@@ -184,6 +185,34 @@ def create_approval_inbox_router(
                     request.decision.value,
                     request.reason,
                     run_head_sha,
+                    decided_at,
+                ),
+            )
+            approval_command = ApprovalCommand(
+                schema_version="1",
+                public_id=approval_id,
+                owner_id=settings.owner_id,
+                run_id=public_run_id,
+                head_sha=run_head_sha,
+                finding_id=public_finding_id,
+                actor_id=settings.actor_id,
+                decision=request.decision,
+                reason=request.reason,
+                decided_at=decided_at,
+            )
+            connection.execute(
+                """
+                INSERT INTO run_events (
+                    public_id, owner_id, run_id, event_key, event_type,
+                    event_data, occurred_at
+                ) VALUES (%s, %s, %s, %s, 'approval.signal_created', %s::jsonb, %s)
+                """,
+                (
+                    id_factory(),
+                    settings.owner_id,
+                    internal_run_id,
+                    f"approval:{approval_id}:signal",
+                    approval_command.model_dump_json(),
                     decided_at,
                 ),
             )
