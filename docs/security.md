@@ -15,6 +15,7 @@ their GitHub signature is verified.
 - Block network access by default inside the sandbox.
 - Apply CPU, memory, process, output, filesystem, and time limits.
 - Bind all findings and actions to one head SHA.
+- Authenticate approval API calls with a dedicated reviewer token and server-bound actor identity.
 - Require human approval before every external write.
 - Make publish actions idempotent.
 - Fail closed when validation, sandboxing, tests, or Proof of Work fails.
@@ -49,6 +50,11 @@ Allowed:
 - Commit SHAs
 - Structured findings and safe evidence references
 - Run status, timings, token counts, and exact reported cost
+
+The approval page never stores its reviewer token in browser storage. API queries scope every row
+to the configured owner. A decision succeeds only while its run awaits approval and the analyzed
+head still equals the pull request head. The approval endpoint records an audit event but performs
+no external write.
 - Approval and publish audit events
 
 Not allowed:

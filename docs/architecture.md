@@ -179,3 +179,15 @@ Every external write follows this order:
 6. Store remote result.
 
 No worker may bypass this path.
+
+## Approval inbox boundary
+
+The browser serves a public shell but receives no finding data until an API request presents the
+reviewer bearer token. Server configuration binds that token to one owner and actor. Inbox queries
+remain owner-scoped and show only current pull request heads in `awaiting_approval` state.
+
+Each decision names one finding and repeats the shown head SHA. The API locks the finding and run,
+checks the current pull request head and workflow state, then stores one immutable approval plus an
+append-only audit event. Identical retries return the original receipt. Conflicting decisions or
+stale commits fail. This endpoint never creates an external action or calls GitHub; publishing is a
+later worker boundary.
