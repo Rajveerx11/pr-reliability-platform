@@ -9,7 +9,12 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from pr_reliability_proof_adapter import ProofAdapter, ProofGateResult, ProofRequest
+from pr_reliability_proof_adapter import (
+    ProofAdapter,
+    ProofGateResult,
+    ProofRequest,
+    PublishedProofGate,
+)
 from pr_reliability_workers.activities import (
     ActivityOperations,
     SandboxRunner,
@@ -198,12 +203,27 @@ def test_production_loader_requires_real_docker_runner(
     with pytest.raises(TypeError, match="DockerSandboxRunner"):
         load_activity_operations(f"{provider.__name__}:create")
 
-    expected = _operations(DockerSandboxRunner())
+    provider.create = lambda: _operations(DockerSandboxRunner())  # type: ignore[attr-defined]
+    with pytest.raises(TypeError, match="PublishedProofGate"):
+        load_activity_operations(f"{provider.__name__}:create")
+
+    provider.create = lambda: _operations(  # type: ignore[attr-defined]
+        DockerSandboxRunner(),
+        proof=ProofAdapter(PublishedProofGate((sys.executable, "-c", "print('{}')"))),
+    )
+    with pytest.raises(TypeError, match="PublishedProofGate"):
+        load_activity_operations(f"{provider.__name__}:create")
+
+    expected = _operations(DockerSandboxRunner(), proof=ProofAdapter())
     provider.create = lambda: expected  # type: ignore[attr-defined]
     assert load_activity_operations(f"{provider.__name__}:create") is expected
 
 
-def _operations(runner: SandboxRunner) -> ActivityOperations:
+def _operations(
+    runner: SandboxRunner,
+    *,
+    proof: ProofAdapter | None = None,
+) -> ActivityOperations:
     async def stage(request: StageRequest) -> StageResult:
         del request
         return StageResult("ref")
@@ -229,7 +249,7 @@ def _operations(runner: SandboxRunner) -> ActivityOperations:
             prepare,
             runner,
             record,
-            _proof_adapter(passed=True),
+            proof or _proof_adapter(passed=True),
         ),
         publish=publish,
         record_terminal=terminal,

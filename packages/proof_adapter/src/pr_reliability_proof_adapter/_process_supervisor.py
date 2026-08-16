@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import os
 import runpy
 import sys
@@ -10,10 +11,16 @@ from pathlib import Path
 
 def main() -> None:
     """Wait for lifecycle setup, run the gate, report its exit, then stay alive."""
-    if len(sys.argv) < 5 or sys.stdin.buffer.read(1) != b"1":
+    if len(sys.argv) < 6:
         raise SystemExit(125)
     status_path = Path(sys.argv[1])
-    exit_code = _run_python(sys.argv[2:])
+    ready_path = Path(sys.argv[2])
+    if os.name == "posix":
+        _enable_linux_subreaper()
+    _write_status(ready_path, 1)
+    if sys.stdin.buffer.read(1) != b"1":
+        raise SystemExit(125)
+    exit_code = _run_python(sys.argv[3:])
     sys.stdout.flush()
     sys.stderr.flush()
     _write_status(status_path, exit_code)
@@ -52,6 +59,14 @@ def _run_python(arguments: list[str]) -> int:
     except BaseException:  # noqa: BLE001 - gate internals must not cross the boundary
         return 1
     return 0
+
+
+def _enable_linux_subreaper() -> None:
+    if not sys.platform.startswith("linux"):
+        raise RuntimeError("proof descendant supervision requires Linux")
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+        raise OSError(ctypes.get_errno(), "could not enable proof descendant supervision")
 
 
 if __name__ == "__main__":

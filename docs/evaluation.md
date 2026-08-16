@@ -43,13 +43,14 @@ IDs, and the installed package version. Application code imports only this local
 Proof of Work modules. Package errors, timeouts, and malformed results produce no verdict and
 fail verification. A failed verdict is recorded as evidence but cannot reach human approval.
 
-The published package runs in a dedicated child process. Before it starts, the adapter requires
-the workspace `HEAD` to equal the requested review head and the base commit to be its ancestor.
-The adapter owns the complete process tree with a POSIX process group or Windows kill-on-close Job
-Object and terminates it after success, failure, malformed output, cancellation, or timeout. It
-bounds output and stores package logs only in a newly created private temporary directory outside
-the reviewed checkout. Cleanup failure blocks verification. The temporary directory is removed
-after every outcome.
+The published package runs in a dedicated child process. Before it starts, the adapter requires a
+clean workspace whose `HEAD` equals the requested review head and whose base commit is its ancestor.
+It clones that exact commit into a private local snapshot, so concurrent source changes cannot
+change the inspected tree. The adapter owns the complete process tree with Linux subreaper-backed
+recursive supervision or a Windows kill-on-close Job Object and terminates it after success,
+failure, malformed output, cancellation, or timeout. Production workers reject injected proof
+runners. Output is bounded and package logs stay only in the private temporary directory. Cleanup
+failure blocks verification, and the directory is removed after every outcome.
 
 The ten tasks cover:
 

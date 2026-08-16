@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 import time
@@ -280,6 +281,158 @@ def test_published_gate_rejects_non_ancestor_base_before_worker(tmp_path: Path) 
     assert not marker.exists()
 
 
+@pytest.mark.parametrize("staged", [False, True])
+def test_published_gate_rejects_dirty_tracked_state_before_worker(
+    tmp_path: Path, staged: bool
+) -> None:
+    repository, base_sha = _repository_with_change(tmp_path)
+    head_sha = _git(repository, "rev-parse", "HEAD").stdout.strip()
+    (repository / "example.py").write_text("dirty = True\n", encoding="utf-8")
+    if staged:
+        _git(repository, "add", "example.py")
+    marker = tmp_path / "worker-started"
+    gate = PublishedProofGate(
+        (sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).touch()")
+    )
+
+    with pytest.raises(ProofGateExecutionError, match="must be clean"):
+        asyncio.run(gate.run(ProofRequest(repository, head_sha, base_ref=base_sha)))
+
+    assert not marker.exists()
+
+
+def test_published_gate_rejects_untracked_state_before_worker(tmp_path: Path) -> None:
+    repository, base_sha = _repository_with_change(tmp_path)
+    head_sha = _git(repository, "rev-parse", "HEAD").stdout.strip()
+    (repository / "untracked.py").write_text("value = 3\n", encoding="utf-8")
+    marker = tmp_path / "worker-started"
+    gate = PublishedProofGate(
+        (sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).touch()")
+    )
+
+    with pytest.raises(ProofGateExecutionError, match="must be clean"):
+        asyncio.run(gate.run(ProofRequest(repository, head_sha, base_ref=base_sha)))
+
+    assert not marker.exists()
+
+
+def test_published_gate_uses_stable_snapshot_during_source_mutation(tmp_path: Path) -> None:
+    repository, base_sha = _repository_with_change(tmp_path)
+    head_sha = _git(repository, "rev-parse", "HEAD").stdout.strip()
+    started = tmp_path / "snapshot-started"
+    release = tmp_path / "release-snapshot"
+    valid = json.dumps(
+        {
+            "ok": True,
+            "package_version": "0.2.0",
+            "payload": {"passed": True, "reasons": [], "findings": []},
+        }
+    )
+    worker = (
+        "import pathlib,subprocess,sys,time; "
+        "repo=pathlib.Path(sys.argv[1]); "
+        f"pathlib.Path({str(started)!r}).touch(); "
+        f"release=pathlib.Path({str(release)!r}); "
+        "\nwhile not release.exists(): time.sleep(0.01)\n"
+        f"assert repo.resolve() != pathlib.Path({str(repository)!r}).resolve(); "
+        f"assert subprocess.check_output(['git','rev-parse','HEAD'],cwd=repo,text=True).strip()=={head_sha!r}; "
+        "assert not subprocess.check_output(['git','status','--porcelain'],cwd=repo,text=True); "
+        f"print({valid!r})"
+    )
+    gate = PublishedProofGate((sys.executable, "-c", worker))
+
+    async def mutate_after_snapshot() -> ProofGateResult:
+        task = asyncio.create_task(gate.run(ProofRequest(repository, head_sha, base_ref=base_sha)))
+        while not started.exists():
+            await asyncio.sleep(0.01)
+        (repository / "example.py").write_text("value = 4\n", encoding="utf-8")
+        _git(repository, "add", "example.py")
+        _git(repository, "commit", "--quiet", "-m", "concurrent change")
+        release.touch()
+        return await task
+
+    result = asyncio.run(mutate_after_snapshot())
+
+    assert result.package_version == "0.2.0"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Linux descendant supervision")
+@pytest.mark.parametrize("outcome", ["success", "nonzero", "malformed", "timeout", "cancel"])
+def test_published_gate_terminates_detached_posix_descendants(tmp_path: Path, outcome: str) -> None:
+    repository, base_sha = _repository_with_change(tmp_path)
+    head_sha = _git(repository, "rev-parse", "HEAD").stdout.strip()
+    marker = tmp_path / f"detached-{outcome}"
+    worker_outcome = "sleep" if outcome in {"timeout", "cancel"} else outcome
+    gate = PublishedProofGate(
+        (
+            sys.executable,
+            "-c",
+            _worker_with_delayed_descendant(marker, worker_outcome, detached=True),
+        )
+    )
+    request = ProofRequest(repository, head_sha, base_ref=base_sha, timeout_seconds=0.5)
+
+    if outcome == "success":
+        asyncio.run(gate.run(request))
+    elif outcome == "timeout":
+        with pytest.raises(ProofGateTimeoutError):
+            asyncio.run(gate.run(request))
+    elif outcome == "cancel":
+
+        async def cancel() -> None:
+            task = asyncio.create_task(gate.run(request))
+            await asyncio.sleep(0.25)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(cancel())
+    else:
+        with pytest.raises(ProofGateExecutionError):
+            asyncio.run(gate.run(request))
+
+    time.sleep(2)
+    assert not marker.exists()
+
+
+def test_worker_start_cancellation_cleans_supervisor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "cancelled-start-worker"
+    real_create = adapter_module.asyncio.create_subprocess_exec
+
+    async def exercise() -> None:
+        created = asyncio.Event()
+        release = asyncio.Event()
+
+        async def delayed_create(*arguments, **options):
+            process = await real_create(*arguments, **options)
+            created.set()
+            await release.wait()
+            return process
+
+        monkeypatch.setattr(adapter_module.asyncio, "create_subprocess_exec", delayed_create)
+        start = asyncio.create_task(
+            adapter_module._start_worker(
+                (sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).touch()"),
+                tmp_path,
+                "a" * 40,
+                tmp_path / "log.db",
+                tmp_path / "status",
+                tmp_path / "ready",
+            )
+        )
+        await created.wait()
+        start.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await start
+
+    asyncio.run(exercise())
+    time.sleep(0.25)
+    assert not marker.exists()
+
+
 def _repository_with_change(tmp_path: Path) -> tuple[Path, str]:
     repository = tmp_path / "repository"
     repository.mkdir()
@@ -307,7 +460,12 @@ def _git(repository: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _worker_with_delayed_descendant(marker: Path, outcome: str) -> str:
+def _worker_with_delayed_descendant(
+    marker: Path,
+    outcome: str,
+    *,
+    detached: bool = False,
+) -> str:
     child = (
         "import pathlib,time; time.sleep(1.5); "
         f"pathlib.Path({str(marker)!r}).write_text('alive', encoding='utf-8')"
@@ -328,6 +486,6 @@ def _worker_with_delayed_descendant(marker: Path, outcome: str) -> str:
     return (
         "import subprocess,sys,time; "
         "subprocess.Popen([sys.executable, '-c', "
-        f"{child!r}], stdin=subprocess.DEVNULL); "
+        f"{child!r}], stdin=subprocess.DEVNULL, start_new_session={detached!r}); "
         f"{finish}"
     )

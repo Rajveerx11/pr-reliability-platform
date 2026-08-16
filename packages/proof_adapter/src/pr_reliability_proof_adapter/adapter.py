@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ _MAX_VERDICT_ITEMS = 128
 _MAX_VERDICT_TEXT_LENGTH = 1_000
 _PROCESS_CLEANUP_SECONDS = 5
 _GIT_CHECK_SECONDS = 5
+_SNAPSHOT_SECONDS = 120
 
 
 @dataclass(frozen=True)
@@ -96,13 +98,20 @@ class PublishedProofGate:
     """Run the published-package boundary in a killable isolated process."""
 
     def __init__(self, worker_command: tuple[str, ...] | None = None) -> None:
-        self._worker_command = worker_command or (
+        default_command = (
             sys.executable,
             "-m",
             "pr_reliability_proof_adapter._published_gate",
         )
+        self._worker_command = worker_command or default_command
+        self._production_command = worker_command is None
         if not self._worker_command or any(not item for item in self._worker_command):
             raise ValueError("proof worker command must contain non-empty arguments")
+
+    @property
+    def production_command_enabled(self) -> bool:
+        """Return true only for the fixed published-package entry point."""
+        return self._production_command
 
     async def run(self, request: ProofRequest) -> ProofGateResult:
         try:
@@ -111,28 +120,35 @@ class PublishedProofGate:
             raise ProofGateExecutionError("proof repository is not a Git checkout") from exc
         if not repository.is_dir() or not (repository / ".git").exists():
             raise ProofGateExecutionError("proof repository is not a Git checkout")
-        await asyncio.to_thread(
-            _validate_checkout,
-            repository,
-            request.base_ref,
-            request.head_sha,
-        )
 
         with tempfile.TemporaryDirectory(prefix="pr-proof-gate-") as temporary:
             trusted_directory = Path(temporary).resolve(strict=True)
             if trusted_directory.is_symlink() or trusted_directory.is_relative_to(repository):
                 raise ProofGateExecutionError("proof log directory is not isolated")
+            snapshot = trusted_directory / "repository"
             log_path = trusted_directory / "log.db"
             status_path = trusted_directory / "worker.status"
-            if any(path.exists() or path.is_symlink() for path in (log_path, status_path)):
+            ready_path = trusted_directory / "worker.ready"
+            if any(
+                path.exists() or path.is_symlink()
+                for path in (snapshot, log_path, status_path, ready_path)
+            ):
                 raise ProofGateExecutionError("proof log path is not isolated")
+            await _await_repository_snapshot(
+                _create_repository_snapshot,
+                repository,
+                snapshot,
+                request.base_ref,
+                request.head_sha,
+            )
 
             worker = await _start_worker(
                 self._worker_command,
-                repository,
+                snapshot,
                 request.base_ref,
                 log_path,
                 status_path,
+                ready_path,
             )
             try:
                 async with asyncio.timeout(request.timeout_seconds):
@@ -165,11 +181,19 @@ class ProofAdapter:
     def __init__(self, runner: ProofGateRunner | None = None) -> None:
         self._runner = runner or PublishedProofGate()
 
+    @property
+    def production_gate_enabled(self) -> bool:
+        """Return true only for the platform-owned published-package boundary."""
+        return type(self._runner) is PublishedProofGate and self._runner.production_command_enabled
+
     async def verify(self, request: ProofRequest) -> ProofVerdict:
         try:
-            result = await asyncio.wait_for(
-                self._runner.run(request), timeout=request.timeout_seconds
-            )
+            if type(self._runner) is PublishedProofGate:
+                result = await self._runner.run(request)
+            else:
+                result = await asyncio.wait_for(
+                    self._runner.run(request), timeout=request.timeout_seconds
+                )
         except TimeoutError as exc:
             raise ProofGateTimeoutError("proof gate timed out") from exc
         except ProofGateError:
@@ -231,18 +255,20 @@ async def _start_worker(
     base_ref: str,
     log_path: Path,
     status_path: Path,
+    ready_path: Path,
 ) -> _ManagedWorker:
     options: dict[str, object] = {}
     if os.name == "posix":
         options["start_new_session"] = True
     elif os.name == "nt":
         options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-    try:
-        process = await asyncio.create_subprocess_exec(
+    creation = asyncio.create_task(
+        asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
             "pr_reliability_proof_adapter._process_supervisor",
             str(status_path),
+            str(ready_path),
             *worker_command,
             str(repository),
             base_ref,
@@ -252,6 +278,17 @@ async def _start_worker(
             stderr=asyncio.subprocess.PIPE,
             **options,
         )
+    )
+    try:
+        process = await asyncio.shield(creation)
+    except asyncio.CancelledError:
+        try:
+            process = await creation
+            process.kill()
+            await asyncio.wait_for(process.wait(), timeout=_PROCESS_CLEANUP_SECONDS)
+        except BaseException as cleanup_exc:
+            raise ProofGateExecutionError("proof gate process cleanup failed") from cleanup_exc
+        raise
     except OSError as exc:
         raise ProofGateExecutionError("proof gate failed") from exc
     job: object | None = None
@@ -260,20 +297,26 @@ async def _start_worker(
             from ._windows_job import WindowsJob
 
             job = WindowsJob.attach(process.pid)
+        await asyncio.wait_for(
+            _wait_for_process_file(process, ready_path, "lifecycle setup"),
+            timeout=_PROCESS_CLEANUP_SECONDS,
+        )
         if process.stdin is None:
             raise RuntimeError("proof process supervisor has no control pipe")
         process.stdin.write(b"1")
         await process.stdin.drain()
         return _ManagedWorker(process, job, status_path)
-    except Exception as exc:
+    except BaseException as exc:
         try:
             if os.name == "nt" and job is None:
                 process.kill()
                 await asyncio.wait_for(process.wait(), timeout=_PROCESS_CLEANUP_SECONDS)
             else:
                 await _ensure_process_tree_terminated(_ManagedWorker(process, job, status_path))
-        except Exception as cleanup_exc:
+        except BaseException as cleanup_exc:
             raise ProofGateExecutionError("proof gate process cleanup failed") from cleanup_exc
+        if isinstance(exc, asyncio.CancelledError):
+            raise
         raise ProofGateExecutionError("proof gate lifecycle setup failed") from exc
 
 
@@ -332,8 +375,11 @@ async def _terminate_process_tree(worker: _ManagedWorker) -> None:
     process = worker.process
     try:
         if os.name == "posix":
-            with suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
+            if not sys.platform.startswith("linux"):
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                raise RuntimeError("proof descendant cleanup requires Linux")
+            await asyncio.to_thread(_kill_linux_process_tree, process.pid)
         elif os.name == "nt":
             if worker.job is None:
                 raise RuntimeError("proof process has no Windows Job Object")
@@ -348,6 +394,56 @@ async def _terminate_process_tree(worker: _ManagedWorker) -> None:
         raise ProofGateExecutionError("proof gate process cleanup failed") from exc
 
 
+def _kill_linux_process_tree(root_pid: int) -> None:
+    with suppress(ProcessLookupError):
+        os.kill(root_pid, signal.SIGSTOP)
+    deadline = time.monotonic() + _PROCESS_CLEANUP_SECONDS
+    while True:
+        descendants = _linux_descendants(root_pid)
+        living = [pid for pid in descendants if _linux_process_state(pid) != "Z"]
+        if not living:
+            break
+        for process_id in reversed(living):
+            with suppress(ProcessLookupError):
+                os.kill(process_id, signal.SIGKILL)
+        if time.monotonic() >= deadline:
+            raise TimeoutError("proof descendants did not terminate")
+        time.sleep(0.01)
+    with suppress(ProcessLookupError):
+        os.kill(root_pid, signal.SIGKILL)
+
+
+def _linux_descendants(root_pid: int) -> list[int]:
+    found: list[int] = []
+    pending = [root_pid]
+    while pending:
+        parent = pending.pop()
+        task_directory = Path(f"/proc/{parent}/task")
+        try:
+            task_paths = tuple(task_directory.iterdir())
+        except OSError:
+            continue
+        children: set[int] = set()
+        for task_path in task_paths:
+            try:
+                raw_children = (task_path / "children").read_text(encoding="ascii")
+            except OSError:
+                continue
+            children.update(int(value) for value in raw_children.split())
+        found.extend(children)
+        pending.extend(children)
+    return found
+
+
+def _linux_process_state(process_id: int) -> str | None:
+    try:
+        stat = Path(f"/proc/{process_id}/stat").read_text(encoding="ascii")
+    except OSError:
+        return None
+    _, separator, remainder = stat.rpartition(") ")
+    return remainder[:1] if separator else None
+
+
 async def _ensure_process_tree_terminated(worker: _ManagedWorker) -> None:
     cleanup = asyncio.create_task(_terminate_process_tree(worker))
     try:
@@ -358,10 +454,7 @@ async def _ensure_process_tree_terminated(worker: _ManagedWorker) -> None:
 
 
 async def _wait_for_worker_status(worker: _ManagedWorker) -> int:
-    while not worker.status_path.exists():
-        if worker.process.returncode is not None:
-            raise ProofGateExecutionError("proof gate failed")
-        await asyncio.sleep(0.01)
+    await _wait_for_process_file(worker.process, worker.status_path, "worker status")
     try:
         value = int(await asyncio.to_thread(worker.status_path.read_text, encoding="ascii"))
     except (OSError, ValueError) as exc:
@@ -371,10 +464,75 @@ async def _wait_for_worker_status(worker: _ManagedWorker) -> int:
     return value
 
 
-def _validate_checkout(repository: Path, base_ref: str, expected_head: str) -> None:
+async def _wait_for_process_file(
+    process: asyncio.subprocess.Process,
+    path: Path,
+    description: str,
+) -> None:
+    while not path.exists():
+        if process.returncode is not None:
+            raise ProofGateExecutionError(f"proof {description} failed")
+        await asyncio.sleep(0.01)
+
+
+def _create_repository_snapshot(
+    repository: Path,
+    snapshot: Path,
+    base_ref: str,
+    expected_head: str,
+) -> None:
+    _validate_checkout(repository, base_ref, expected_head, require_clean=True)
+    environment = os.environ.copy()
+    environment["GIT_CONFIG_NOSYSTEM"] = "1"
+    environment["GIT_CONFIG_GLOBAL"] = os.devnull
+    _run_git_command(
+        (
+            "git",
+            "-c",
+            "protocol.file.allow=always",
+            "clone",
+            "--quiet",
+            "--no-local",
+            "--no-checkout",
+            repository.as_uri(),
+            str(snapshot),
+        ),
+        cwd=repository.parent,
+        timeout=_SNAPSHOT_SECONDS,
+        environment=environment,
+    )
+    _run_git_command(
+        ("git", "checkout", "--quiet", "--detach", expected_head),
+        cwd=snapshot,
+        timeout=_SNAPSHOT_SECONDS,
+        environment=environment,
+    )
+    _validate_checkout(snapshot, base_ref, expected_head, require_clean=True)
+
+
+async def _await_repository_snapshot(function, *arguments) -> None:
+    snapshot = asyncio.create_task(asyncio.to_thread(function, *arguments))
+    try:
+        await asyncio.shield(snapshot)
+    except asyncio.CancelledError:
+        await snapshot
+        raise
+
+
+def _validate_checkout(
+    repository: Path,
+    base_ref: str,
+    expected_head: str,
+    *,
+    require_clean: bool = False,
+) -> None:
     head = _git(repository, "rev-parse", "--verify", "HEAD^{commit}")
     if head.stdout.strip() != expected_head:
         raise ProofGateExecutionError("proof repository head does not match request")
+    if require_clean:
+        status = _git(repository, "status", "--porcelain=v1", "--untracked-files=all")
+        if status.stdout:
+            raise ProofGateExecutionError("proof repository must be clean")
     base = _git(repository, "rev-parse", "--verify", f"{base_ref}^{{commit}}")
     try:
         ancestor = subprocess.run(
@@ -393,15 +551,30 @@ def _validate_checkout(repository: Path, base_ref: str, expected_head: str) -> N
 
 
 def _git(repository: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    return _run_git_command(
+        ("git", *arguments),
+        cwd=repository,
+        timeout=_GIT_CHECK_SECONDS,
+    )
+
+
+def _run_git_command(
+    arguments: tuple[str, ...],
+    *,
+    cwd: Path,
+    timeout: float,
+    environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
-            ("git", *arguments),
-            cwd=repository,
+            arguments,
+            cwd=cwd,
             stdin=subprocess.DEVNULL,
             text=True,
             capture_output=True,
             check=True,
-            timeout=_GIT_CHECK_SECONDS,
+            timeout=timeout,
+            env=environment,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise ProofGateExecutionError("proof gate failed") from exc

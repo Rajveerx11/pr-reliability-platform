@@ -12,7 +12,7 @@ them and names the affected files.
 - Reason: Published Proof of Work results need one stable, fail-closed contract before they can
   affect review approval.
 - Changed files:
-  - `packages/proof_adapter/` — versioned local verdict, expected-head and ancestor validation,
+  - `packages/proof_adapter/` — versioned local verdict, immutable clean-commit snapshots,
     cross-platform whole-tree process cleanup, isolated temporary logs, strict result bounds, and
     regression tests.
   - `workers/src/pr_reliability_workers/activities/` — combined sandbox and Proof of Work gate
