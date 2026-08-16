@@ -87,14 +87,14 @@ def corpus_fingerprint(tasks: tuple[GoldenTask, ...]) -> str:
     support = _support_file(tasks[0])
     digest.update(support.name.encode())
     digest.update(b"\0")
-    digest.update(support.read_bytes())
+    digest.update(_portable_source_bytes(support))
     digest.update(b"\0")
     for task in tasks:
         digest.update(task.id.encode())
         for path in _task_files(task):
             digest.update(path.relative_to(task.verifier.parent).as_posix().encode())
             digest.update(b"\0")
-            digest.update(path.read_bytes())
+            digest.update(_portable_source_bytes(path))
             digest.update(b"\0")
     return digest.hexdigest()
 
@@ -270,6 +270,15 @@ def _is_corpus_file(path: Path) -> bool:
     """Ignore interpreter caches that do not belong to the frozen source corpus."""
 
     return path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+
+
+def _portable_source_bytes(path: Path) -> bytes:
+    """Canonicalize text line endings so one corpus hash works across Git checkouts."""
+
+    content = path.read_bytes()
+    if path.suffix in {".json", ".py"}:
+        return content.replace(b"\r\n", b"\n")
+    return content
 
 
 def _candidate_tampering(workspace: Path) -> str | None:

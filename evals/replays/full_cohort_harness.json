@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "run_mode": "deterministic_replay",
+  "label": "Full-cohort harness replay with no model findings",
+  "recorded_at": "2026-08-16T07:56:00Z",
+  "evaluated_commit": "8a74102156a6d95b40f5d6bd6dff5990cb3b6f5d",
+  "corpus_fingerprint": "6023eb95d144931eeb8cd5fb7499bc11ed26ce7dde50be7f02fc11815ec9a6aa",
+  "provider": null,
+  "model": null,
+  "limits": {
+    "context_token_budget": null,
+    "verifier_timeout_seconds": 10,
+    "sandbox_enabled": false,
+    "proof_gate_enabled": false
+  },
+  "attempts": [
+    {
+      "task_id": "python-authorization-002",
+      "status": "not_run",
+      "findings": [],
+      "agent_duration_ms": null,
+      "end_to_end_latency_ms": null,
+      "usage": {
+        "coverage": "unknown",
+        "prompt_tokens": null,
+        "completion_tokens": null,
+        "total_tokens": null,
+        "reported_cost_usd_micros": null
+      },
+      "retries": 0
+    },
+    {
+      "task_id": "python-cache-invalidation-007",
+      "status": "not_run",
+      "findings": [],
+      "agent_duration_ms": null,
+      "end_to_end_latency_ms": null,
+      "usage": {
+        "coverage": "unknown",
+        "prompt_tokens": null,
+        "completion_tokens": null,
+        "total_tokens": null,
+        "reported_cost_usd_micros": null
+      },
+      "retries": 0
+    },
+    {
+      "task_id": "python-idempotency-001",
+      "status": "not_run",
+      "findings": [],
+      "agent_duration_ms": null,
+      "end_to_end_latency_ms": null,
+      "usage": {
+        "coverage": "unknown",
+        "prompt_tokens": null,
+        "completion_tokens": null,
+        "total_tokens": null,
+        "reported_cost_usd_micros": null
+      },
+      "retries": 0
+    },
+    {
+      "task_id": "python-money-rounding-008",
+      "status": "not_run",
+      "findings": [],
+      "agent_duration_ms": null,
+      "end_to_end_latency_ms": null,
+      "usage": {
+        "coverage": "unknown",
+        "prompt_tokens": null,
+        "completion_tokens": null,
+        "total_tokens": null,
+        "reported_cost_usd_micros": null
+      },
+      "retries": 0
+    },
+    {
+      "task_id": "python-pagination-003",
+      "status": "not_run",
+      "findings": [],
+      "agent_duration_ms": null,
+      "end_to_end_latency_ms": null,
+      "usage": {
+        "coverage": "unknown",
+        "prompt_tokens": null,
+        "completion_tokens": null,
+        "total_tokens": null,
+        "reported_cost_usd_micros": null
+      },
+      "retries": 0
+    },
+    {
+      "task_id": "python-path-traversal-006",
+      "status": "not_run",
+      "findings": [],
+      "agent_duration_ms": null,
+      "end_to_end_latency_ms": null,
+      "usage": {
+        "coverage": "unknown",
+        "prompt_tokens": null,
+        "completion_tokens": null,
+        "total_tokens": null,
+        "reported_cost_usd_micros": null
+      },
+      "retries": 0
+    },
+    {
+      "task_id": "python-retry-limit-004",
+      "status": "not_run",
+      "findings": [],
+      "agent_duration_ms": null,
+      "end_to_end_latency_ms": null,
+      "usage": {
+        "coverage": "unknown",
+        "prompt_tokens": null,
+        "completion_tokens": null,
+        "total_tokens": null,
+        "reported_cost_usd_micros": null
+      },
+      "retries": 0
+    },
+    {
+      "task_id": "python-timezone-009",
+      "status": "not_run",
+      "findings": [],
+      "agent_duration_ms": null,
+      "end_to_end_latency_ms": null,
+      "usage": {
+        "coverage": "unknown",
+        "prompt_tokens": null,
+        "completion_tokens": null,
+        "total_tokens": null,
+        "reported_cost_usd_micros": null
+      },
+      "retries": 0
+    },
+    {
+      "task_id": "python-webhook-dedup-010",
+      "status": "not_run",
+      "findings": [],
+      "agent_duration_ms": null,
+      "end_to_end_latency_ms": null,
+      "usage": {
+        "coverage": "unknown",
+        "prompt_tokens": null,
+        "completion_tokens": null,
+        "total_tokens": null,
+        "reported_cost_usd_micros": null
+      },
+      "retries": 0
+    },
+    {
+      "task_id": "python-webhook-signature-005",
+      "status": "not_run",
+      "findings": [],
+      "agent_duration_ms": null,
+      "end_to_end_latency_ms": null,
+      "usage": {
+        "coverage": "unknown",
+        "prompt_tokens": null,
+        "completion_tokens": null,
+        "total_tokens": null,
+        "reported_cost_usd_micros": null
+      },
+      "retries": 0
+    }
+  ],
+  "limitations": [
+    "No provider or model credentials were available, so this replay does not measure single-agent quality.",
+    "All findings lists are intentionally empty harness inputs; they are not model outputs.",
+    "Issue #10 is still open, so the Proof of Work adapter was not included.",
+    "Disposable sandbox and context selection were not exercised by this harness replay.",
+    "Latency, agent duration, token usage, and cost were not measured and remain unknown.",
+    "The frozen cohort contains only defect-seeded tasks and no clean negative tasks. The reported-finding false-positive rate is defined as false findings divided by all reported findings. Its denominator is zero in this replay."
+  ]
+}
