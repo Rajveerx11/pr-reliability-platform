@@ -37,6 +37,12 @@ jobs:
           REVIEW_ACTIVITY_OPERATIONS_FACTORY: provider:create_operations
           TEMPORAL_ADDRESS: temporal.example.invalid:7233
         run: docker compose -f infra/compose/compose.yaml config --quiet
+      - name: Validate private VM manifest
+        run: >-
+          docker compose
+          --env-file infra/deployment/deployment.env.example
+          --file infra/deployment/compose.vm.yaml
+          config --quiet
       - name: Build production process image
         run: docker build --file infra/compose/Dockerfile --tag pr-reliability-platform:ci .
 
