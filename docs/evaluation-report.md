@@ -9,6 +9,8 @@
 - Label: Full-cohort harness replay with no model findings
 - Recorded: `2026-08-16T07:56:00Z`
 - Evaluated commit: `8a74102156a6d95b40f5d6bd6dff5990cb3b6f5d`
+- Stack base: unmerged [PR #25](https://github.com/Rajveerx11/pr-reliability-platform/pull/25),
+  not `main`
 - Corpus fingerprint: `6023eb95d144931eeb8cd5fb7499bc11ed26ce7dde50be7f02fc11815ec9a6aa`
 - Provider: unknown; no provider credentials were configured
 - Model: unknown; no model was configured
@@ -45,6 +47,8 @@ Every protected verifier rejected its broken fixture and accepted its reference 
 
 ## Limits and blockers
 
+- This evaluation branch is stacked on unmerged PR #25 at the evaluated commit. Results cannot be
+  treated as a `main` baseline until that dependency merges or this branch is rebased.
 - Context token budget is unknown because context selection did not run.
 - Protected verifier timeout was 10 seconds per invocation.
 - Disposable sandbox was not enabled.

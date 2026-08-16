@@ -63,8 +63,12 @@ class ReplayAttempt(EvaluationModel):
             or self.end_to_end_latency_ms is not None
         ):
             raise ValueError("not_run attempts cannot contain findings or measured durations")
-        if self.usage.coverage != "unknown" or self.retries != 0:
-            raise ValueError("not_run attempts must keep usage unknown and retries zero")
+        if (
+            self.usage.coverage != "unknown"
+            or self.usage.reported_cost_usd_micros is not None
+            or self.retries != 0
+        ):
+            raise ValueError("not_run attempts must keep usage and cost unknown and retries zero")
         return self
 
 

@@ -5,8 +5,9 @@ import shutil
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from evals.evaluation_models import ReplayFinding, ReplayManifest
+from evals.evaluation_models import ReplayAttempt, ReplayFinding, ReplayManifest
 from evals.evaluation_runner import EvaluationError, main, run_evaluation
 from evals.golden_prs.corpus import CORPUS_ROOT, corpus_fingerprint, load_corpus
 
@@ -46,6 +47,14 @@ def test_replay_must_include_each_frozen_task_once() -> None:
 
     with pytest.raises(EvaluationError, match="full cohort"):
         run_evaluation(incomplete)
+
+
+def test_not_run_attempt_rejects_reported_cost() -> None:
+    attempt = manifest().attempts[0].model_dump(mode="json")
+    attempt["usage"]["reported_cost_usd_micros"] = 250
+
+    with pytest.raises(ValidationError, match="keep usage and cost unknown"):
+        ReplayAttempt.model_validate(attempt)
 
 
 def test_scoring_counts_adjudicated_matches_and_false_findings() -> None:

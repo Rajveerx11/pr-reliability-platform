@@ -22,7 +22,8 @@ them and names the affected files.
   - `evals/tests/` and `workers/tests/agents/` — cohort, scoring, unknown measurement, portability,
     and provider-boundary coverage.
   - `docs/evaluation.md`, `docs/evaluation-report.md`, `docs/architecture.md`, and
-    `docs/README.md` — methodology, complete replay cohort, limitations, and exact blockers.
+    `docs/README.md` — methodology, complete replay cohort, unmerged PR #25 stack, limitations,
+    and exact blockers.
 
 ### Added traces, run metrics, and dependency health checks
 

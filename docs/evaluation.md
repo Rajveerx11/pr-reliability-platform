@@ -82,6 +82,8 @@ uv run python -m evals.evaluation_runner \
 The committed replay is explicitly a deterministic harness replay. It contains no model output.
 Provider, model, latency, duration, token usage, and cost remain unknown. See
 `docs/evaluation-report.md` for its complete cohort and blocker report.
+The recorded harness branch is stacked on unmerged PR #25, not `main`; its evaluated commit and
+stack status are disclosed in both replay input and report.
 
 Replay manifests record the evaluated commit, corpus fingerprint, run time, provider/model facts,
 limits, every task attempt, adjudicated defect matches, retries, usage, and limitations. Unknown

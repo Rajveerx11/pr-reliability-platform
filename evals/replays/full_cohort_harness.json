@@ -166,6 +166,7 @@
     }
   ],
   "limitations": [
+    "This evaluation branch is stacked on unmerged PR #25 (commit 8a74102156a6d95b40f5d6bd6dff5990cb3b6f5d), not main.",
     "No provider or model credentials were available, so this replay does not measure single-agent quality.",
     "All findings lists are intentionally empty harness inputs; they are not model outputs.",
     "Issue #10 is still open, so the Proof of Work adapter was not included.",
