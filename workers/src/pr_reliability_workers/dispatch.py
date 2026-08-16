@@ -366,18 +366,24 @@ async def dispatch_pending_commands(
     if poll_interval_seconds <= 0:
         raise ValueError("poll_interval_seconds must be positive")
     while stop_event is None or not stop_event.is_set():
-        try:
-            dispatched = await dispatch_next_command(
-                connection_factory,
-                client,
-                task_queue=task_queue,
-            )
-            if not dispatched:
-                dispatched = await dispatch_next_approval(connection_factory, client)
-        except _TRANSIENT_ERRORS:
-            _LOGGER.warning("transient command dispatch failure; retrying", exc_info=True)
-            await _wait_or_stop(poll_interval_seconds, stop_event)
-            continue
+        dispatched = False
+        for dispatch_kind in ("approval", "start"):
+            try:
+                if dispatch_kind == "approval":
+                    result = await dispatch_next_approval(connection_factory, client)
+                else:
+                    result = await dispatch_next_command(
+                        connection_factory,
+                        client,
+                        task_queue=task_queue,
+                    )
+                dispatched = result or dispatched
+            except _TRANSIENT_ERRORS:
+                _LOGGER.warning(
+                    "transient %s dispatch failure; retrying",
+                    dispatch_kind,
+                    exc_info=True,
+                )
         if not dispatched:
             await _wait_or_stop(poll_interval_seconds, stop_event)
 

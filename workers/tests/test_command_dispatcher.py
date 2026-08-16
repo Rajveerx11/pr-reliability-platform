@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pr_reliability_workers.dispatch as dispatcher_module
 import psycopg
 import pytest
 from pr_reliability_api.db import apply_migrations
@@ -354,6 +355,40 @@ def test_approval_dispatch_locks_head_until_signal_is_accepted(
         allow_signal.set()
         assert dispatch.result(timeout=2) is True
         head_update.result(timeout=2)
+
+
+def test_start_backlog_cannot_starve_approval_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    stop_event = asyncio.Event()
+    start_calls = 0
+    approval_calls = 0
+
+    async def fake_start(*_args, **_kwargs) -> bool:
+        nonlocal start_calls
+        start_calls += 1
+        if start_calls == 2:
+            stop_event.set()
+        return True
+
+    async def fake_approval(*_args, **_kwargs) -> bool:
+        nonlocal approval_calls
+        approval_calls += 1
+        return True
+
+    monkeypatch.setattr(dispatcher_module, "dispatch_next_command", fake_start)
+    monkeypatch.setattr(dispatcher_module, "dispatch_next_approval", fake_approval)
+
+    asyncio.run(
+        dispatch_pending_commands(
+            lambda: None,
+            object(),
+            task_queue=TASK_QUEUE,
+            poll_interval_seconds=0.01,
+            stop_event=stop_event,
+        )
+    )
+
+    assert start_calls == 2
+    assert approval_calls == 2
 
 
 def test_pending_command_is_dispatched_once_and_receipted(
