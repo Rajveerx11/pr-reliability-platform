@@ -32,7 +32,7 @@ from pr_reliability_workers.workflows.types import (
 from temporalio.exceptions import ApplicationError
 
 IMAGE = f"sha256:{'a' * 64}"
-STAGE_REQUEST = StageRequest("owner", "run", "head", "key", base_sha="a" * 40)
+STAGE_REQUEST = StageRequest("owner", "run", "b" * 40, "key", base_sha="a" * 40)
 
 
 class StaticRunner:
@@ -47,9 +47,10 @@ class StaticRunner:
 class StaticProofRunner:
     def __init__(self, payload: object) -> None:
         self.payload = payload
+        self.requests: list[ProofRequest] = []
 
     async def run(self, request: ProofRequest) -> ProofGateResult:
-        del request
+        self.requests.append(request)
         return ProofGateResult("0.2.0", self.payload)
 
 
@@ -151,6 +152,32 @@ def test_proof_error_is_recorded_then_blocks_output(tmp_path: Path) -> None:
     assert recorded == [VerificationEvidence(sandbox=passed, proof_error="proof gate failed")]
     assert raised.value.type == "ProofGateFailed"
     assert raised.value.non_retryable
+
+
+def test_proof_request_binds_stage_head_and_base(tmp_path: Path) -> None:
+    passed = SandboxResult(exit_code=0, stdout="ok", stderr="", duration_ms=5)
+    proof_runner = StaticProofRunner({"passed": True, "reasons": [], "findings": []})
+
+    async def prepare(request: StageRequest) -> SandboxRequest:
+        del request
+        return SandboxRequest(IMAGE, tmp_path, ("true",))
+
+    async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
+        del request, result
+        return StageResult("evidence-ref")
+
+    operation = SandboxVerificationOperation(
+        prepare,
+        StaticRunner(passed),
+        record,
+        ProofAdapter(proof_runner),
+    )
+
+    asyncio.run(operation(STAGE_REQUEST))
+
+    assert proof_runner.requests == [
+        ProofRequest(tmp_path, "b" * 40, base_ref="a" * 40, timeout_seconds=300)
+    ]
 
 
 def test_production_loader_requires_real_docker_runner(

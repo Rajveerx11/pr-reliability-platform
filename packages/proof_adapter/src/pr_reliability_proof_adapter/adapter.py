@@ -22,6 +22,8 @@ _MAX_GATE_OUTPUT_BYTES = 256 * 1024
 _MAX_GATE_ERROR_BYTES = 64 * 1024
 _MAX_VERDICT_ITEMS = 128
 _MAX_VERDICT_TEXT_LENGTH = 1_000
+_PROCESS_CLEANUP_SECONDS = 5
+_GIT_CHECK_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -29,12 +31,15 @@ class ProofRequest:
     """Inputs needed to inspect one reviewed repository without running its tests."""
 
     repository: Path
+    head_sha: str
     base_ref: str = "HEAD"
     timeout_seconds: float = 60
 
     def __post_init__(self) -> None:
         if not isinstance(self.repository, Path):
             raise TypeError("proof repository must be a Path")
+        if not _is_git_sha(self.head_sha):
+            raise ValueError("proof head_sha must be a lowercase 40-character Git SHA")
         if not isinstance(self.base_ref, str) or (
             self.base_ref != "HEAD"
             and (
@@ -106,35 +111,40 @@ class PublishedProofGate:
             raise ProofGateExecutionError("proof repository is not a Git checkout") from exc
         if not repository.is_dir() or not (repository / ".git").exists():
             raise ProofGateExecutionError("proof repository is not a Git checkout")
+        await asyncio.to_thread(
+            _validate_checkout,
+            repository,
+            request.base_ref,
+            request.head_sha,
+        )
 
         with tempfile.TemporaryDirectory(prefix="pr-proof-gate-") as temporary:
             trusted_directory = Path(temporary).resolve(strict=True)
             if trusted_directory.is_symlink() or trusted_directory.is_relative_to(repository):
                 raise ProofGateExecutionError("proof log directory is not isolated")
             log_path = trusted_directory / "log.db"
-            if log_path.exists() or log_path.is_symlink():
+            status_path = trusted_directory / "worker.status"
+            if any(path.exists() or path.is_symlink() for path in (log_path, status_path)):
                 raise ProofGateExecutionError("proof log path is not isolated")
 
-            process = await _start_worker(
+            worker = await _start_worker(
                 self._worker_command,
                 repository,
                 request.base_ref,
                 log_path,
+                status_path,
             )
             try:
                 async with asyncio.timeout(request.timeout_seconds):
-                    stdout, stderr = await _collect_bounded_output(process)
+                    stdout, stderr, returncode = await _collect_bounded_output(worker)
             except TimeoutError as exc:
-                await _kill_process_tree(process)
                 raise ProofGateTimeoutError("proof gate timed out") from exc
             except asyncio.CancelledError:
-                await _kill_process_tree(process)
                 raise
-            except Exception:
-                await _kill_process_tree(process)
-                raise
+            finally:
+                await _ensure_process_tree_terminated(worker)
 
-            if process.returncode != 0:
+            if returncode != 0:
                 del stderr
                 raise ProofGateExecutionError("proof gate failed")
             try:
@@ -220,39 +230,73 @@ async def _start_worker(
     repository: Path,
     base_ref: str,
     log_path: Path,
-) -> asyncio.subprocess.Process:
+    status_path: Path,
+) -> _ManagedWorker:
     options: dict[str, object] = {}
     if os.name == "posix":
         options["start_new_session"] = True
     elif os.name == "nt":
         options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     try:
-        return await asyncio.create_subprocess_exec(
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "pr_reliability_proof_adapter._process_supervisor",
+            str(status_path),
             *worker_command,
             str(repository),
             base_ref,
             str(log_path),
-            stdin=asyncio.subprocess.DEVNULL,
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             **options,
         )
     except OSError as exc:
         raise ProofGateExecutionError("proof gate failed") from exc
+    job: object | None = None
+    try:
+        if os.name == "nt":
+            from ._windows_job import WindowsJob
+
+            job = WindowsJob.attach(process.pid)
+        if process.stdin is None:
+            raise RuntimeError("proof process supervisor has no control pipe")
+        process.stdin.write(b"1")
+        await process.stdin.drain()
+        return _ManagedWorker(process, job, status_path)
+    except Exception as exc:
+        try:
+            if os.name == "nt" and job is None:
+                process.kill()
+                await asyncio.wait_for(process.wait(), timeout=_PROCESS_CLEANUP_SECONDS)
+            else:
+                await _ensure_process_tree_terminated(_ManagedWorker(process, job, status_path))
+        except Exception as cleanup_exc:
+            raise ProofGateExecutionError("proof gate process cleanup failed") from cleanup_exc
+        raise ProofGateExecutionError("proof gate lifecycle setup failed") from exc
 
 
 async def _collect_bounded_output(
-    process: asyncio.subprocess.Process,
-) -> tuple[bytes, bytes]:
+    worker: _ManagedWorker,
+) -> tuple[bytes, bytes, int]:
+    process = worker.process
     if process.stdout is None or process.stderr is None:
         raise ProofGateExecutionError("proof gate failed")
     stdout_task = asyncio.create_task(_read_bounded(process.stdout, _MAX_GATE_OUTPUT_BYTES))
     stderr_task = asyncio.create_task(_read_bounded(process.stderr, _MAX_GATE_ERROR_BYTES))
-    wait_task = asyncio.create_task(process.wait())
-    tasks = (stdout_task, stderr_task, wait_task)
+    status_task = asyncio.create_task(_wait_for_worker_status(worker))
+    tasks = (stdout_task, stderr_task, status_task)
     try:
-        stdout, stderr, _ = await asyncio.gather(*tasks)
-        return stdout, stderr
+        pending: set[asyncio.Task[object]] = set(tasks)
+        while not status_task.done():
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                if exception := task.exception():
+                    raise exception
+        await _ensure_process_tree_terminated(worker)
+        stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
+        return stdout, stderr, status_task.result()
     except ValueError as exc:
         raise ProofGateExecutionError("proof gate output exceeded its limit") from exc
     finally:
@@ -273,31 +317,99 @@ async def _read_bounded(reader: asyncio.StreamReader, limit: int) -> bytes:
     return b"".join(chunks)
 
 
-async def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
-    if process.returncode is None:
+@dataclass
+class _ManagedWorker:
+    process: asyncio.subprocess.Process
+    job: object | None
+    status_path: Path
+    cleanup_attempted: bool = False
+
+
+async def _terminate_process_tree(worker: _ManagedWorker) -> None:
+    if worker.cleanup_attempted:
+        return
+    worker.cleanup_attempted = True
+    process = worker.process
+    try:
         if os.name == "posix":
             with suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)
         elif os.name == "nt":
-            try:
-                killer = await asyncio.create_subprocess_exec(
-                    "taskkill",
-                    "/PID",
-                    str(process.pid),
-                    "/T",
-                    "/F",
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                )
-                await asyncio.wait_for(killer.wait(), timeout=5)
-            except (OSError, TimeoutError):
-                with suppress(ProcessLookupError):
-                    process.kill()
-        else:
-            with suppress(ProcessLookupError):
-                process.kill()
-    with suppress(ProcessLookupError):
-        await process.wait()
-    streams = tuple(stream for stream in (process.stdout, process.stderr) if stream is not None)
-    await asyncio.gather(*(stream.read() for stream in streams), return_exceptions=True)
+            if worker.job is None:
+                raise RuntimeError("proof process has no Windows Job Object")
+            worker.job.terminate()
+        elif process.returncode is None:
+            process.kill()
+        if process.stdin is not None:
+            process.stdin.close()
+            await asyncio.wait_for(process.stdin.wait_closed(), timeout=_PROCESS_CLEANUP_SECONDS)
+        await asyncio.wait_for(process.wait(), timeout=_PROCESS_CLEANUP_SECONDS)
+    except (Exception, TimeoutError) as exc:
+        raise ProofGateExecutionError("proof gate process cleanup failed") from exc
+
+
+async def _ensure_process_tree_terminated(worker: _ManagedWorker) -> None:
+    cleanup = asyncio.create_task(_terminate_process_tree(worker))
+    try:
+        await asyncio.shield(cleanup)
+    except asyncio.CancelledError:
+        await cleanup
+        raise
+
+
+async def _wait_for_worker_status(worker: _ManagedWorker) -> int:
+    while not worker.status_path.exists():
+        if worker.process.returncode is not None:
+            raise ProofGateExecutionError("proof gate failed")
+        await asyncio.sleep(0.01)
+    try:
+        value = int(await asyncio.to_thread(worker.status_path.read_text, encoding="ascii"))
+    except (OSError, ValueError) as exc:
+        raise ProofGateExecutionError("proof gate returned invalid process status") from exc
+    if not -255 <= value <= 255:
+        raise ProofGateExecutionError("proof gate returned invalid process status")
+    return value
+
+
+def _validate_checkout(repository: Path, base_ref: str, expected_head: str) -> None:
+    head = _git(repository, "rev-parse", "--verify", "HEAD^{commit}")
+    if head.stdout.strip() != expected_head:
+        raise ProofGateExecutionError("proof repository head does not match request")
+    base = _git(repository, "rev-parse", "--verify", f"{base_ref}^{{commit}}")
+    try:
+        ancestor = subprocess.run(
+            ("git", "merge-base", "--is-ancestor", base.stdout.strip(), expected_head),
+            cwd=repository,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=_GIT_CHECK_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProofGateExecutionError("proof gate failed") from exc
+    if ancestor.returncode != 0:
+        raise ProofGateExecutionError("proof base is not an ancestor of head")
+
+
+def _git(repository: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            ("git", *arguments),
+            cwd=repository,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=_GIT_CHECK_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProofGateExecutionError("proof gate failed") from exc
+
+
+def _is_git_sha(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 40
+        and all(character in "0123456789abcdef" for character in value)
+    )

@@ -59,6 +59,7 @@ class SandboxVerificationOperation:
 
         proof_request = ProofRequest(
             repository=sandbox_request.workspace,
+            head_sha=request.head_sha,
             base_ref=request.base_sha or "HEAD",
             timeout_seconds=sandbox_request.limits.timeout_seconds,
         )
