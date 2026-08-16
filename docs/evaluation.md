@@ -59,6 +59,37 @@ The ten tasks cover:
 
 Missing usage stays unknown. It is never estimated or shown as zero.
 
+Defect recall is unique matched known defects divided by all known defects. The
+reported-finding false-positive rate is unmatched findings divided by all reported findings. If
+there are no reported findings, the false-positive rate is unknown because its denominator is
+zero. This definition measures false discoveries among findings; the frozen set has no clean
+negative tasks for a task-level specificity measure.
+
+## Reproducible runner
+
+`evals/evaluation_runner.py` loads one strict replay manifest, requires exactly the frozen ten-task
+cohort, checks its fingerprint, and runs each protected verifier against both the broken fixture
+and reference fix. It writes machine-readable JSON and a Markdown report under ignored
+`artifacts/` paths:
+
+```text
+uv run python -m evals.evaluation_runner \
+  --input evals/replays/full_cohort_harness.json \
+  --json-output artifacts/evaluation/full_cohort_harness.json \
+  --markdown-output artifacts/evaluation/full_cohort_harness.md
+```
+
+The committed replay is explicitly a deterministic harness replay. It contains no model output.
+Provider, model, latency, duration, token usage, and cost remain unknown. See
+`docs/evaluation-report.md` for its complete cohort and blocker report.
+The recorded harness branch is stacked on unmerged PR #25, not `main`; its evaluated commit and
+stack status are disclosed in both replay input and report.
+
+Replay manifests record the evaluated commit, corpus fingerprint, run time, provider/model facts,
+limits, every task attempt, adjudicated defect matches, retries, usage, and limitations. Unknown
+measurements use `null`; they are never converted to zero. A manifest with missing or extra tasks,
+the wrong corpus fingerprint, duplicate task IDs, or an invalid defect match fails closed.
+
 ## Comparison rules
 
 - Freeze corpus before comparison.
