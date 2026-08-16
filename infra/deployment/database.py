@@ -41,7 +41,7 @@ def backup(
         destination = _external_directory(repository, destination, create=True)
         bundle = destination / now().astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
         bundle.mkdir(mode=0o700)
-        running_writers = _running_writers(execute, compose)
+        resumable_writers = _resumable_writers(execute, compose)
         try:
             _checked(execute, [*compose, "stop", *_WRITERS])
             files: dict[str, str] = {}
@@ -85,7 +85,7 @@ def backup(
             manifest.chmod(0o600)
             return bundle
         finally:
-            _resume_writers(execute, compose, running_writers)
+            _resume_writers(execute, compose, resumable_writers)
 
 
 def restore(
@@ -106,11 +106,11 @@ def restore(
     with _operation_lock(environment_file):
         bundle = _external_directory(repository, bundle, create=False)
         dumps = _verified_dumps(bundle)
-        running_writers = _running_writers(execute, compose)
+        resumable_writers = _resumable_writers(execute, compose)
         try:
             _checked(execute, [*compose, "stop", *_WRITERS])
         except BaseException:
-            _resume_writers(execute, compose, running_writers)
+            _resume_writers(execute, compose, resumable_writers)
             raise
         for database_name in DATABASES:
             with dumps[database_name].open("rb") as source:
@@ -133,7 +133,7 @@ def restore(
                     ],
                     stdin=source,
                 )
-        _resume_writers(execute, compose, running_writers)
+        _resume_writers(execute, compose, resumable_writers)
 
 
 @contextlib.contextmanager
@@ -178,15 +178,27 @@ def _operation_lock(environment_file: Path) -> Iterator[None]:
         os.close(descriptor)
 
 
-def _running_writers(runner: Runner, compose: Sequence[str]) -> tuple[str, ...]:
+def _resumable_writers(runner: Runner, compose: Sequence[str]) -> tuple[str, ...]:
     with tempfile.TemporaryFile() as output:
-        _checked(runner, [*compose, "ps", "--status", "running", "--services"], stdout=output)
+        _checked(
+            runner,
+            [
+                *compose,
+                "ps",
+                "--status",
+                "running",
+                "--status",
+                "restarting",
+                "--services",
+            ],
+            stdout=output,
+        )
         output.seek(0)
         try:
-            running = set(output.read().decode("utf-8").splitlines())
+            resumable = set(output.read().decode("utf-8").splitlines())
         except UnicodeDecodeError as exc:
             raise DatabaseOperationError("deployment service state is invalid") from exc
-    return tuple(service for service in _WRITERS if service in running)
+    return tuple(service for service in _WRITERS if service in resumable)
 
 
 def _resume_writers(runner: Runner, compose: Sequence[str], running_writers: Sequence[str]) -> None:

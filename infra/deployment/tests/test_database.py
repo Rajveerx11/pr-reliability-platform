@@ -31,6 +31,7 @@ class FakeRunner:
             "activity-worker",
             "temporal",
         ),
+        restarting_services: tuple[str, ...] = (),
     ) -> None:
         self.commands: list[tuple[str, ...]] = []
         self.restored: dict[str, bytes] = {}
@@ -38,13 +39,15 @@ class FakeRunner:
         self.fail_restore = fail_restore
         self.fail_stop = fail_stop
         self.running_services = running_services
+        self.restarting_services = restarting_services
 
     def __call__(self, command, stdin, stdout) -> int:
         values = tuple(command)
         self.commands.append(values)
         if "ps" in values:
             assert stdout is not None
-            stdout.write(("\n".join(self.running_services) + "\n").encode())
+            services = (*self.running_services, *self.restarting_services)
+            stdout.write(("\n".join(services) + "\n").encode())
         if self.fail_stop and "stop" in values:
             return 1
         if "pg_dump" in values:
@@ -96,7 +99,14 @@ def test_backup_and_restore_cover_application_and_temporal_databases(tmp_path: P
 
     assert set(runner.restored) == set(DATABASES)
     assert runner.restored == {name: f"dump:{name}".encode() for name in DATABASES}
-    assert runner.commands[0][-4:] == ("ps", "--status", "running", "--services")
+    assert runner.commands[0][-6:] == (
+        "ps",
+        "--status",
+        "running",
+        "--status",
+        "restarting",
+        "--services",
+    )
     assert runner.commands[1][-6:] == (
         "stop",
         "api",
@@ -162,7 +172,7 @@ def test_backup_preserves_intentionally_stopped_writer_services(tmp_path: Path) 
     start_commands = [command for command in runner.commands if "start" in command]
     assert start_commands == [
         (
-            *runner.commands[0][:-4],
+            *runner.commands[0][:-6],
             "start",
             "api",
             "workflow-worker",
@@ -172,6 +182,28 @@ def test_backup_preserves_intentionally_stopped_writer_services(tmp_path: Path) 
     assert all("command-dispatcher" not in command for command in start_commands)
     assert all("activity-worker" not in command for command in start_commands)
     assert not any("up" in command for command in runner.commands)
+
+
+def test_backup_resumes_writer_observed_while_restarting(tmp_path: Path) -> None:
+    repository, compose, environment, destination = _paths(tmp_path)
+    runner = FakeRunner(
+        running_services=("api",),
+        restarting_services=("command-dispatcher",),
+    )
+
+    backup(repository, compose, environment, destination, runner=runner)
+
+    assert runner.commands[0][-6:] == (
+        "ps",
+        "--status",
+        "running",
+        "--status",
+        "restarting",
+        "--services",
+    )
+    start_commands = [command for command in runner.commands if "start" in command]
+    assert start_commands[0][-3:] == ("start", "api", "command-dispatcher")
+    assert all("workflow-worker" not in command for command in start_commands)
 
 
 def test_failed_restore_leaves_writers_stopped_for_operator_recovery(tmp_path: Path) -> None:

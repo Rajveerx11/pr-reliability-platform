@@ -83,11 +83,11 @@ Prometheus readiness, API readiness, and failed publish audit events daily.
 
 ## Backup and restore drill
 
-The backup command records which database writers are running, stops all writers, dumps the
-application and both Temporal databases, writes SHA-256 checksums, then restarts only writers that
-were running before the backup. Intentionally stopped publishing and worker services remain
-stopped. Keep the destination outside the checkout on an encrypted volume and copy completed
-bundles to a second encrypted location with restricted access.
+The backup command records which database writers are running or restarting, stops all writers,
+dumps the application and both Temporal databases, writes SHA-256 checksums, then restarts only
+that observed subset. Intentionally stopped publishing and worker services remain stopped. Keep
+the destination outside the checkout on an encrypted volume and copy completed bundles to a second
+encrypted location with restricted access.
 Backup and restore share a non-blocking host lock next to the external deployment environment.
 Concurrent manual or scheduled operations fail before changing service state.
 
