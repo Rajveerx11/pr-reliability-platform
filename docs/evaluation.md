@@ -43,6 +43,11 @@ IDs, and the installed package version. Application code imports only this local
 Proof of Work modules. Package errors, timeouts, and malformed results produce no verdict and
 fail verification. A failed verdict is recorded as evidence but cannot reach human approval.
 
+The published package runs in a dedicated child process. The adapter kills that process tree at
+the deadline, rejects a missing base commit or empty diff, bounds its output, and stores package
+logs only in a newly created private temporary directory outside the reviewed checkout. The
+temporary directory is removed after success, failure, cancellation, or timeout.
+
 The ten tasks cover:
 
 - Payment idempotency

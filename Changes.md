@@ -12,8 +12,8 @@ them and names the affected files.
 - Reason: Published Proof of Work results need one stable, fail-closed contract before they can
   affect review approval.
 - Changed files:
-  - `packages/proof_adapter/` — versioned local verdict, published package boundary, strict
-    result validation, timeout, and pass/fail/error tests.
+  - `packages/proof_adapter/` — versioned local verdict, killable published-package process,
+    base and diff validation, isolated temporary logs, strict result bounds, and regression tests.
   - `workers/src/pr_reliability_workers/activities/` — combined sandbox and Proof of Work gate
     that records bounded evidence and blocks output on every failure.
   - `pyproject.toml` and `uv.lock` — published Proof of Work dependency and packaged adapter.

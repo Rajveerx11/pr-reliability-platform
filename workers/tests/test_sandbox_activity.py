@@ -32,7 +32,7 @@ from pr_reliability_workers.workflows.types import (
 from temporalio.exceptions import ApplicationError
 
 IMAGE = f"sha256:{'a' * 64}"
-STAGE_REQUEST = StageRequest("owner", "run", "head", "key", base_sha="base")
+STAGE_REQUEST = StageRequest("owner", "run", "head", "key", base_sha="a" * 40)
 
 
 class StaticRunner:
