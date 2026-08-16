@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 import httpx
 
-from .publish import GitHubComment
+from .publish import GitHubComment, GitHubCommentPayloadMismatch
 
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -67,11 +67,16 @@ class GitHubRestCommentClient:
         repository: str,
         pull_request_number: int,
         marker: str,
+        expected_body: str,
     ) -> GitHubComment | None:
         if not marker.startswith("<!-- pr-reliability:") or len(marker) > 96:
             raise ValueError("invalid GitHub retry marker")
+        terminal_marker = f"\n\n{marker}"
+        if not expected_body.endswith(terminal_marker):
+            raise ValueError("expected GitHub comment must end with its retry marker")
         path = _comments_path(repository, pull_request_number)
         page = 1
+        mismatched_terminal_marker = False
         async with self._new_http_client() as client:
             while True:
                 response = await client.get(
@@ -86,15 +91,20 @@ class GitHubRestCommentClient:
                     user = value.get("user")
                     author_id = user.get("id") if isinstance(user, dict) else None
                     body = value.get("body")
-                    if (
-                        author_id == self._authenticated_author_id
-                        and isinstance(body, str)
-                        and marker in body
-                    ):
+                    if author_id != self._authenticated_author_id or not isinstance(body, str):
+                        continue
+                    if body == expected_body:
                         return _comment_identity(value)
+                    if body.endswith(terminal_marker):
+                        mismatched_terminal_marker = True
                 if len(comments) < _COMMENTS_PER_PAGE:
-                    return None
+                    break
                 page += 1
+        if mismatched_terminal_marker:
+            raise GitHubCommentPayloadMismatch(
+                "GitHub recovery comment does not match the approved payload"
+            )
+        return None
 
     async def create_comment(
         self,

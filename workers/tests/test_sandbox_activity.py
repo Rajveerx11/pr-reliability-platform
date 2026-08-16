@@ -64,9 +64,13 @@ class FakeGitHubClient:
         return "a" * 40
 
     async def find_comment(
-        self, repository: str, pull_request_number: int, marker: str
+        self,
+        repository: str,
+        pull_request_number: int,
+        marker: str,
+        expected_body: str,
     ) -> GitHubComment | None:
-        del repository, pull_request_number, marker
+        del repository, pull_request_number, marker, expected_body
         return None
 
     async def create_comment(

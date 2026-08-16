@@ -78,8 +78,10 @@ operations. Registering partial activity sets on the same queue is not supported
 The publish operation must use `GitHubCommentPublishOperation` with `GitHubRestCommentClient`.
 Configure that client with a short-lived repository installation token and the numeric user ID of
 the authenticated GitHub App bot. It pages through every comment and accepts a retry marker only
-from that author. It never trusts another author's marker or includes tokens, comment bodies,
-GitHub response bodies, or provider exception text in activity failures.
+from that author when the marker is terminal and the full body exactly matches the approved
+rendering. It never trusts another author's marker, a marker inside claim text, or edited content,
+and never includes tokens, comment bodies, GitHub response bodies, or provider exception text in
+activity failures.
 
 ## Quality commands
 

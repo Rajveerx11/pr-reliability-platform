@@ -114,6 +114,9 @@ The worker holds a PostgreSQL session advisory claim for that key across marker 
 creation, and audit recording. A concurrent retry waits for the claim; a worker crash releases it.
 Recovery checks all comments from the authenticated GitHub App identity before deciding whether a
 new write is allowed, including when the pull request head advanced after the first write.
+Only an exact rendered-body match with the payload-bound marker in terminal position can recover a
+remote receipt. A marker quoted inside another approved claim is ignored; an App-authored comment
+with the right terminal marker but edited content blocks recovery and records a bounded failure.
 Each action also stores a SHA-256 fingerprint of the canonical finding/approval pairs, approved
 body reference, and rendered comment. A retry with the same run and head but different content
 fails before the published fast path or marker recovery can reuse the earlier action.

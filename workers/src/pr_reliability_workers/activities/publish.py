@@ -35,9 +35,9 @@ class GitHubComment:
 class GitHubCommentClient(Protocol):
     """Repository-scoped GitHub operations supplied by the provider worker.
 
-    ``find_comment`` must return only comments authored by the authenticated
-    GitHub App identity. The marker is an idempotency aid, not an authorization
-    secret.
+    ``find_comment`` must return only an exact expected-body match authored by
+    the authenticated GitHub App identity with the marker in terminal position.
+    The marker is an idempotency aid, not an authorization secret.
     """
 
     async def current_head_sha(self, repository: str, pull_request_number: int) -> str: ...
@@ -47,6 +47,7 @@ class GitHubCommentClient(Protocol):
         repository: str,
         pull_request_number: int,
         marker: str,
+        expected_body: str,
     ) -> GitHubComment | None: ...
 
     async def create_comment(
@@ -59,6 +60,10 @@ class GitHubCommentClient(Protocol):
 
 class PublishBlockedError(RuntimeError):
     """Requested external write is not authorized by current database state."""
+
+
+class GitHubCommentPayloadMismatch(RuntimeError):
+    """An App-authored recovery marker has edited or unexpected content."""
 
 
 @dataclass(frozen=True)
@@ -107,6 +112,7 @@ class GitHubCommentPublishOperation:
                     prepared.repository,
                     prepared.pull_request_number,
                     prepared.marker,
+                    prepared.body,
                 )
                 if comment is None:
                     if prepared.create_block_code is not None:
@@ -143,6 +149,18 @@ class GitHubCommentPublishOperation:
                         prepared.body,
                     )
                 await asyncio.to_thread(self._record_success, request, prepared, comment)
+            except GitHubCommentPayloadMismatch:
+                await asyncio.to_thread(
+                    self._record_failure,
+                    request,
+                    prepared.action_id,
+                    "comment_payload_mismatch",
+                )
+                raise ApplicationError(
+                    "GitHub recovery comment does not match the approved payload",
+                    type="PublishBlocked",
+                    non_retryable=True,
+                ) from None
             except ApplicationError:
                 raise
             # This is the trust boundary for provider clients, whose exception types vary.
@@ -303,7 +321,7 @@ class GitHubCommentPublishOperation:
                         pull_request_number=request.pull_request_number,
                         head_sha=request.head_sha,
                         marker=marker,
-                        body="",
+                        body=body,
                         payload_fingerprint=payload_fingerprint,
                         create_block_code=create_block_code,
                     )

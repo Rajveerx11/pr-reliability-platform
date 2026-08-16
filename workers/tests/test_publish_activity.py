@@ -12,7 +12,11 @@ from uuid import uuid4
 import psycopg
 import pytest
 from pr_reliability_api.db import apply_migrations
-from pr_reliability_workers.activities import GitHubComment, GitHubCommentPublishOperation
+from pr_reliability_workers.activities import (
+    GitHubComment,
+    GitHubCommentPayloadMismatch,
+    GitHubCommentPublishOperation,
+)
 from pr_reliability_workers.workflows.types import PublishRequest
 from psycopg import Connection
 from temporalio.api.failure.v1 import Failure
@@ -80,11 +84,17 @@ class FakeGitHubClient:
         repository: str,
         pull_request_number: int,
         marker: str,
+        expected_body: str,
     ) -> GitHubComment | None:
         assert repository == "owner/repository"
         assert pull_request_number == 17
         self.find_calls += 1
-        return next((comment for comment, body in self.comments if marker in body), None)
+        for comment, body in self.comments:
+            if body == expected_body:
+                return comment
+        if any(body.endswith(f"\n\n{marker}") for _, body in self.comments):
+            raise GitHubCommentPayloadMismatch
+        return None
 
     async def create_comment(
         self,
@@ -123,8 +133,9 @@ class LeakyGitHubClient(FakeGitHubClient):
         repository: str,
         pull_request_number: int,
         marker: str,
+        expected_body: str,
     ) -> GitHubComment | None:
-        del repository, pull_request_number, marker
+        del repository, pull_request_number, marker, expected_body
         raise RuntimeError("SECRET_GITHUB_RESPONSE_BODY")
 
 
@@ -418,6 +429,40 @@ def test_crash_recovery_with_different_payload_fails_before_marker_lookup(
             "publishing",
             None,
         )
+
+
+def test_crash_recovery_rejects_edited_comment_with_same_terminal_marker(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    seed_review(connection_factory)
+    github = CrashAfterCreateGitHubClient()
+    operation = publisher(connection_factory, github)
+    request = publish_request()
+
+    with pytest.raises(SimulatedWorkerCrash):
+        asyncio.run(operation(request))
+    comment, original_body = github.comments[0]
+    marker = original_body.rsplit("\n\n", 1)[1]
+    github.comments[0] = (comment, f"edited after publication\n\n{marker}")
+
+    with pytest.raises(ApplicationError) as raised:
+        asyncio.run(operation(request))
+
+    assert raised.value.type == "PublishBlocked"
+    assert raised.value.non_retryable
+    assert github.create_calls == 1
+    with connection_factory() as connection:
+        action = connection.execute("SELECT status, remote_id FROM external_actions").fetchone()
+        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+    assert action == ("failed", None)
+    assert event == (
+        "github.comment_publish_failed",
+        {
+            "action_id": public_id(20),
+            "head_sha": HEAD_SHA,
+            "failure_code": "comment_payload_mismatch",
+        },
+    )
 
 
 def test_provider_failure_is_sanitized_before_temporal_conversion(

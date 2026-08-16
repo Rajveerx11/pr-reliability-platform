@@ -64,7 +64,9 @@ workflow-signal events but performs no external write.
 - Both the stored pull request head and GitHub's current head must match before comment creation.
 - The comment contains only reviewer-approved finding claims plus a hashed retry marker.
 - A retry searches only the authenticated GitHub App identity's comments for that marker before
-  creating a comment and reuses the existing remote ID. The marker is not an authorization secret.
+  creating a comment and reuses the existing remote ID only when the marker is terminal and the
+  complete body matches the approved rendering. Marker substrings and edited bodies are rejected.
+  The marker is not an authorization secret.
 - One database-backed session claim serializes lookup, create, and receipt recording for the
   stable publish key. A crashed worker releases the claim so marker recovery can continue safely.
 - The action stores a canonical payload fingerprint. Reusing its key with different findings,

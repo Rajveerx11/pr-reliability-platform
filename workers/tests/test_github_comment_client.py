@@ -6,10 +6,15 @@ import asyncio
 
 import httpx
 import pytest
-from pr_reliability_workers.activities import GitHubRestCommentClient
+from pr_reliability_workers.activities import (
+    GitHubCommentPayloadMismatch,
+    GitHubRestCommentClient,
+)
 
 HEAD_SHA = "b" * 40
 MARKER = "<!-- pr-reliability:" + "d" * 64 + " -->"
+OTHER_MARKER = "<!-- pr-reliability:" + "e" * 64 + " -->"
+EXPECTED_BODY = f"approved\n\n{MARKER}"
 TOKEN = "installation-secret-token"
 APP_AUTHOR_ID = 777
 
@@ -27,7 +32,17 @@ def test_comment_lookup_pages_and_ignores_foreign_marker() -> None:
         requested_pages.append(page)
         if page == 1:
             comments = [
-                {"id": value, "body": MARKER if value == 1 else "other", "user": {"id": 999}}
+                {
+                    "id": value,
+                    "body": (
+                        EXPECTED_BODY
+                        if value == 1
+                        else f"edited\n\n{MARKER}"
+                        if value == 2
+                        else "other"
+                    ),
+                    "user": {"id": 999 if value == 1 else APP_AUTHOR_ID},
+                }
                 for value in range(1, 101)
             ]
             return response(request, 200, comments)
@@ -35,7 +50,7 @@ def test_comment_lookup_pages_and_ignores_foreign_marker() -> None:
         return response(
             request,
             200,
-            [{"id": 101, "body": f"approved\n\n{MARKER}", "user": {"id": APP_AUTHOR_ID}}],
+            [{"id": 101, "body": EXPECTED_BODY, "user": {"id": APP_AUTHOR_ID}}],
         )
 
     client = GitHubRestCommentClient(
@@ -44,11 +59,50 @@ def test_comment_lookup_pages_and_ignores_foreign_marker() -> None:
         transport=httpx.MockTransport(handler),
     )
 
-    comment = asyncio.run(client.find_comment("owner/repository", 17, MARKER))
+    comment = asyncio.run(client.find_comment("owner/repository", 17, MARKER, EXPECTED_BODY))
 
     assert comment is not None
     assert comment.remote_id == "101"
     assert requested_pages == [1, 2]
+
+
+def test_cross_marker_inside_approved_claim_is_not_a_recovery_match() -> None:
+    injected_body = f"## Review A\n\nClaim quotes {MARKER}\n\n{OTHER_MARKER}"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return response(
+            request,
+            200,
+            [{"id": 201, "body": injected_body, "user": {"id": APP_AUTHOR_ID}}],
+        )
+
+    client = GitHubRestCommentClient(
+        TOKEN,
+        APP_AUTHOR_ID,
+        transport=httpx.MockTransport(handler),
+    )
+
+    comment = asyncio.run(client.find_comment("owner/repository", 17, MARKER, EXPECTED_BODY))
+
+    assert comment is None
+
+
+def test_owned_terminal_marker_with_wrong_body_is_rejected() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return response(
+            request,
+            200,
+            [{"id": 202, "body": f"edited\n\n{MARKER}", "user": {"id": APP_AUTHOR_ID}}],
+        )
+
+    client = GitHubRestCommentClient(
+        TOKEN,
+        APP_AUTHOR_ID,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(GitHubCommentPayloadMismatch):
+        asyncio.run(client.find_comment("owner/repository", 17, MARKER, EXPECTED_BODY))
 
 
 def test_head_and_comment_creation_use_repository_scoped_paths() -> None:
