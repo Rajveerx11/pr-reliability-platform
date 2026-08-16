@@ -112,6 +112,7 @@ class PullRequestReviewWorkflow:
                 head_sha=request.head_sha,
                 idempotency_key=self._key(activity_name),
                 input_ref=input_ref,
+                base_sha=request.base_sha,
             ),
             result_type=StageResult,
             **self._activity_options(activity_name),

@@ -71,6 +71,7 @@ class StageRequest:
     head_sha: str
     idempotency_key: str
     input_ref: str | None = None
+    base_sha: str | None = None
 
 
 @dataclass(frozen=True)

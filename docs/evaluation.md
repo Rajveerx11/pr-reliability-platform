@@ -32,6 +32,17 @@ reference-fix, and verifier bytes so accidental changes are visible.
 This runner is tamper-resistant evaluation for reviewed fixtures. It is not a security sandbox.
 Untrusted pull request code must use the disposable sandbox planned in issue #9.
 
+## Proof of Work gate
+
+The worker first runs repository tests in the disposable Docker sandbox. It then calls the
+published `proof-of-work-agent` package through `pr_reliability_proof_adapter`. Package test
+execution stays disabled because untrusted tests must never run on the activity-worker host.
+
+The adapter returns version 1 of a small verdict: pass or fail, reasons, unique finding rule
+IDs, and the installed package version. Application code imports only this local adapter, not
+Proof of Work modules. Package errors, timeouts, and malformed results produce no verdict and
+fail verification. A failed verdict is recorded as evidence but cannot reach human approval.
+
 The ten tasks cover:
 
 - Payment idempotency
