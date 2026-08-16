@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import os
 import runpy
+import subprocess
 import sys
 from pathlib import Path
 
@@ -18,12 +19,24 @@ def main() -> None:
     if os.name == "posix":
         _enable_linux_subreaper()
     _write_status(ready_path, 1)
-    if sys.stdin.buffer.read(1) != b"1":
+    start_command = sys.stdin.buffer.read(1)
+    if os.name == "posix" and start_command == b"2":
+        _reap_children()
+        raise SystemExit(0)
+    if start_command != b"1":
         raise SystemExit(125)
-    exit_code = _run_python(sys.argv[3:])
+    if os.name == "posix":
+        exit_code = _run_python_child(sys.argv[3:])
+    else:
+        exit_code = _run_python(sys.argv[3:])
     sys.stdout.flush()
     sys.stderr.flush()
     _write_status(status_path, exit_code)
+    if os.name == "posix":
+        if sys.stdin.buffer.read(1) != b"2":
+            raise SystemExit(125)
+        _reap_children()
+        raise SystemExit(0)
     sys.stdin.buffer.read(1)
     raise SystemExit(exit_code)
 
@@ -41,7 +54,7 @@ def _write_status(status_path: Path, exit_code: int) -> None:
 
 
 def _run_python(arguments: list[str]) -> int:
-    if Path(arguments[0]).resolve() != Path(sys.executable).resolve() or len(arguments) < 3:
+    if not _valid_python_arguments(arguments):
         return 126
     mode = arguments[1]
     target = arguments[2]
@@ -59,6 +72,31 @@ def _run_python(arguments: list[str]) -> int:
     except BaseException:  # noqa: BLE001 - gate internals must not cross the boundary
         return 1
     return 0
+
+
+def _run_python_child(arguments: list[str]) -> int:
+    if not _valid_python_arguments(arguments):
+        return 126
+    completed = subprocess.run(arguments, stdin=subprocess.DEVNULL, check=False)
+    return completed.returncode
+
+
+def _valid_python_arguments(arguments: list[str]) -> bool:
+    return (
+        len(arguments) >= 3
+        and Path(arguments[0]).resolve() == Path(sys.executable).resolve()
+        and arguments[1] in {"-m", "-c"}
+    )
+
+
+def _reap_children() -> None:
+    while True:
+        try:
+            process_id, _ = os.waitpid(-1, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if process_id == 0:
+            raise RuntimeError("proof descendants remain alive during cleanup")
 
 
 def _enable_linux_subreaper() -> None:

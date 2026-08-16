@@ -379,7 +379,20 @@ async def _terminate_process_tree(worker: _ManagedWorker) -> None:
                 with suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGKILL)
                 raise RuntimeError("proof descendant cleanup requires Linux")
-            await asyncio.to_thread(_kill_linux_process_tree, process.pid)
+            await asyncio.to_thread(_kill_linux_descendants, process.pid)
+            if process.returncode is None:
+                if process.stdin is None:
+                    raise RuntimeError("proof process supervisor has no control pipe")
+                process.stdin.write(b"2")
+                await process.stdin.drain()
+                process.stdin.close()
+                await asyncio.wait_for(
+                    process.stdin.wait_closed(), timeout=_PROCESS_CLEANUP_SECONDS
+                )
+            await asyncio.wait_for(process.wait(), timeout=_PROCESS_CLEANUP_SECONDS)
+            if process.returncode != 0:
+                raise RuntimeError("proof process supervisor cleanup failed")
+            return
         elif os.name == "nt":
             if worker.job is None:
                 raise RuntimeError("proof process has no Windows Job Object")
@@ -394,9 +407,7 @@ async def _terminate_process_tree(worker: _ManagedWorker) -> None:
         raise ProofGateExecutionError("proof gate process cleanup failed") from exc
 
 
-def _kill_linux_process_tree(root_pid: int) -> None:
-    with suppress(ProcessLookupError):
-        os.kill(root_pid, signal.SIGSTOP)
+def _kill_linux_descendants(root_pid: int) -> None:
     deadline = time.monotonic() + _PROCESS_CLEANUP_SECONDS
     while True:
         descendants = _linux_descendants(root_pid)
@@ -409,8 +420,6 @@ def _kill_linux_process_tree(root_pid: int) -> None:
         if time.monotonic() >= deadline:
             raise TimeoutError("proof descendants did not terminate")
         time.sleep(0.01)
-    with suppress(ProcessLookupError):
-        os.kill(root_pid, signal.SIGKILL)
 
 
 def _linux_descendants(root_pid: int) -> list[int]:

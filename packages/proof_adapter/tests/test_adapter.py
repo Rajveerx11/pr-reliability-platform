@@ -395,6 +395,33 @@ def test_published_gate_terminates_detached_posix_descendants(tmp_path: Path, ou
     assert not marker.exists()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Linux descendant supervision")
+@pytest.mark.parametrize("hard_exit", ["os._exit(23)", "os.abort()"])
+def test_published_gate_reaps_detached_descendants_after_hard_exit(
+    tmp_path: Path, hard_exit: str
+) -> None:
+    repository, base_sha = _repository_with_change(tmp_path)
+    head_sha = _git(repository, "rev-parse", "HEAD").stdout.strip()
+    marker = tmp_path / "detached-hard-exit"
+    child = (
+        "import pathlib,time; time.sleep(1.5); "
+        f"pathlib.Path({str(marker)!r}).write_text('alive', encoding='utf-8')"
+    )
+    worker = (
+        "import os,subprocess,sys; "
+        "subprocess.Popen([sys.executable, '-c', "
+        f"{child!r}], stdin=subprocess.DEVNULL, start_new_session=True); "
+        f"{hard_exit}"
+    )
+    gate = PublishedProofGate((sys.executable, "-c", worker))
+
+    with pytest.raises(ProofGateExecutionError):
+        asyncio.run(gate.run(ProofRequest(repository, head_sha, base_ref=base_sha)))
+
+    time.sleep(2)
+    assert not marker.exists()
+
+
 def test_worker_start_cancellation_cleans_supervisor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

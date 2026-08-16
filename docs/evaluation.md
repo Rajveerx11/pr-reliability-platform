@@ -46,11 +46,12 @@ fail verification. A failed verdict is recorded as evidence but cannot reach hum
 The published package runs in a dedicated child process. Before it starts, the adapter requires a
 clean workspace whose `HEAD` equals the requested review head and whose base commit is its ancestor.
 It clones that exact commit into a private local snapshot, so concurrent source changes cannot
-change the inspected tree. The adapter owns the complete process tree with Linux subreaper-backed
-recursive supervision or a Windows kill-on-close Job Object and terminates it after success,
-failure, malformed output, cancellation, or timeout. Production workers reject injected proof
-runners. Output is bounded and package logs stay only in the private temporary directory. Cleanup
-failure blocks verification, and the directory is removed after every outcome.
+change the inspected tree. On Linux, a durable subreaper supervisor starts the package as a child,
+stays alive after hard package exits, and kills and reaps adopted descendants through a bounded
+cleanup handshake. Windows uses a kill-on-close Job Object. Cleanup runs after success, failure,
+malformed output, cancellation, or timeout. Production workers reject injected proof runners.
+Output is bounded and package logs stay only in the private temporary directory. Cleanup failure
+blocks verification, and the directory is removed after every outcome.
 
 The ten tasks cover:
 

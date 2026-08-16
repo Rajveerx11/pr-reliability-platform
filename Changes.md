@@ -13,8 +13,8 @@ them and names the affected files.
   affect review approval.
 - Changed files:
   - `packages/proof_adapter/` — versioned local verdict, immutable clean-commit snapshots,
-    cross-platform whole-tree process cleanup, isolated temporary logs, strict result bounds, and
-    regression tests.
+    cross-platform whole-tree process cleanup with a durable Linux subreaper, isolated temporary
+    logs, strict result bounds, and regression tests.
   - `workers/src/pr_reliability_workers/activities/` — combined sandbox and Proof of Work gate
     that records bounded evidence and blocks output on every failure.
   - `pyproject.toml` and `uv.lock` — published Proof of Work dependency and packaged adapter.
