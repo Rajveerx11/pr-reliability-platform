@@ -48,7 +48,7 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "SANDBOX_STAGING_DIRECTORY": "/run/user/1001/pr-reliability-sandbox-staging",
     }
     for index, name in enumerate(IMAGE_KEYS):
-        values[name] = f"registry.internal/image-{index}@sha256:" + f"{index + 1:x}" * 64
+        values[name] = f"registry.internal/image-{index}@sha256:{index + 1:064x}"
     for name, filename in (
         ("TLS_CERTIFICATE_FILE", "tls.crt"),
         ("TLS_PRIVATE_KEY_FILE", "tls.key"),
@@ -77,6 +77,41 @@ def test_preflight_accepts_external_secrets_private_tls_and_digest_images(
     monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
 
     assert validate_environment(repository, environment_file) == values
+
+
+def test_every_image_in_shipped_environment_example_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    example = preflight.load_environment(Path(__file__).parents[1] / "deployment.env.example")
+    repository, environment_file, valid_values = _deployment_files(tmp_path)
+    monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
+
+    for name in IMAGE_KEYS:
+        values = {**valid_values, name: example[name]}
+        environment_file.write_text(
+            "\n".join(f"{key}={value}" for key, value in values.items()) + "\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(PreflightError, match="non-placeholder"):
+            validate_environment(repository, environment_file)
+
+
+@pytest.mark.parametrize("registry", ["registry.example", "example.invalid"])
+def test_preflight_rejects_placeholder_registries_with_valid_looking_digests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    registry: str,
+) -> None:
+    repository, environment_file, values = _deployment_files(tmp_path)
+    monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
+    values["PLATFORM_IMAGE"] = f"{registry}/platform@sha256:{1:064x}"
+    environment_file.write_text(
+        "\n".join(f"{key}={value}" for key, value in values.items()) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PreflightError, match="non-placeholder"):
+        validate_environment(repository, environment_file)
 
 
 @pytest.mark.parametrize(

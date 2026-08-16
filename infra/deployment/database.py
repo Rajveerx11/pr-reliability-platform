@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
 import subprocess
-from collections.abc import Callable, Sequence
+import tempfile
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
@@ -33,55 +35,57 @@ def backup(
 ) -> Path:
     """Quiesce writers and create one checksummed custom-format dump per database."""
     repository = repository.resolve(strict=True)
-    destination = _external_directory(repository, destination, create=True)
-    bundle = destination / now().astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
-    bundle.mkdir(mode=0o700)
     execute = runner or _run
     compose = _compose_command(compose_file, environment_file)
-    try:
-        _checked(execute, [*compose, "stop", *_WRITERS])
-        files: dict[str, str] = {}
-        for database_name in DATABASES:
-            final_path = bundle / f"{database_name}.dump"
-            temporary_path = bundle / f".{database_name}.dump.partial"
-            with temporary_path.open("xb") as output:
-                _checked(
-                    execute,
-                    [
-                        *compose,
-                        "exec",
-                        "-T",
-                        "postgres",
-                        "pg_dump",
-                        "--format=custom",
-                        "--no-owner",
-                        "--no-privileges",
-                        "--username=pr_reliability",
-                        f"--dbname={database_name}",
-                    ],
-                    stdout=output,
+    with _operation_lock(environment_file):
+        destination = _external_directory(repository, destination, create=True)
+        bundle = destination / now().astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+        bundle.mkdir(mode=0o700)
+        running_writers = _running_writers(execute, compose)
+        try:
+            _checked(execute, [*compose, "stop", *_WRITERS])
+            files: dict[str, str] = {}
+            for database_name in DATABASES:
+                final_path = bundle / f"{database_name}.dump"
+                temporary_path = bundle / f".{database_name}.dump.partial"
+                with temporary_path.open("xb") as output:
+                    _checked(
+                        execute,
+                        [
+                            *compose,
+                            "exec",
+                            "-T",
+                            "postgres",
+                            "pg_dump",
+                            "--format=custom",
+                            "--no-owner",
+                            "--no-privileges",
+                            "--username=pr_reliability",
+                            f"--dbname={database_name}",
+                        ],
+                        stdout=output,
+                    )
+                temporary_path.chmod(0o600)
+                temporary_path.replace(final_path)
+                files[final_path.name] = _sha256(final_path)
+            manifest = bundle / "manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "created_at": now().astimezone(UTC).isoformat(),
+                        "files": files,
+                    },
+                    indent=2,
+                    sort_keys=True,
                 )
-            temporary_path.chmod(0o600)
-            temporary_path.replace(final_path)
-            files[final_path.name] = _sha256(final_path)
-        manifest = bundle / "manifest.json"
-        manifest.write_text(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "created_at": now().astimezone(UTC).isoformat(),
-                    "files": files,
-                },
-                indent=2,
-                sort_keys=True,
+                + "\n",
+                encoding="utf-8",
             )
-            + "\n",
-            encoding="utf-8",
-        )
-        manifest.chmod(0o600)
-        return bundle
-    finally:
-        _checked(execute, [*compose, "up", "-d"])
+            manifest.chmod(0o600)
+            return bundle
+        finally:
+            _resume_writers(execute, compose, running_writers)
 
 
 def restore(
@@ -97,37 +101,97 @@ def restore(
     if confirmation != RESTORE_CONFIRMATION:
         raise DatabaseOperationError(f"restore requires --confirm {RESTORE_CONFIRMATION}")
     repository = repository.resolve(strict=True)
-    bundle = _external_directory(repository, bundle, create=False)
-    dumps = _verified_dumps(bundle)
     execute = runner or _run
     compose = _compose_command(compose_file, environment_file)
+    with _operation_lock(environment_file):
+        bundle = _external_directory(repository, bundle, create=False)
+        dumps = _verified_dumps(bundle)
+        running_writers = _running_writers(execute, compose)
+        try:
+            _checked(execute, [*compose, "stop", *_WRITERS])
+        except BaseException:
+            _resume_writers(execute, compose, running_writers)
+            raise
+        for database_name in DATABASES:
+            with dumps[database_name].open("rb") as source:
+                _checked(
+                    execute,
+                    [
+                        *compose,
+                        "exec",
+                        "-T",
+                        "postgres",
+                        "pg_restore",
+                        "--clean",
+                        "--if-exists",
+                        "--exit-on-error",
+                        "--single-transaction",
+                        "--no-owner",
+                        "--no-privileges",
+                        "--username=pr_reliability",
+                        f"--dbname={database_name}",
+                    ],
+                    stdin=source,
+                )
+        _resume_writers(execute, compose, running_writers)
+
+
+@contextlib.contextmanager
+def _operation_lock(environment_file: Path) -> Iterator[None]:
+    environment_file = environment_file.resolve(strict=True)
+    lock_path = environment_file.with_name(".pr-reliability-database.lock")
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(lock_path, flags, 0o600)
+    locked = False
     try:
-        _checked(execute, [*compose, "stop", *_WRITERS])
-    except BaseException:
-        _checked(execute, [*compose, "up", "-d"])
-        raise
-    for database_name in DATABASES:
-        with dumps[database_name].open("rb") as source:
-            _checked(
-                execute,
-                [
-                    *compose,
-                    "exec",
-                    "-T",
-                    "postgres",
-                    "pg_restore",
-                    "--clean",
-                    "--if-exists",
-                    "--exit-on-error",
-                    "--single-transaction",
-                    "--no-owner",
-                    "--no-privileges",
-                    "--username=pr_reliability",
-                    f"--dbname={database_name}",
-                ],
-                stdin=source,
-            )
-    _checked(execute, [*compose, "up", "-d"])
+        if os.name == "posix":
+            import fcntl
+
+            os.fchmod(descriptor, 0o600)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                raise DatabaseOperationError(
+                    "another database backup or restore is running"
+                ) from exc
+        else:
+            import msvcrt
+
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"\0")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            try:
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise DatabaseOperationError(
+                    "another database backup or restore is running"
+                ) from exc
+        locked = True
+        yield
+    finally:
+        if locked:
+            if os.name == "posix":
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            else:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        os.close(descriptor)
+
+
+def _running_writers(runner: Runner, compose: Sequence[str]) -> tuple[str, ...]:
+    with tempfile.TemporaryFile() as output:
+        _checked(runner, [*compose, "ps", "--status", "running", "--services"], stdout=output)
+        output.seek(0)
+        try:
+            running = set(output.read().decode("utf-8").splitlines())
+        except UnicodeDecodeError as exc:
+            raise DatabaseOperationError("deployment service state is invalid") from exc
+    return tuple(service for service in _WRITERS if service in running)
+
+
+def _resume_writers(runner: Runner, compose: Sequence[str], running_writers: Sequence[str]) -> None:
+    if running_writers:
+        _checked(runner, [*compose, "start", *running_writers])
 
 
 def _verified_dumps(bundle: Path) -> dict[str, Path]:

@@ -81,10 +81,7 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
     if missing:
         raise PreflightError(f"missing deployment values: {', '.join(missing)}")
     for name in _IMAGE_KEYS:
-        if _DIGEST_IMAGE.fullmatch(values[name]) is None or values[name].startswith(
-            "example.invalid/"
-        ):
-            raise PreflightError(f"{name} must use an immutable sha256 image digest")
+        _require_release_image(name, values[name])
     if len(values["GITHUB_WEBHOOK_SECRET"]) < 32 or values["GITHUB_WEBHOOK_SECRET"].startswith(
         "replace-"
     ):
@@ -170,6 +167,18 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
             engine_gid,
         )
     return values
+
+
+def _require_release_image(name: str, value: str) -> None:
+    match = _DIGEST_IMAGE.fullmatch(value)
+    repository, _, digest = value.rpartition("@sha256:")
+    registry = repository.split("/", 1)[0]
+    if (
+        match is None
+        or registry in {"example.invalid", "registry.example"}
+        or len(set(digest)) == 1
+    ):
+        raise PreflightError(f"{name} must use a non-placeholder immutable sha256 image digest")
 
 
 def _validate_rootless_paths(socket: Path, staging: Path, uid: int, gid: int) -> None:
