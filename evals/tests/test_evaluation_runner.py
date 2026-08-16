@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from evals.evaluation_models import ReplayAttempt, ReplayFinding, ReplayManifest
+from evals.evaluation_models import ReplayAttempt, ReplayFinding, ReplayManifest, ReplayUsage
+from evals.evaluation_report import render_markdown
 from evals.evaluation_runner import EvaluationError, main, run_evaluation
 from evals.golden_prs.corpus import CORPUS_ROOT, corpus_fingerprint, load_corpus
 
@@ -97,6 +98,28 @@ def test_cli_writes_machine_and_human_reports(tmp_path: Path) -> None:
     markdown = markdown_output.read_text(encoding="utf-8")
     assert "Not a real model run" in markdown
     assert "Full cohort: 10/10" in markdown
+    assert "Input/output/total tokens: unknown/unknown/unknown" in markdown
+    assert "Exact reported cost: unknown" in markdown
+
+
+def test_markdown_preserves_known_usage_and_exact_cost() -> None:
+    usage = ReplayUsage(
+        coverage="full",
+        prompt_tokens=100,
+        completion_tokens=50,
+        total_tokens=150,
+        reported_cost_usd_micros=25,
+    )
+    attempts = tuple(
+        attempt.model_copy(update={"status": "completed", "usage": usage})
+        for attempt in manifest().attempts
+    )
+    report = run_evaluation(manifest().model_copy(update={"attempts": attempts}))
+
+    markdown = render_markdown(report)
+
+    assert "Input/output/total tokens: 1000/500/1500" in markdown
+    assert "Exact reported cost: 250 USD micros" in markdown
 
 
 def test_corpus_fingerprint_is_stable_across_crlf_checkout(tmp_path: Path) -> None:

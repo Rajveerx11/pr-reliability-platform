@@ -56,8 +56,12 @@ def render_markdown(report: dict[str, Any]) -> str:
         ),
         f"- p50 agent duration: {_milliseconds(performance['p50_agent_duration_ms'])}",
         f"- Usage coverage: {usage['coverage_rate']:.1%}",
-        "- Input/output/total tokens: unknown",
-        "- Exact reported cost: unknown",
+        (
+            "- Input/output/total tokens: "
+            f"{_known(usage['prompt_tokens'])}/{_known(usage['completion_tokens'])}/"
+            f"{_known(usage['total_tokens'])}"
+        ),
+        "- Exact reported cost: " + _cost(usage["reported_cost_usd_micros"]),
         f"- Retries: {performance['total_retries']}; timeouts: {performance['timeout_count']}",
         "",
         "## Limits",
@@ -94,6 +98,10 @@ def _percentage(value: float | None, unknown: str) -> str:
 
 def _milliseconds(value: float | None) -> str:
     return f"{value:g} ms" if value is not None else "unknown"
+
+
+def _cost(value: int | None) -> str:
+    return f"{value} USD micros" if value is not None else "unknown"
 
 
 def _latency(p50: float | None, p95: float | None) -> str:
