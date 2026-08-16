@@ -5,6 +5,9 @@ description = "Approval-first, evidence-backed AI pull request review platform."
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.116,<1",
+  "opentelemetry-api>=1.36,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.36,<2",
+  "opentelemetry-sdk>=1.36,<2",
   "pydantic>=2.11,<3",
   "psycopg[binary]>=3.2,<4",
   "temporalio>=1.30,<2",
@@ -29,12 +32,14 @@ pythonpath = [
   "apps/api/src",
   "workers/src",
   "packages/contracts/src",
+  "packages/observability/src",
   "packages/proof_adapter/src",
 ]
 testpaths = [
   "apps/api/tests",
   "workers/tests",
   "packages/contracts/tests",
+  "packages/observability/tests",
   "packages/proof_adapter/tests",
   "evals/tests",
 ]
@@ -55,6 +60,7 @@ build-backend = "hatchling.build"
 packages = [
   "apps/api/src/pr_reliability_api",
   "packages/contracts/src/pr_reliability_contracts",
+  "packages/observability/src/pr_reliability_observability",
   "workers/src/pr_reliability_workers",
 ]
 

@@ -13,7 +13,9 @@ from datetime import timedelta
 from typing import Any
 
 import psycopg
+from opentelemetry import context as otel_context
 from pr_reliability_contracts import StartRunCommand
+from pr_reliability_observability import configure_telemetry, context_from_traceparent
 from psycopg import Connection
 from temporalio.client import Client, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -53,20 +55,27 @@ async def dispatch_start_run(
         head_sha=command.head_sha,
         token_budget=command.token_budget,
         cost_budget_usd_micros=command.cost_budget_usd_micros,
+        traceparent=command.traceparent,
     )
-    return await client.start_workflow(
-        PullRequestReviewWorkflow.run,
-        request,
-        id=workflow_id_for(command),
-        task_queue=task_queue,
-        execution_timeout=timedelta(days=30),
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-        start_signal="supersede",
-        start_signal_args=[SupersedeSignal(request)],
-        request_id=command.public_id,
-        rpc_timeout=_TEMPORAL_RPC_TIMEOUT,
-    )
+    parent = context_from_traceparent(command.traceparent)
+    token = otel_context.attach(parent) if parent is not None else None
+    try:
+        return await client.start_workflow(
+            PullRequestReviewWorkflow.run,
+            request,
+            id=workflow_id_for(command),
+            task_queue=task_queue,
+            execution_timeout=timedelta(days=30),
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            start_signal="supersede",
+            start_signal_args=[SupersedeSignal(request)],
+            request_id=command.public_id,
+            rpc_timeout=_TEMPORAL_RPC_TIMEOUT,
+        )
+    finally:
+        if token is not None:
+            otel_context.detach(token)
 
 
 async def dispatch_next_command(
@@ -250,7 +259,12 @@ async def run_dispatcher_from_environment() -> None:
 
     with psycopg.connect(database_url) as connection:
         apply_migrations(connection)
-    client = await Client.connect(temporal_address, namespace=temporal_namespace)
+    tracing = configure_telemetry("pr-reliability-command-dispatcher")
+    client = await Client.connect(
+        temporal_address,
+        namespace=temporal_namespace,
+        interceptors=[tracing],
+    )
     await dispatch_pending_commands(
         lambda: psycopg.connect(database_url),
         client,

@@ -10,11 +10,13 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from opentelemetry import trace
 from pr_reliability_api.db import apply_migrations
 from pr_reliability_contracts import StartRunCommand
 from pr_reliability_workers.dispatch import (
     dispatch_next_command,
     dispatch_pending_commands,
+    dispatch_start_run,
     workflow_id_for,
 )
 from psycopg import Connection
@@ -23,6 +25,7 @@ OWNER_ID = "01J00000000000000000000001"
 BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
 TASK_QUEUE = "review-workflow-tests"
+TRACEPARENT = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 
 
 def public_id(sequence: int) -> str:
@@ -60,14 +63,39 @@ def connection_factory() -> Iterator[Callable[[], Connection[object]]]:
 class RecordingTemporalClient:
     def __init__(self) -> None:
         self.calls: list[tuple[object, dict[str, object]]] = []
+        self.trace_ids: list[int] = []
         self.failures_remaining = 0
 
     async def start_workflow(self, _workflow, request, **options):
         self.calls.append((request, options))
+        self.trace_ids.append(trace.get_current_span().get_span_context().trace_id)
         if self.failures_remaining:
             self.failures_remaining -= 1
             raise ConnectionError("Temporal unavailable")
         return SimpleNamespace(id=options["id"])
+
+
+def test_dispatch_restores_persisted_traceparent() -> None:
+    command = StartRunCommand(
+        schema_version="1.1",
+        public_id=public_id(4),
+        owner_id=OWNER_ID,
+        run_id=public_id(3),
+        generation=1,
+        repository_id=public_id(1),
+        pull_request_id=public_id(2),
+        pull_request_number=12,
+        base_sha=BASE_SHA,
+        head_sha=HEAD_SHA,
+        token_budget=100_000,
+        cost_budget_usd_micros=1_000_000,
+        traceparent=TRACEPARENT,
+    )
+    client = RecordingTemporalClient()
+
+    asyncio.run(dispatch_start_run(client, command, task_queue=TASK_QUEUE))  # type: ignore[arg-type]
+
+    assert client.trace_ids == [int("0123456789abcdef0123456789abcdef", 16)]
 
 
 def seed_command(
@@ -76,7 +104,7 @@ def seed_command(
     command_pull_request_number: int = 12,
 ) -> StartRunCommand:
     command = StartRunCommand(
-        schema_version="1",
+        schema_version="1.1",
         public_id=public_id(4),
         owner_id=OWNER_ID,
         run_id=public_id(3),
@@ -88,6 +116,7 @@ def seed_command(
         head_sha=HEAD_SHA,
         token_budget=100_000,
         cost_budget_usd_micros=1_000_000,
+        traceparent=TRACEPARENT,
     )
     with connection_factory() as connection, connection.transaction():
         repository_id = connection.execute(
@@ -157,6 +186,7 @@ def test_pending_command_is_dispatched_once_and_receipted(
     assert options["request_id"] == command.public_id
     assert options["id"] == workflow_id_for(command)
     assert options["rpc_timeout"].total_seconds() == 10
+    assert client.trace_ids == [int("0123456789abcdef0123456789abcdef", 16)]
     with connection_factory() as connection:
         receipt = connection.execute(
             """

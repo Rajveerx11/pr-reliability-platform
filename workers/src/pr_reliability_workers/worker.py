@@ -7,6 +7,7 @@ import importlib
 import os
 from collections.abc import Callable
 
+from pr_reliability_observability import configure_telemetry
 from temporalio.client import Client
 from temporalio.worker import Worker
 
@@ -65,7 +66,7 @@ def create_worker(client: Client, task_queue: str, activities: ReviewActivities)
 async def run_workflow_worker_from_environment() -> None:
     """Poll production workflow tasks using environment configuration."""
 
-    client, task_queue = await _connect_from_environment()
+    client, task_queue = await _connect_from_environment("pr-reliability-workflow-worker")
     await create_workflow_worker(client, task_queue).run()
 
 
@@ -75,7 +76,7 @@ async def run_activity_worker_from_environment() -> None:
     operations = load_activity_operations(
         _required_environment("REVIEW_ACTIVITY_OPERATIONS_FACTORY")
     )
-    client, task_queue = await _connect_from_environment()
+    client, task_queue = await _connect_from_environment("pr-reliability-activity-worker")
     await create_activity_worker(client, task_queue, ReviewActivities(operations)).run()
 
 
@@ -110,11 +111,16 @@ def load_activity_operations(factory_path: str) -> ActivityOperations:
     return operations
 
 
-async def _connect_from_environment() -> tuple[Client, str]:
+async def _connect_from_environment(service_name: str) -> tuple[Client, str]:
     temporal_address = os.environ.get("TEMPORAL_ADDRESS", "localhost:7233")
     temporal_namespace = os.environ.get("TEMPORAL_NAMESPACE", "default")
     task_queue = os.environ.get("TEMPORAL_TASK_QUEUE", "pr-review")
-    client = await Client.connect(temporal_address, namespace=temporal_namespace)
+    tracing = configure_telemetry(service_name)
+    client = await Client.connect(
+        temporal_address,
+        namespace=temporal_namespace,
+        interceptors=[tracing],
+    )
     return client, task_queue
 
 

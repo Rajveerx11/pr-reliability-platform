@@ -24,6 +24,7 @@ OWNER_ID = "01J00000000000000000000001"
 SECRET = b"test-only-secret"
 BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
+TRACEPARENT = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 
 
 def ids() -> Iterator[str]:
@@ -75,6 +76,7 @@ def client(connection_factory: Callable[[], Connection[object]]) -> TestClient:
             connection_factory,
             id_factory=lambda: next(id_values),
             now=lambda: datetime(2026, 8, 13, tzinfo=UTC),
+            traceparent_factory=lambda: TRACEPARENT,
         )
     )
     return TestClient(app)
@@ -375,6 +377,7 @@ def test_persists_complete_versioned_start_run_command(
     with connection_factory() as connection:
         event_data = connection.execute("SELECT event_data FROM run_events").fetchone()[0]
     command = StartRunCommand.model_validate(event_data)
+    assert command.schema_version == "1.1"
     assert command.public_id == response.json()["command_id"]
     assert command.owner_id == OWNER_ID
     assert command.generation == 1
@@ -383,6 +386,7 @@ def test_persists_complete_versioned_start_run_command(
     assert command.base_sha == BASE_SHA
     assert command.token_budget == 100_000
     assert command.cost_budget_usd_micros == 1_000_000
+    assert command.traceparent == TRACEPARENT
 
 
 @pytest.mark.parametrize("action", ["opened", "reopened", "synchronize"])

@@ -3,6 +3,7 @@
 from .pull_request_review import PullRequestReviewWorkflow
 from .types import (
     ApprovalSignal,
+    ModelUsage,
     ReviewWorkflowInput,
     ReviewWorkflowResult,
     ReviewWorkflowStatus,
@@ -12,6 +13,7 @@ from .types import (
 
 __all__ = [
     "ApprovalSignal",
+    "ModelUsage",
     "PullRequestReviewWorkflow",
     "ReviewWorkflowInput",
     "ReviewWorkflowResult",

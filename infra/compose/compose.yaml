@@ -22,7 +22,11 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:?GITHUB_INSTALLATION_ID is required}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?GITHUB_WEBHOOK_SECRET is required}
+      HEALTH_CHECK_TIMEOUT_SECONDS: ${HEALTH_CHECK_TIMEOUT_SECONDS:-2}
       OWNER_ID: ${OWNER_ID:?OWNER_ID is required}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?TEMPORAL_ADDRESS is required}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
     ports:
       - "${API_PORT:-8000}:8000"
 
@@ -32,6 +36,7 @@ services:
       - pr-reliability-command-dispatcher
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
       TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?TEMPORAL_ADDRESS is required}
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-pr-review}
@@ -41,6 +46,7 @@ services:
     command:
       - pr-reliability-workflow-worker
     environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
       TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?TEMPORAL_ADDRESS is required}
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-pr-review}
@@ -51,7 +57,19 @@ services:
     command:
       - pr-reliability-activity-worker
     environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
       REVIEW_ACTIVITY_OPERATIONS_FACTORY: ${REVIEW_ACTIVITY_OPERATIONS_FACTORY:?REVIEW_ACTIVITY_OPERATIONS_FACTORY is required}
       TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?TEMPORAL_ADDRESS is required}
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-pr-review}
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.133.0@sha256:98274b756324abdb2473fa0c898247a246091e861e61d1548f9be483198eecea
+    restart: unless-stopped
+    command:
+      - --config=/etc/otelcol-contrib/config.yaml
+    volumes:
+      - ../observability/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "${OTEL_METRICS_PORT:-8889}:8889"
+      - "${OTEL_HEALTH_PORT:-13133}:13133"

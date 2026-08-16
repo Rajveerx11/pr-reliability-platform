@@ -15,6 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from pr_reliability_contracts import PullRequestAction, StartRunCommand
+from pr_reliability_observability import current_traceparent
 from psycopg import Connection
 from pydantic import (
     AwareDatetime,
@@ -28,6 +29,7 @@ from pydantic import (
 
 ConnectionFactory = Callable[[], Connection[Any]]
 IdFactory = Callable[[], str]
+TraceparentFactory = Callable[[], str | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +99,7 @@ def create_github_webhook_router(
     *,
     id_factory: IdFactory = lambda: _new_ulid(),
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    traceparent_factory: TraceparentFactory = current_traceparent,
 ) -> APIRouter:
     """Build a router with explicit, injectable persistence dependencies."""
 
@@ -180,6 +183,7 @@ def create_github_webhook_router(
                     repository_public_id,
                     pull_request_public_id,
                     id_factory,
+                    traceparent=traceparent_factory(),
                     force_new=payload.action is PullRequestAction.REOPENED,
                 )
             connection.execute(
@@ -349,6 +353,7 @@ def _create_run(
     pull_request_public_id: str,
     id_factory: IdFactory,
     *,
+    traceparent: str | None,
     force_new: bool,
 ) -> str | None:
     run_public_id = id_factory()
@@ -388,7 +393,7 @@ def _create_run(
 
     command_public_id = id_factory()
     command = StartRunCommand(
-        schema_version="1",
+        schema_version="1.1",
         public_id=command_public_id,
         owner_id=settings.owner_id,
         run_id=run[1],
@@ -400,6 +405,7 @@ def _create_run(
         base_sha=payload.pull_request.base.sha,
         token_budget=settings.token_budget,
         cost_budget_usd_micros=settings.cost_budget_usd_micros,
+        traceparent=traceparent,
     )
     connection.execute(
         """
