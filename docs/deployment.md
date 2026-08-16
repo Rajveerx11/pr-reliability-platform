@@ -22,9 +22,11 @@ TLS terminates at Caddy with a certificate issued for `PRIVATE_HOSTNAME` by the 
 private CA. The VM firewall must allow TCP 443 only from the approved VPN or private CIDR and SSH
 only from the administration network. Do not expose TCP 80, 5432, 7233, 8000, 8889, or 9090.
 
-All images must use repository digests. The deployment preflight rejects tags, public bind
-addresses, database credentials that differ from the external password file, tracked secret files,
-symlinks, missing files, broad secret permissions, and non-rootless sandbox paths.
+All images must use real repository digests. The shipped environment template intentionally fails
+preflight until every example registry and repeated placeholder digest is replaced. Preflight
+rejects tags, public bind addresses, database credentials that differ from the external password
+file, tracked secret files, symlinks, missing files, broad secret permissions, and non-rootless
+sandbox paths.
 
 ## Provision secrets outside source
 
@@ -81,9 +83,13 @@ Prometheus readiness, API readiness, and failed publish audit events daily.
 
 ## Backup and restore drill
 
-The backup command stops all database writers, dumps the application and both Temporal databases,
-writes SHA-256 checksums, then restarts the stack. Keep the destination outside the checkout on an
-encrypted volume and copy completed bundles to a second encrypted location with restricted access.
+The backup command records which database writers are running, stops all writers, dumps the
+application and both Temporal databases, writes SHA-256 checksums, then restarts only writers that
+were running before the backup. Intentionally stopped publishing and worker services remain
+stopped. Keep the destination outside the checkout on an encrypted volume and copy completed
+bundles to a second encrypted location with restricted access.
+Backup and restore share a non-blocking host lock next to the external deployment environment.
+Concurrent manual or scheduled operations fail before changing service state.
 
 ```text
 python -m infra.deployment.database --env-file /etc/pr-reliability/deployment.env backup /var/backups/pr-reliability
@@ -102,6 +108,11 @@ onto the intended disposable recovery VM first:
 python -m infra.deployment.database --env-file /etc/pr-reliability/deployment.env restore /var/backups/pr-reliability/BUNDLE --confirm restore-pr-reliability-v1
 python -m infra.deployment.health --env-file /etc/pr-reliability/deployment.env
 ```
+
+A successful restore returns only writers that were initially running to service. Lock, manifest,
+or stop failures leave or return writers to their observed state. A failure after destructive
+database restoration begins leaves all writers stopped so an operator can inspect partial recovery
+before restarting intended services.
 
 For acceptance, create a sentinel repository, run, approval, workflow, and audit record on a test
 VM; back up; change the sentinel; restore into a fresh VM; verify all three databases and the API;
