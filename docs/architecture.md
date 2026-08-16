@@ -105,9 +105,10 @@ If an approved publish has already started, it settles before supersession; the 
 the truthful publish outcome, then the replacement continues as new.
 
 GitHub review publishing rechecks the run, repository, pull request number, current head SHA,
-selected findings, and their matching approved decisions before any external call. It creates a
-pull request review with event `COMMENT` and the approved head as GitHub's `commit_id`, so a head
-change between the remote precheck and write cannot move the review to the newer commit. The stable
+selected findings, and their matching approved decisions before any external call. It first stages
+an unsubmitted `PENDING` review with the approved head as GitHub's `commit_id`, rechecks the remote
+head, and deletes the draft and fails closed when the head changed. Only a matching head allows the
+draft to be submitted with event `COMMENT`. The stable
 run/head publish key reserves one `external_actions` row. A hidden hash marker lets a retry find a
 review created before its database receipt committed, so the retry records that review instead
 of creating another. Append-only events keep only action, approval, finding, commit, result, and
@@ -119,6 +120,13 @@ new write is allowed, including when the pull request head advanced after the fi
 Only an exact rendered-body match with the payload-bound marker in terminal position can recover a
 remote receipt. A marker quoted inside another approved claim is ignored; an App-authored review
 with the right terminal marker but edited content blocks recovery and records a bounded failure.
+An exact pending draft is also recoverable: a retry rechecks the head, then either submits that
+draft or deletes it as stale. GitHub's
+[REST guidance](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
+does not support conditional unsafe mutations unless an endpoint says otherwise, and the review
+endpoint has no such precondition. It cannot make the final head read and review submission one
+atomic operation. A head change in that final provider window cannot attach the review to the new
+commit because `commit_id` remains immutable.
 Each action also stores a SHA-256 fingerprint of the canonical finding/approval pairs, approved
 body reference, and rendered review body. A retry with the same run and head but different content
 fails before the published fast path or marker recovery can reuse the earlier action.

@@ -6,6 +6,7 @@ from .publish import (
     GitHubReviewClient,
     GitHubReviewPayloadMismatch,
     GitHubReviewPublishOperation,
+    GitHubReviewStaleHead,
 )
 from .review import ActivityOperations, ReviewActivities
 from .sandbox import SandboxRunner, SandboxVerificationOperation
@@ -17,6 +18,7 @@ __all__ = [
     "GitHubReviewClient",
     "GitHubReviewPayloadMismatch",
     "GitHubReviewPublishOperation",
+    "GitHubReviewStaleHead",
     "ReviewActivities",
     "SandboxRunner",
     "SandboxVerificationOperation",

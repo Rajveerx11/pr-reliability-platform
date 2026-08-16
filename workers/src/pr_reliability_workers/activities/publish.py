@@ -40,9 +40,12 @@ class GitHubReview:
 class GitHubReviewClient(Protocol):
     """Repository-scoped GitHub operations supplied by the provider worker.
 
-    ``find_review`` must return only an exact expected-body and commit match
-    authored by the authenticated GitHub App identity with a terminal marker.
-    The marker is an idempotency aid, not an authorization secret.
+    ``find_review`` must return only a submitted exact expected-body and commit
+    match authored by the authenticated GitHub App identity with a terminal
+    marker. It must recheck the head before resuming an exact pending review.
+    ``create_review`` must stage an unsubmitted review and recheck the head
+    before submission. The marker is an idempotency aid, not an authorization
+    secret.
     """
 
     async def current_head_sha(self, repository: str, pull_request_number: int) -> str: ...
@@ -71,6 +74,10 @@ class PublishBlockedError(RuntimeError):
 
 class GitHubReviewPayloadMismatch(RuntimeError):
     """An App-authored review has an unexpected body or commit binding."""
+
+
+class GitHubReviewStaleHead(RuntimeError):
+    """GitHub head changed while an unsubmitted review was staged."""
 
 
 @dataclass(frozen=True)
@@ -169,6 +176,18 @@ class GitHubReviewPublishOperation:
                 )
                 raise ApplicationError(
                     "GitHub recovery review does not match the approved commit and payload",
+                    type="PublishBlocked",
+                    non_retryable=True,
+                ) from None
+            except GitHubReviewStaleHead:
+                await asyncio.to_thread(
+                    self._record_failure,
+                    request,
+                    prepared.action_id,
+                    "stale_head",
+                )
+                raise ApplicationError(
+                    "pull request head changed before review submission",
                     type="PublishBlocked",
                     non_retryable=True,
                 ) from None

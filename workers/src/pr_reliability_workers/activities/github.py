@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 import httpx
 
-from .publish import GitHubReview, GitHubReviewPayloadMismatch
+from .publish import GitHubReview, GitHubReviewPayloadMismatch, GitHubReviewStaleHead
 
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -53,14 +53,7 @@ class GitHubRestReviewClient:
     async def current_head_sha(self, repository: str, pull_request_number: int) -> str:
         path = _pull_request_path(repository, pull_request_number)
         async with self._new_http_client() as client:
-            response = await client.get(path)
-            _raise_for_status(response)
-            payload = _json_object(response, "pull request")
-        head = payload.get("head")
-        sha = head.get("sha") if isinstance(head, dict) else None
-        if not isinstance(sha, str) or _SHA.fullmatch(sha) is None:
-            raise RuntimeError("GitHub returned an invalid pull request head")
-        return sha
+            return await _current_head_sha(client, path)
 
     async def find_review(
         self,
@@ -79,6 +72,7 @@ class GitHubRestReviewClient:
         path = _reviews_path(repository, pull_request_number)
         page = 1
         mismatched_terminal_marker = False
+        pending_review: dict[str, Any] | None = None
         async with self._new_http_client() as client:
             while True:
                 response = await client.get(
@@ -97,17 +91,32 @@ class GitHubRestReviewClient:
                         continue
                     commit_sha = value.get("commit_id")
                     if body == expected_body and commit_sha == expected_head_sha:
-                        return _review_identity(value)
+                        state = value.get("state")
+                        if state == "COMMENTED":
+                            return _review_identity(value)
+                        if state == "PENDING":
+                            pending_review = value
+                            continue
+                        mismatched_terminal_marker = True
+                        continue
                     if body.endswith(terminal_marker):
                         mismatched_terminal_marker = True
                 if len(reviews) < _REVIEWS_PER_PAGE:
                     break
                 page += 1
-        if mismatched_terminal_marker:
-            raise GitHubReviewPayloadMismatch(
-                "GitHub recovery review does not match the approved commit and payload"
-            )
-        return None
+            if mismatched_terminal_marker:
+                raise GitHubReviewPayloadMismatch(
+                    "GitHub recovery review does not match the approved commit and payload"
+                )
+            if pending_review is not None:
+                return await _resolve_pending_review(
+                    client,
+                    repository,
+                    pull_request_number,
+                    pending_review,
+                    expected_head_sha,
+                )
+            return None
 
     async def create_review(
         self,
@@ -121,14 +130,24 @@ class GitHubRestReviewClient:
         async with self._new_http_client() as client:
             response = await client.post(
                 path,
-                json={"body": body, "commit_id": expected_head_sha, "event": "COMMENT"},
+                json={"body": body, "commit_id": expected_head_sha},
             )
             _raise_for_status(response)
             payload = _json_object(response, "review")
-        review = _review_identity(payload)
-        if review.commit_sha != expected_head_sha:
-            raise GitHubReviewPayloadMismatch("GitHub created a review for an unexpected commit")
-        return review
+            if payload.get("state") != "PENDING":
+                raise GitHubReviewPayloadMismatch("GitHub did not create a pending review")
+            review = _review_identity(payload)
+            if review.commit_sha != expected_head_sha:
+                raise GitHubReviewPayloadMismatch(
+                    "GitHub created a review for an unexpected commit"
+                )
+            return await _resolve_pending_review(
+                client,
+                repository,
+                pull_request_number,
+                payload,
+                expected_head_sha,
+            )
 
     def _new_http_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -150,6 +169,48 @@ def _pull_request_path(repository: str, pull_request_number: int) -> str:
 
 def _reviews_path(repository: str, pull_request_number: int) -> str:
     return f"repos/{_encoded_repository(repository)}/pulls/{_positive_number(pull_request_number)}/reviews"
+
+
+async def _current_head_sha(client: httpx.AsyncClient, path: str) -> str:
+    response = await client.get(path)
+    _raise_for_status(response)
+    payload = _json_object(response, "pull request")
+    head = payload.get("head")
+    sha = head.get("sha") if isinstance(head, dict) else None
+    if not isinstance(sha, str) or _SHA.fullmatch(sha) is None:
+        raise RuntimeError("GitHub returned an invalid pull request head")
+    return sha
+
+
+async def _resolve_pending_review(
+    client: httpx.AsyncClient,
+    repository: str,
+    pull_request_number: int,
+    payload: dict[str, Any],
+    expected_head_sha: str,
+) -> GitHubReview:
+    review = _review_identity(payload)
+    review_id = _review_number(payload)
+    if review.commit_sha != expected_head_sha:
+        raise GitHubReviewPayloadMismatch("GitHub pending review targets an unexpected commit")
+    pull_path = _pull_request_path(repository, pull_request_number)
+    reviews_path = _reviews_path(repository, pull_request_number)
+    if await _current_head_sha(client, pull_path) != expected_head_sha:
+        response = await client.delete(f"{reviews_path}/{review_id}")
+        _raise_for_status(response)
+        raise GitHubReviewStaleHead("GitHub head changed before review submission")
+    response = await client.post(
+        f"{reviews_path}/{review_id}/events",
+        json={"event": "COMMENT"},
+    )
+    _raise_for_status(response)
+    submitted = _json_object(response, "submitted review")
+    if submitted.get("state") != "COMMENTED":
+        raise GitHubReviewPayloadMismatch("GitHub did not submit the pending review")
+    submitted_review = _review_identity(submitted)
+    if submitted_review != review:
+        raise GitHubReviewPayloadMismatch("GitHub submitted an unexpected review")
+    return submitted_review
 
 
 def _encoded_repository(repository: str) -> str:
@@ -200,6 +261,13 @@ def _review_identity(payload: dict[str, Any]) -> GitHubReview:
     if not isinstance(commit_sha, str):
         raise TypeError("GitHub returned an invalid review commit")
     return GitHubReview(str(remote_id), commit_sha)
+
+
+def _review_number(payload: dict[str, Any]) -> int:
+    remote_id = payload.get("id")
+    if not isinstance(remote_id, int) or isinstance(remote_id, bool) or remote_id < 1:
+        raise TypeError("GitHub returned an invalid review identity")
+    return remote_id
 
 
 def _require_sha(value: str) -> None:

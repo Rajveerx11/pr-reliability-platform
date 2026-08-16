@@ -61,14 +61,19 @@ workflow-signal events but performs no external write.
 
 - The activity accepts only the stable `{run_id}:{head_sha}:publish` idempotency key.
 - Every selected finding needs one matching `approved` decision for the same owner, run, and head.
-- Both the stored pull request head and GitHub's current head must match before review creation.
-- The review request also sends that approved SHA as `commit_id`; a concurrent head change cannot
-  silently attach the write to a newer commit.
+- Both the stored pull request head and GitHub's current head must match before review staging.
+- The client stages an unsubmitted `PENDING` review with the approved SHA as `commit_id`, rechecks
+  the head, and deletes the draft and fails closed on drift. Only a match allows event `COMMENT`
+  submission, so a change during the original precheck-to-create window exposes no public review.
+- GitHub offers no conditional review mutation, so the final head read and submit call cannot be
+  atomic. If the head changes in that provider window, immutable `commit_id` still prevents the
+  review from attaching to the newer commit.
 - The review summary contains only reviewer-approved finding claims plus a hashed retry marker.
 - A retry searches only the authenticated GitHub App identity's reviews and reuses the existing
   remote ID only when the commit SHA, terminal marker, and complete body match the approved
   rendering. Marker substrings, edited bodies, and reviews on other commits are rejected. The
-  marker is not an authorization secret.
+  marker is not an authorization secret. Exact pending reviews are rechecked and submitted or
+  deleted, never treated as published receipts.
 - One database-backed session claim serializes lookup, create, and receipt recording for the
   stable publish key. A crashed worker releases the claim so marker recovery can continue safely.
 - The action stores a canonical payload fingerprint. Reusing its key with different findings,

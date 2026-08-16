@@ -16,11 +16,12 @@ them and names the affected files.
     exclusive recoverable publication claims, stable marker recovery, sanitized failures, and
     immutable publish-payload fingerprints with bounded success/failure audit.
   - `workers/src/pr_reliability_workers/activities/github.py` — repository-scoped GitHub REST
-    client that creates commit-bound review summaries and recovers them with complete pagination,
-    authenticated App-author, commit, terminal-marker, and exact-body checks.
+    client that stages recoverable pending reviews, rechecks the head before submission, deletes
+    stale drafts, and recovers with complete pagination plus authenticated App-author, commit,
+    state, terminal-marker, and exact-body checks.
   - `workers/tests/test_publish_activity.py` and `test_github_comment_client.py` — unapproved,
-    stale, concurrent retry, crash-recovery, edited-body, cross-marker, privacy, pagination,
-    ownership, and audit coverage.
+    stale, head-race, concurrent retry, pending/submitted crash-recovery, edited-body, cross-marker,
+    privacy, pagination, ownership, and audit coverage.
   - `packages/contracts/` — one-to-one finding/approval mapping and stable publish-key validation.
   - `migrations/0004_bind_external_action_payload.sql` — required canonical payload fingerprint
     on every reserved external action.

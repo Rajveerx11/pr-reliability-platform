@@ -10,6 +10,7 @@ import pytest
 from pr_reliability_workers.activities import (
     GitHubRestReviewClient,
     GitHubReviewPayloadMismatch,
+    GitHubReviewStaleHead,
 )
 
 HEAD_SHA = "b" * 40
@@ -34,7 +35,13 @@ def test_review_lookup_pages_and_requires_author_body_and_commit() -> None:
         requested_pages.append(page)
         if page == 1:
             reviews = [
-                {"id": value, "body": "other", "user": {"id": APP_AUTHOR_ID}, "commit_id": HEAD_SHA}
+                {
+                    "id": value,
+                    "body": "other",
+                    "user": {"id": APP_AUTHOR_ID},
+                    "commit_id": HEAD_SHA,
+                    "state": "COMMENTED",
+                }
                 for value in range(1, 101)
             ]
             reviews[0] = {
@@ -42,18 +49,21 @@ def test_review_lookup_pages_and_requires_author_body_and_commit() -> None:
                 "body": EXPECTED_BODY,
                 "user": {"id": 999},
                 "commit_id": HEAD_SHA,
+                "state": "COMMENTED",
             }
             reviews[1] = {
                 "id": 2,
                 "body": f"edited\n\n{MARKER}",
                 "user": {"id": APP_AUTHOR_ID},
                 "commit_id": HEAD_SHA,
+                "state": "COMMENTED",
             }
             reviews[2] = {
                 "id": 3,
                 "body": EXPECTED_BODY,
                 "user": {"id": APP_AUTHOR_ID},
                 "commit_id": NEXT_HEAD_SHA,
+                "state": "COMMENTED",
             }
             return response(request, 200, reviews)
         assert page == 2
@@ -66,6 +76,7 @@ def test_review_lookup_pages_and_requires_author_body_and_commit() -> None:
                     "body": EXPECTED_BODY,
                     "user": {"id": APP_AUTHOR_ID},
                     "commit_id": HEAD_SHA,
+                    "state": "COMMENTED",
                 }
             ],
         )
@@ -99,6 +110,7 @@ def test_cross_marker_inside_approved_claim_is_not_a_recovery_match() -> None:
                     "body": injected_body,
                     "user": {"id": APP_AUTHOR_ID},
                     "commit_id": HEAD_SHA,
+                    "state": "COMMENTED",
                 }
             ],
         )
@@ -127,6 +139,7 @@ def test_owned_terminal_marker_with_wrong_body_is_rejected() -> None:
                     "body": f"edited\n\n{MARKER}",
                     "user": {"id": APP_AUTHOR_ID},
                     "commit_id": HEAD_SHA,
+                    "state": "COMMENTED",
                 }
             ],
         )
@@ -149,10 +162,22 @@ def test_head_and_review_creation_use_commit_bound_repository_paths() -> None:
         if request.method == "GET":
             return response(request, 200, {"head": {"sha": HEAD_SHA}})
         assert request.method == "POST"
-        assert request.read() == (
-            b'{"body":"approved body","commit_id":"' + HEAD_SHA.encode() + b'","event":"COMMENT"}'
+        if request.url.path.endswith("/reviews"):
+            assert request.read() == (
+                b'{"body":"approved body","commit_id":"' + HEAD_SHA.encode() + b'"}'
+            )
+            return response(
+                request,
+                200,
+                {"id": 2001, "commit_id": HEAD_SHA, "state": "PENDING"},
+            )
+        assert request.url.path.endswith("/reviews/2001/events")
+        assert request.read() == b'{"event":"COMMENT"}'
+        return response(
+            request,
+            200,
+            {"id": 2001, "commit_id": HEAD_SHA, "state": "COMMENTED"},
         )
-        return response(request, 201, {"id": 2001, "commit_id": HEAD_SHA})
 
     client = GitHubRestReviewClient(
         TOKEN,
@@ -169,26 +194,36 @@ def test_head_and_review_creation_use_commit_bound_repository_paths() -> None:
     assert [request.url.path for request in requests] == [
         "/repos/owner/repository/pulls/17",
         "/repos/owner/repository/pulls/17/reviews",
+        "/repos/owner/repository/pulls/17",
+        "/repos/owner/repository/pulls/17/reviews/2001/events",
     ]
 
 
-def test_review_remains_bound_to_approved_commit_when_head_advances_after_precheck() -> None:
+def test_head_advance_after_precheck_deletes_pending_review_without_submission() -> None:
     remote_head = HEAD_SHA
+    submitted = False
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal remote_head
+        nonlocal submitted
         if request.method == "GET":
-            checked_head = remote_head
+            return response(request, 200, {"head": {"sha": remote_head}})
+        if request.method == "POST" and request.url.path.endswith("/reviews"):
+            assert json.loads(request.content) == {
+                "body": EXPECTED_BODY,
+                "commit_id": HEAD_SHA,
+            }
             remote_head = NEXT_HEAD_SHA
-            return response(request, 200, {"head": {"sha": checked_head}})
-        assert remote_head == NEXT_HEAD_SHA
-        request_payload = json.loads(request.content)
-        assert request_payload == {
-            "body": EXPECTED_BODY,
-            "commit_id": HEAD_SHA,
-            "event": "COMMENT",
-        }
-        return response(request, 201, {"id": 2002, "commit_id": request_payload["commit_id"]})
+            return response(
+                request,
+                200,
+                {"id": 2002, "commit_id": HEAD_SHA, "state": "PENDING"},
+            )
+        if request.method == "DELETE":
+            assert request.url.path.endswith("/reviews/2002")
+            return response(request, 200, {})
+        submitted = True
+        raise AssertionError("stale pending review must not be submitted")
 
     client = GitHubRestReviewClient(
         TOKEN,
@@ -197,10 +232,92 @@ def test_review_remains_bound_to_approved_commit_when_head_advances_after_preche
     )
 
     checked_head = asyncio.run(client.current_head_sha("owner/repository", 17))
-    review = asyncio.run(client.create_review("owner/repository", 17, checked_head, EXPECTED_BODY))
+    with pytest.raises(GitHubReviewStaleHead):
+        asyncio.run(client.create_review("owner/repository", 17, checked_head, EXPECTED_BODY))
 
     assert remote_head == NEXT_HEAD_SHA
-    assert review.commit_sha == HEAD_SHA
+    assert submitted is False
+
+
+def test_pending_review_is_recovered_and_submitted_after_worker_crash() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/reviews"):
+            return response(
+                request,
+                200,
+                [
+                    {
+                        "id": 2003,
+                        "body": EXPECTED_BODY,
+                        "user": {"id": APP_AUTHOR_ID},
+                        "commit_id": HEAD_SHA,
+                        "state": "PENDING",
+                    }
+                ],
+            )
+        if request.method == "GET":
+            return response(request, 200, {"head": {"sha": HEAD_SHA}})
+        assert request.url.path.endswith("/reviews/2003/events")
+        assert json.loads(request.content) == {"event": "COMMENT"}
+        return response(
+            request,
+            200,
+            {"id": 2003, "commit_id": HEAD_SHA, "state": "COMMENTED"},
+        )
+
+    client = GitHubRestReviewClient(
+        TOKEN,
+        APP_AUTHOR_ID,
+        transport=httpx.MockTransport(handler),
+    )
+
+    review = asyncio.run(
+        client.find_review("owner/repository", 17, HEAD_SHA, MARKER, EXPECTED_BODY)
+    )
+
+    assert review is not None
+    assert review.remote_id == "2003"
+    assert [request.method for request in requests] == ["GET", "GET", "POST"]
+
+
+def test_stale_pending_review_is_deleted_during_crash_recovery() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/reviews"):
+            return response(
+                request,
+                200,
+                [
+                    {
+                        "id": 2004,
+                        "body": EXPECTED_BODY,
+                        "user": {"id": APP_AUTHOR_ID},
+                        "commit_id": HEAD_SHA,
+                        "state": "PENDING",
+                    }
+                ],
+            )
+        if request.method == "GET":
+            return response(request, 200, {"head": {"sha": NEXT_HEAD_SHA}})
+        assert request.method == "DELETE"
+        assert request.url.path.endswith("/reviews/2004")
+        return response(request, 200, {})
+
+    client = GitHubRestReviewClient(
+        TOKEN,
+        APP_AUTHOR_ID,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(GitHubReviewStaleHead):
+        asyncio.run(client.find_review("owner/repository", 17, HEAD_SHA, MARKER, EXPECTED_BODY))
+
+    assert [request.method for request in requests] == ["GET", "GET", "DELETE"]
 
 
 def test_github_failure_does_not_expose_token_or_response_body() -> None:

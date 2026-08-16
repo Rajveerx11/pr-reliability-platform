@@ -16,6 +16,7 @@ from pr_reliability_workers.activities import (
     GitHubReview,
     GitHubReviewPayloadMismatch,
     GitHubReviewPublishOperation,
+    GitHubReviewStaleHead,
 )
 from pr_reliability_workers.workflows.types import PublishRequest
 from psycopg import Connection
@@ -141,6 +142,19 @@ class LeakyGitHubReviewClient(FakeGitHubReviewClient):
     ) -> GitHubReview | None:
         del repository, pull_request_number, expected_head_sha, marker, expected_body
         raise RuntimeError("SECRET_GITHUB_RESPONSE_BODY")
+
+
+class HeadAdvancesDuringCreateClient(FakeGitHubReviewClient):
+    async def create_review(
+        self,
+        repository: str,
+        pull_request_number: int,
+        expected_head_sha: str,
+        body: str,
+    ) -> GitHubReview:
+        del repository, pull_request_number, expected_head_sha, body
+        self.create_calls += 1
+        raise GitHubReviewStaleHead
 
 
 class SimulatedWorkerCrash(BaseException):
@@ -515,6 +529,32 @@ def test_remote_stale_head_blocks_and_records_safe_failure(
 
     assert raised.value.type == "PublishBlocked"
     assert github.reviews == []
+    with connection_factory() as connection:
+        action = connection.execute("SELECT status FROM external_actions").fetchone()[0]
+        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+    assert action == "failed"
+    assert event == (
+        "github.review_publish_failed",
+        {
+            "action_id": public_id(20),
+            "head_sha": HEAD_SHA,
+            "failure_code": "stale_head",
+        },
+    )
+
+
+def test_head_change_during_pending_review_blocks_and_records_safe_failure(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    seed_review(connection_factory)
+    github = HeadAdvancesDuringCreateClient()
+
+    with pytest.raises(ApplicationError) as raised:
+        asyncio.run(publisher(connection_factory, github)(publish_request()))
+
+    assert raised.value.type == "PublishBlocked"
+    assert raised.value.non_retryable
+    assert github.create_calls == 1
     with connection_factory() as connection:
         action = connection.execute("SELECT status FROM external_actions").fetchone()[0]
         event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
