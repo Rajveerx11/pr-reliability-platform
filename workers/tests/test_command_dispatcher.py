@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
+import time
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pr_reliability_workers.dispatch as dispatcher_module
 import psycopg
 import pytest
 from pr_reliability_api.db import apply_migrations
-from pr_reliability_contracts import StartRunCommand
+from pr_reliability_contracts import ApprovalCommand, ApprovalDecision, StartRunCommand
 from pr_reliability_workers.dispatch import (
+    dispatch_next_approval,
     dispatch_next_command,
     dispatch_pending_commands,
     workflow_id_for,
@@ -69,6 +75,18 @@ class RecordingTemporalClient:
             raise ConnectionError("Temporal unavailable")
         return SimpleNamespace(id=options["id"])
 
+    def get_workflow_handle(self, workflow_id: str):
+        client = self
+
+        class RecordingHandle:
+            async def signal(self, signal_name, signal, **options):
+                client.calls.append(((workflow_id, signal_name, signal), options))
+                if client.failures_remaining:
+                    client.failures_remaining -= 1
+                    raise ConnectionError("Temporal unavailable")
+
+        return RecordingHandle()
+
 
 def seed_command(
     connection_factory: Callable[[], Connection[object]],
@@ -123,6 +141,254 @@ def seed_command(
             (public_id(5), OWNER_ID, run_id, command.public_id, command.model_dump_json()),
         )
     return command
+
+
+def seed_approval_signal(
+    connection_factory: Callable[[], Connection[object]],
+    *,
+    decision: ApprovalDecision = ApprovalDecision.APPROVED,
+    event_key: str | None = None,
+) -> ApprovalCommand:
+    start = seed_command(connection_factory)
+    approval = ApprovalCommand(
+        schema_version="1",
+        public_id=public_id(8),
+        owner_id=OWNER_ID,
+        run_id=start.run_id,
+        head_sha=HEAD_SHA,
+        finding_id=public_id(7),
+        actor_id=public_id(9),
+        decision=decision,
+        reason="Evidence is sufficient",
+        decided_at=datetime(2026, 8, 16, 8, 0, tzinfo=UTC),
+    )
+    with connection_factory() as connection, connection.transaction():
+        run_id = connection.execute(
+            "UPDATE runs SET state = 'awaiting_approval' WHERE public_id = %s RETURNING id",
+            (start.run_id,),
+        ).fetchone()[0]
+        finding_id = connection.execute(
+            """
+            INSERT INTO findings (
+                public_id, owner_id, run_id, finding_key, category, severity,
+                claim, confidence, evidence
+            ) VALUES (%s, %s, %s, 'finding-approval', 'correctness', 'high',
+                      'Unsafe access', 0.9,
+                      '[{"schema_version":"1","kind":"source_location","summary":"unsafe","file_path":"a.py"}]'::jsonb)
+            RETURNING id
+            """,
+            (approval.finding_id, OWNER_ID, run_id),
+        ).fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO approvals (
+                public_id, owner_id, run_id, finding_id, actor_id,
+                decision, reason, head_sha, decided_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                approval.public_id,
+                OWNER_ID,
+                run_id,
+                finding_id,
+                approval.actor_id,
+                approval.decision.value,
+                approval.reason,
+                HEAD_SHA,
+                approval.decided_at,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO run_events (
+                public_id, owner_id, run_id, event_key, event_type, event_data, occurred_at
+            ) VALUES (%s, %s, %s, %s, 'approval.signal_created', %s::jsonb, now())
+            """,
+            (
+                public_id(10),
+                OWNER_ID,
+                run_id,
+                event_key or f"approval:{approval.public_id}:signal",
+                approval.model_dump_json(),
+            ),
+        )
+    return approval
+
+
+def test_approval_signal_is_dispatched_once_and_receipted(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    approval = seed_approval_signal(connection_factory)
+    client = RecordingTemporalClient()
+
+    first = asyncio.run(
+        dispatch_next_approval(connection_factory, client, id_factory=lambda: public_id(11))
+    )
+    second = asyncio.run(
+        dispatch_next_approval(connection_factory, client, id_factory=lambda: public_id(12))
+    )
+
+    assert first is True
+    assert second is False
+    assert len(client.calls) == 1
+    (workflow_id, signal_name, signal), options = client.calls[0]
+    assert workflow_id == f"pr-review:{OWNER_ID}:{public_id(2)}"
+    assert signal_name.__name__ == "approve"
+    assert signal.run_id == approval.run_id
+    assert signal.head_sha == approval.head_sha
+    assert signal.finding_ids == (approval.finding_id,)
+    assert signal.approval_ids == (approval.public_id,)
+    assert signal.comment_body_ref == f"approval:{approval.public_id}"
+    assert options["rpc_timeout"].total_seconds() == 10
+    with connection_factory() as connection:
+        receipt = connection.execute(
+            "SELECT event_data FROM run_events WHERE event_type = 'approval.signal_dispatched'"
+        ).fetchone()[0]
+    assert receipt == {"approval_id": approval.public_id, "status": "accepted"}
+
+
+def test_failed_approval_signal_stays_pending(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    seed_approval_signal(connection_factory)
+    client = RecordingTemporalClient()
+    client.failures_remaining = 1
+
+    with pytest.raises(ConnectionError, match="Temporal unavailable"):
+        asyncio.run(dispatch_next_approval(connection_factory, client))
+
+    with connection_factory() as connection:
+        receipt_count = connection.execute(
+            "SELECT count(*) FROM run_events WHERE event_type = 'approval.signal_dispatched'"
+        ).fetchone()[0]
+    assert receipt_count == 0
+
+
+def test_rejected_approval_sends_rejection_without_publish_fields(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    approval = seed_approval_signal(
+        connection_factory,
+        decision=ApprovalDecision.REJECTED,
+    )
+    client = RecordingTemporalClient()
+
+    assert asyncio.run(dispatch_next_approval(connection_factory, client)) is True
+
+    (_, _, signal), _ = client.calls[0]
+    assert signal.run_id == approval.run_id
+    assert signal.approved is False
+    assert signal.finding_ids == ()
+    assert signal.approval_ids == ()
+    assert signal.comment_body_ref is None
+
+
+def test_forged_approval_event_key_is_rejected(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    seed_approval_signal(connection_factory, event_key="forged-key")
+
+    with pytest.raises(ValueError, match="does not match relational state"):
+        asyncio.run(dispatch_next_approval(connection_factory, RecordingTemporalClient()))
+
+
+def test_stale_approval_is_receipted_without_signal(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    approval = seed_approval_signal(connection_factory)
+    with connection_factory() as connection, connection.transaction():
+        connection.execute(
+            "UPDATE pull_requests SET head_sha = %s WHERE public_id = %s",
+            ("c" * 40, public_id(2)),
+        )
+    client = RecordingTemporalClient()
+
+    assert asyncio.run(dispatch_next_approval(connection_factory, client)) is True
+    assert client.calls == []
+    with connection_factory() as connection:
+        receipt = connection.execute(
+            "SELECT event_data FROM run_events WHERE event_type = 'approval.signal_dispatched'"
+        ).fetchone()[0]
+    assert receipt == {
+        "approval_id": approval.public_id,
+        "reason": "run no longer awaits this commit",
+        "status": "skipped",
+    }
+
+
+def test_approval_dispatch_locks_head_until_signal_is_accepted(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    seed_approval_signal(connection_factory)
+    signal_started = threading.Event()
+    allow_signal = threading.Event()
+
+    class BlockingClient(RecordingTemporalClient):
+        def get_workflow_handle(self, workflow_id: str):
+            client = self
+
+            class BlockingHandle:
+                async def signal(self, signal_name, signal, **options):
+                    client.calls.append(((workflow_id, signal_name, signal), options))
+                    signal_started.set()
+                    while not allow_signal.is_set():
+                        await asyncio.sleep(0.01)
+
+            return BlockingHandle()
+
+    def update_head() -> None:
+        with connection_factory() as connection, connection.transaction():
+            connection.execute(
+                "UPDATE pull_requests SET head_sha = %s WHERE public_id = %s",
+                ("c" * 40, public_id(2)),
+            )
+
+    client = BlockingClient()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        dispatch = pool.submit(
+            lambda: asyncio.run(dispatch_next_approval(connection_factory, client))
+        )
+        assert signal_started.wait(timeout=2)
+        head_update = pool.submit(update_head)
+        time.sleep(0.1)
+        assert not head_update.done(), "head update must wait until signal receipt commits"
+        allow_signal.set()
+        assert dispatch.result(timeout=2) is True
+        head_update.result(timeout=2)
+
+
+def test_start_backlog_cannot_starve_approval_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    stop_event = asyncio.Event()
+    start_calls = 0
+    approval_calls = 0
+
+    async def fake_start(*_args, **_kwargs) -> bool:
+        nonlocal start_calls
+        start_calls += 1
+        if start_calls == 2:
+            stop_event.set()
+        return True
+
+    async def fake_approval(*_args, **_kwargs) -> bool:
+        nonlocal approval_calls
+        approval_calls += 1
+        return True
+
+    monkeypatch.setattr(dispatcher_module, "dispatch_next_command", fake_start)
+    monkeypatch.setattr(dispatcher_module, "dispatch_next_approval", fake_approval)
+
+    asyncio.run(
+        dispatch_pending_commands(
+            lambda: None,
+            object(),
+            task_queue=TASK_QUEUE,
+            poll_interval_seconds=0.01,
+            stop_event=stop_event,
+        )
+    )
+
+    assert start_calls == 2
+    assert approval_calls == 2
 
 
 def test_pending_command_is_dispatched_once_and_receipted(

@@ -60,3 +60,4 @@ packages = [
 
 [tool.hatch.build.targets.wheel.force-include]
 "migrations" = "pr_reliability_api/_migrations"
+"apps/web/approval_inbox.html" = "pr_reliability_api/_web/approval_inbox.html"
