@@ -5,6 +5,23 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added private single-VM deployment controls
+
+- Issue: [#15](https://github.com/Rajveerx11/pr-reliability-platform/issues/15)
+- Decision: [DEC-013 — One cloud VM](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation)
+- Reason: The validated local flow needs a small, private, recoverable deployment boundary before
+  any real test-repository use.
+- Changed files:
+  - `infra/deployment/` — private-IP TLS Compose stack, immutable-image and external-secret
+    preflight, local monitoring, deployment health, consistent database backup and restore, and
+    a daily systemd backup timer with focused policy tests.
+  - `apps/api/src/pr_reliability_api/migrate.py` — one-shot checksummed deployment migrations.
+  - `docs/deployment.md`, `docs/development.md`, and `docs/security.md` — provisioning, monitoring,
+    recovery drill, end-to-end acceptance, rollback, and current external blockers.
+  - `.github/workflows/quality.yml` — private VM Compose validation.
+  - `pyproject.toml` — deployment policy tests in the default test suite.
+  - `.gitignore` — deployment environment, secret directory, private key, and PEM exclusions.
+
 ### Added reproducible version-one evaluation harness replay
 
 - Issue: [#14](https://github.com/Rajveerx11/pr-reliability-platform/issues/14)

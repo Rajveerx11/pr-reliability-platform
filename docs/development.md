@@ -79,6 +79,10 @@ package. `REVIEW_ACTIVITY_OPERATIONS_FACTORY` must use `module:factory` and retu
 `ActivityOperations` value containing context, model, verification, publish, and terminal
 operations. Registering partial activity sets on the same queue is not supported.
 
+Private version-one deployment uses `infra/deployment/compose.vm.yaml`, immutable image digests,
+external secret files, private-IP TLS termination, local Prometheus, and a dedicated rootless
+sandbox Docker engine. Follow `docs/deployment.md`; local Compose remains a development-only path.
+
 ## Quality commands
 
 Commands will be finalized with the first implementation issue. Expected checks are:

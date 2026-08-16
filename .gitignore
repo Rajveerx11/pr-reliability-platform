@@ -17,4 +17,8 @@ build/
 artifacts/
 .DS_Store
 Thumbs.db
+infra/deployment/*.env
+infra/deployment/secrets/
+*.pem
+*.key
 

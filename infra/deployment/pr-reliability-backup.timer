@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the PR Reliability database backup every day
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=pr-reliability-backup.service
+
+[Install]
+WantedBy=timers.target
