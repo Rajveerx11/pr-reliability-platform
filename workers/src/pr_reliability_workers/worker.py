@@ -10,7 +10,12 @@ from collections.abc import Callable
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from .activities import ActivityOperations, GitHubCommentPublishOperation, ReviewActivities
+from .activities import (
+    ActivityOperations,
+    GitHubCommentPublishOperation,
+    GitHubRestCommentClient,
+    ReviewActivities,
+)
 from .sandbox import DockerSandboxRunner
 from .workflows import PullRequestReviewWorkflow
 
@@ -109,6 +114,8 @@ def load_activity_operations(factory_path: str) -> ActivityOperations:
         raise TypeError("production verification must use DockerSandboxRunner")
     if not isinstance(operations.publish, GitHubCommentPublishOperation):
         raise TypeError("production publishing must use GitHubCommentPublishOperation")
+    if type(operations.publish.client) is not GitHubRestCommentClient:
+        raise TypeError("production publishing must use GitHubRestCommentClient")
     return operations
 
 

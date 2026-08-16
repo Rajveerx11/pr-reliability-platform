@@ -70,6 +70,7 @@ class _PreparedPublish:
     marker: str
     body: str
     remote_id: str | None = None
+    create_block_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -83,51 +84,80 @@ class GitHubCommentPublishOperation:
 
     async def __call__(self, request: PublishRequest) -> None:
         try:
-            prepared = await asyncio.to_thread(self._prepare, request)
+            _validate_request_shape(request)
         except PublishBlockedError as exc:
-            raise _blocked_application_error(exc) from exc
-        if prepared.remote_id is not None:
-            return
-
+            raise _blocked_application_error(exc) from None
+        claim_connection = await asyncio.to_thread(self.connection_factory)
         try:
-            comment = await self.client.find_comment(
-                prepared.repository,
-                prepared.pull_request_number,
-                prepared.marker,
+            await _acquire_publish_claim(
+                claim_connection,
+                request.owner_id,
+                request.idempotency_key,
             )
-            if comment is None:
-                remote_head = await self.client.current_head_sha(
+            try:
+                prepared = await asyncio.to_thread(self._prepare, request)
+            except PublishBlockedError as exc:
+                raise _blocked_application_error(exc) from None
+            if prepared.remote_id is not None:
+                return
+
+            try:
+                comment = await self.client.find_comment(
                     prepared.repository,
                     prepared.pull_request_number,
+                    prepared.marker,
                 )
-                if remote_head != prepared.head_sha:
+                if comment is None:
+                    if prepared.create_block_code is not None:
+                        await asyncio.to_thread(
+                            self._record_failure,
+                            request,
+                            prepared.action_id,
+                            prepared.create_block_code,
+                        )
+                        raise ApplicationError(
+                            "publish authorization is no longer current",
+                            type="PublishBlocked",
+                            non_retryable=True,
+                        )
+                    remote_head = await self.client.current_head_sha(
+                        prepared.repository,
+                        prepared.pull_request_number,
+                    )
+                    if remote_head != prepared.head_sha:
+                        await asyncio.to_thread(
+                            self._record_failure,
+                            request,
+                            prepared.action_id,
+                            "stale_head",
+                        )
+                        raise ApplicationError(
+                            "pull request head is stale",
+                            type="PublishBlocked",
+                            non_retryable=True,
+                        )
+                    comment = await self.client.create_comment(
+                        prepared.repository,
+                        prepared.pull_request_number,
+                        prepared.body,
+                    )
+                await asyncio.to_thread(self._record_success, request, prepared, comment)
+            except ApplicationError:
+                raise
+            # This is the trust boundary for provider clients, whose exception types vary.
+            except Exception:  # noqa: BLE001
+                try:
                     await asyncio.to_thread(
                         self._record_failure,
                         request,
                         prepared.action_id,
-                        "stale_head",
+                        "github_error",
                     )
-                    raise ApplicationError(
-                        "pull request head is stale",
-                        type="PublishBlocked",
-                        non_retryable=True,
-                    )
-                comment = await self.client.create_comment(
-                    prepared.repository,
-                    prepared.pull_request_number,
-                    prepared.body,
-                )
-            await asyncio.to_thread(self._record_success, request, prepared, comment)
-        except ApplicationError:
-            raise
-        except Exception as exc:
-            await asyncio.to_thread(
-                self._record_failure,
-                request,
-                prepared.action_id,
-                "github_error",
-            )
-            raise RuntimeError("GitHub comment publish failed") from exc
+                except Exception:  # noqa: BLE001
+                    raise RuntimeError("GitHub publish failure audit failed") from None
+                raise RuntimeError("GitHub comment publish failed") from None
+        finally:
+            await _close_claim_connection(claim_connection)
 
     def _prepare(self, request: PublishRequest) -> _PreparedPublish:
         _validate_request_shape(request)
@@ -189,9 +219,24 @@ class GitHubCommentPublishOperation:
                         remote_id,
                     )
 
+            create_block_code = None
             if run_state != "awaiting_approval":
+                create_block_code = "authorization_changed"
+            elif current_head_sha != request.head_sha:
+                create_block_code = "stale_head"
+            if existing is not None and create_block_code is not None:
+                return _PreparedPublish(
+                    action_id,
+                    repository,
+                    request.pull_request_number,
+                    request.head_sha,
+                    _comment_marker(request.idempotency_key),
+                    "",
+                    create_block_code=create_block_code,
+                )
+            if create_block_code == "authorization_changed":
                 raise PublishBlockedError("run is not awaiting approval")
-            if current_head_sha != request.head_sha:
+            if create_block_code == "stale_head":
                 raise PublishBlockedError("pull request head is stale")
 
             findings = connection.execute(
@@ -400,3 +445,35 @@ def _render_comment(findings: list[tuple[Any, ...]], marker: str) -> str:
 
 def _blocked_application_error(error: PublishBlockedError) -> ApplicationError:
     return ApplicationError(str(error), type="PublishBlocked", non_retryable=True)
+
+
+async def _acquire_publish_claim(
+    connection: Connection[Any],
+    owner_id: str,
+    idempotency_key: str,
+) -> None:
+    lock_key = f"{owner_id}:{idempotency_key}"
+    while not await asyncio.to_thread(_try_publish_claim, connection, lock_key):
+        await asyncio.sleep(0.05)
+
+
+def _try_publish_claim(connection: Connection[Any], lock_key: str) -> bool:
+    try:
+        acquired = connection.execute(
+            "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))",
+            (lock_key,),
+        ).fetchone()[0]
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    return bool(acquired)
+
+
+async def _close_claim_connection(connection: Connection[Any]) -> None:
+    close_task = asyncio.create_task(asyncio.to_thread(connection.close))
+    try:
+        await asyncio.shield(close_task)
+    except asyncio.CancelledError:
+        await close_task
+        raise

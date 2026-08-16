@@ -65,8 +65,11 @@ workflow-signal events but performs no external write.
 - The comment contains only reviewer-approved finding claims plus a hashed retry marker.
 - A retry searches only the authenticated GitHub App identity's comments for that marker before
   creating a comment and reuses the existing remote ID. The marker is not an authorization secret.
+- One database-backed session claim serializes lookup, create, and receipt recording for the
+  stable publish key. A crashed worker releases the claim so marker recovery can continue safely.
 - Audit events store bounded IDs, commit SHA, and result codes. They never store the comment body,
-  GitHub token, response body, or exception text.
+  GitHub token, response body, or exception text. Provider exceptions are removed before Temporal
+  records an activity failure.
 
 Not allowed:
 

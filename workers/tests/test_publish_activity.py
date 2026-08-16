@@ -15,6 +15,8 @@ from pr_reliability_api.db import apply_migrations
 from pr_reliability_workers.activities import GitHubComment, GitHubCommentPublishOperation
 from pr_reliability_workers.workflows.types import PublishRequest
 from psycopg import Connection
+from temporalio.api.failure.v1 import Failure
+from temporalio.converter import DefaultFailureConverter, DefaultPayloadConverter
 from temporalio.exceptions import ApplicationError
 
 OWNER_ID = "01J00000000000000000000001"
@@ -66,6 +68,7 @@ class FakeGitHubClient:
         self.current_head = current_head
         self.comments: list[tuple[GitHubComment, str]] = []
         self.create_calls = 0
+        self.find_calls = 0
 
     async def current_head_sha(self, repository: str, pull_request_number: int) -> str:
         assert repository == "owner/repository"
@@ -80,6 +83,7 @@ class FakeGitHubClient:
     ) -> GitHubComment | None:
         assert repository == "owner/repository"
         assert pull_request_number == 17
+        self.find_calls += 1
         return next((comment for comment, body in self.comments if marker in body), None)
 
     async def create_comment(
@@ -94,6 +98,34 @@ class FakeGitHubClient:
         comment = GitHubComment(str(1000 + self.create_calls))
         self.comments.append((comment, body))
         return comment
+
+
+class BlockingGitHubClient(FakeGitHubClient):
+    def __init__(self, create_barrier: asyncio.Barrier, release_create: asyncio.Event) -> None:
+        super().__init__()
+        self.create_barrier = create_barrier
+        self.release_create = release_create
+
+    async def create_comment(
+        self,
+        repository: str,
+        pull_request_number: int,
+        body: str,
+    ) -> GitHubComment:
+        await self.create_barrier.wait()
+        await self.release_create.wait()
+        return await super().create_comment(repository, pull_request_number, body)
+
+
+class LeakyGitHubClient(FakeGitHubClient):
+    async def find_comment(
+        self,
+        repository: str,
+        pull_request_number: int,
+        marker: str,
+    ) -> GitHubComment | None:
+        del repository, pull_request_number, marker
+        raise RuntimeError("SECRET_GITHUB_RESPONSE_BODY")
 
 
 def seed_review(
@@ -233,6 +265,38 @@ def test_stable_retry_creates_one_comment_and_safe_audit(
     assert "Null input" not in str(event[1])
 
 
+def test_concurrent_retries_hold_one_publish_claim(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    seed_review(connection_factory)
+
+    async def scenario() -> BlockingGitHubClient:
+        create_barrier = asyncio.Barrier(2)
+        release_create = asyncio.Event()
+        github = BlockingGitHubClient(create_barrier, release_create)
+        operation = publisher(connection_factory, github)
+        first = asyncio.create_task(operation(publish_request()))
+        await create_barrier.wait()
+        second = asyncio.create_task(operation(publish_request()))
+        await asyncio.sleep(0.1)
+        assert github.find_calls == 1
+        assert not second.done()
+        release_create.set()
+        await asyncio.gather(first, second)
+        return github
+
+    github = asyncio.run(scenario())
+
+    assert github.create_calls == 1
+    assert len(github.comments) == 1
+    with connection_factory() as connection:
+        assert connection.execute("SELECT status, remote_id FROM external_actions").fetchone() == (
+            "published",
+            "1001",
+        )
+        assert connection.execute("SELECT count(*) FROM run_events").fetchone()[0] == 1
+
+
 def test_retry_recovers_comment_created_before_database_receipt(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
@@ -267,6 +331,68 @@ def test_retry_recovers_comment_created_before_database_receipt(
             "published",
             "existing-1001",
         )
+
+
+def test_retry_reconciles_created_comment_after_head_advances(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    seed_review(connection_factory)
+    request = publish_request()
+    marker = (
+        "<!-- pr-reliability:"
+        + hashlib.sha256(request.idempotency_key.encode()).hexdigest()
+        + " -->"
+    )
+    github = FakeGitHubClient(current_head=NEXT_HEAD_SHA)
+    github.comments.append((GitHubComment("existing-1001"), f"approved body\n\n{marker}"))
+    with connection_factory() as connection, connection.transaction():
+        run = connection.execute("SELECT id FROM runs WHERE public_id = %s", (RUN_ID,)).fetchone()[
+            0
+        ]
+        connection.execute(
+            """
+            INSERT INTO external_actions (
+                public_id, owner_id, run_id, action_type, target_sha,
+                idempotency_key, status
+            ) VALUES (%s, %s, %s, 'github.pull_request_comment', %s, %s, 'publishing')
+            """,
+            (public_id(19), OWNER_ID, run, HEAD_SHA, request.idempotency_key),
+        )
+        connection.execute(
+            "UPDATE pull_requests SET head_sha = %s WHERE public_id = %s",
+            (NEXT_HEAD_SHA, PULL_REQUEST_ID),
+        )
+
+    asyncio.run(publisher(connection_factory, github)(request))
+
+    assert github.create_calls == 0
+    with connection_factory() as connection:
+        assert connection.execute("SELECT status, remote_id FROM external_actions").fetchone() == (
+            "published",
+            "existing-1001",
+        )
+        assert connection.execute("SELECT event_type FROM run_events").fetchone()[0] == (
+            "github.comment_published"
+        )
+
+
+def test_provider_failure_is_sanitized_before_temporal_conversion(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    seed_review(connection_factory)
+
+    with pytest.raises(RuntimeError) as raised:
+        asyncio.run(publisher(connection_factory, LeakyGitHubClient())(publish_request()))
+
+    assert str(raised.value) == "GitHub comment publish failed"
+    assert raised.value.__cause__ is None
+    failure = Failure()
+    DefaultFailureConverter.default.to_failure(
+        raised.value,
+        DefaultPayloadConverter.default,
+        failure,
+    )
+    assert "SECRET_GITHUB_RESPONSE_BODY" not in str(failure)
 
 
 def test_database_stale_head_blocks_before_github(

@@ -13,10 +13,14 @@ them and names the affected files.
   approval state and leaves a safe audit trail.
 - Changed files:
   - `workers/src/pr_reliability_workers/activities/publish.py` — database approval and head checks,
-    stable marker recovery, injected GitHub client boundary, and bounded success/failure audit.
-  - `workers/tests/test_publish_activity.py` — fake-client coverage for unapproved, stale, retry,
-    crash-recovery, and audit behavior.
+    exclusive recoverable publication claims, stable marker recovery, sanitized failures, and
+    bounded success/failure audit.
+  - `workers/src/pr_reliability_workers/activities/github.py` — repository-scoped GitHub REST
+    client with complete pagination and authenticated App-author marker checks.
+  - `workers/tests/test_publish_activity.py` and `test_github_comment_client.py` — unapproved,
+    stale, concurrent retry, crash-recovery, privacy, pagination, ownership, and audit coverage.
   - `packages/contracts/` — one-to-one finding/approval mapping and stable publish-key validation.
+  - `pyproject.toml` and `uv.lock` — production HTTP client dependency for GitHub publishing.
   - `docs/architecture.md`, `docs/security.md`, and `docs/development.md` — publish flow, safety
     boundary, and provider requirements.
 

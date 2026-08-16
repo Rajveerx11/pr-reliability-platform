@@ -14,6 +14,7 @@ from pr_reliability_workers.activities import (
     ActivityOperations,
     GitHubComment,
     GitHubCommentPublishOperation,
+    GitHubRestCommentClient,
     SandboxRunner,
     SandboxVerificationOperation,
 )
@@ -124,6 +125,17 @@ def test_production_loader_requires_real_docker_runner(
     with pytest.raises(TypeError, match="GitHubCommentPublishOperation"):
         load_activity_operations(f"{provider.__name__}:create")
 
+    provider.create = lambda: replace(  # type: ignore[attr-defined]
+        expected,
+        publish=GitHubCommentPublishOperation(
+            lambda: None,  # type: ignore[arg-type,return-value]
+            FakeGitHubClient(),
+            lambda: "01J00000000000000000000001",
+        ),
+    )
+    with pytest.raises(TypeError, match="GitHubRestCommentClient"):
+        load_activity_operations(f"{provider.__name__}:create")
+
     provider.create = lambda: expected  # type: ignore[attr-defined]
     assert load_activity_operations(f"{provider.__name__}:create") is expected
 
@@ -150,7 +162,7 @@ def _operations(runner: SandboxRunner) -> ActivityOperations:
         verify=SandboxVerificationOperation(prepare, runner, record),
         publish=GitHubCommentPublishOperation(
             lambda: None,  # type: ignore[arg-type,return-value]
-            FakeGitHubClient(),
+            GitHubRestCommentClient("installation-token", 1),
             lambda: "01J00000000000000000000001",
         ),
         record_terminal=terminal,

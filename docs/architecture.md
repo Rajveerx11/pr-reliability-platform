@@ -110,6 +110,10 @@ run/head publish key reserves one `external_actions` row. A hidden hash marker l
 comment created before its database receipt committed, so the retry records that comment instead
 of creating another. Append-only events keep only action, approval, finding, commit, result, and
 bounded failure-code facts; comment bodies and credentials are excluded.
+The worker holds a PostgreSQL session advisory claim for that key across marker lookup, comment
+creation, and audit recording. A concurrent retry waits for the claim; a worker crash releases it.
+Recovery checks all comments from the authenticated GitHub App identity before deciding whether a
+new write is allowed, including when the pull request head advanced after the first write.
 
 Context selection, analysis, verification, terminal recording, and publish are activities with
 bounded timeouts, three retry attempts, stable activity IDs, and deterministic idempotency keys.
