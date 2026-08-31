@@ -13,13 +13,18 @@ from datetime import timedelta
 from typing import Any
 
 import psycopg
-from pr_reliability_contracts import StartRunCommand
+from pr_reliability_contracts import ApprovalCommand, ApprovalDecision, StartRunCommand
 from psycopg import Connection
 from temporalio.client import Client, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.service import RPCError
 
-from .workflows import PullRequestReviewWorkflow, ReviewWorkflowInput, SupersedeSignal
+from .workflows import (
+    ApprovalSignal,
+    PullRequestReviewWorkflow,
+    ReviewWorkflowInput,
+    SupersedeSignal,
+)
 
 ConnectionFactory = Callable[[], Connection[Any]]
 _TERMINAL_RUN_STATES = frozenset({"published", "rejected", "failed", "cancelled"})
@@ -31,7 +36,11 @@ _LOGGER = logging.getLogger(__name__)
 def workflow_id_for(command: StartRunCommand) -> str:
     """Keep one active workflow execution per owned pull request."""
 
-    return f"pr-review:{command.owner_id}:{command.pull_request_id}"
+    return _workflow_id(command.owner_id, command.pull_request_id)
+
+
+def _workflow_id(owner_id: str, pull_request_id: str) -> str:
+    return f"pr-review:{owner_id}:{pull_request_id}"
 
 
 async def dispatch_start_run(
@@ -211,6 +220,139 @@ async def dispatch_next_command(
         return True
 
 
+async def dispatch_next_approval(
+    connection_factory: ConnectionFactory,
+    client: Client,
+    *,
+    id_factory: Callable[[], str] = lambda: _new_ulid(),
+    dispatch_timeout_seconds: float = 11.0,
+) -> bool:
+    """Signal one durable human decision to its waiting workflow exactly once."""
+
+    if dispatch_timeout_seconds <= 0:
+        raise ValueError("dispatch_timeout_seconds must be positive")
+    with connection_factory() as connection, connection.transaction():
+        row = connection.execute(
+            """
+            SELECT command.run_id, command.owner_id, command.event_key, command.event_data,
+                   run.public_id, run.state, run.head_sha,
+                   pull_request.public_id, pull_request.head_sha,
+                   approval.public_id, approval.actor_id, approval.decision,
+                   approval.reason, approval.decided_at, finding.public_id
+            FROM run_events AS command
+            JOIN runs AS run
+              ON run.id = command.run_id
+             AND run.owner_id = command.owner_id
+            JOIN pull_requests AS pull_request
+              ON pull_request.id = run.pull_request_id
+             AND pull_request.owner_id = run.owner_id
+            JOIN approvals AS approval
+              ON approval.run_id = run.id
+             AND approval.owner_id = run.owner_id
+            JOIN findings AS finding
+              ON finding.id = approval.finding_id
+             AND finding.run_id = run.id
+             AND finding.owner_id = run.owner_id
+            WHERE command.event_type = 'approval.signal_created'
+              AND approval.public_id = command.event_data->>'public_id'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM run_events AS receipt
+                  WHERE receipt.run_id = command.run_id
+                    AND receipt.event_key = command.event_key || ':dispatched'
+              )
+            ORDER BY command.id
+            FOR UPDATE OF command, run, pull_request, approval SKIP LOCKED
+            LIMIT 1
+            """
+        ).fetchone()
+        if row is None:
+            return False
+
+        (
+            internal_run_id,
+            owner_id,
+            event_key,
+            event_data,
+            run_public_id,
+            run_state,
+            run_head_sha,
+            pull_request_public_id,
+            current_head_sha,
+            approval_public_id,
+            actor_id,
+            decision,
+            reason,
+            decided_at,
+            finding_public_id,
+        ) = row
+        command = ApprovalCommand.model_validate(event_data)
+        persisted_identity = (
+            event_key,
+            approval_public_id,
+            owner_id,
+            run_public_id,
+            run_head_sha,
+            finding_public_id,
+            actor_id,
+            decision,
+            reason,
+            decided_at,
+        )
+        command_identity = (
+            f"approval:{command.public_id}:signal",
+            command.public_id,
+            command.owner_id,
+            command.run_id,
+            command.head_sha,
+            command.finding_id,
+            command.actor_id,
+            command.decision.value,
+            command.reason,
+            command.decided_at,
+        )
+        if command_identity != persisted_identity:
+            raise ValueError("persisted approval command does not match relational state")
+
+        if run_state != "awaiting_approval" or current_head_sha != run_head_sha:
+            _insert_approval_receipt(
+                connection,
+                command,
+                internal_run_id,
+                event_key,
+                id_factory,
+                status="skipped",
+                reason="run no longer awaits this commit",
+            )
+            return True
+
+        approved = command.decision is ApprovalDecision.APPROVED
+        signal = ApprovalSignal(
+            run_id=command.run_id,
+            head_sha=command.head_sha,
+            approved=approved,
+            finding_ids=(command.finding_id,) if approved else (),
+            approval_ids=(command.public_id,) if approved else (),
+            comment_body_ref=f"approval:{command.public_id}" if approved else None,
+        )
+        handle = client.get_workflow_handle(_workflow_id(command.owner_id, pull_request_public_id))
+        async with asyncio.timeout(dispatch_timeout_seconds):
+            await handle.signal(
+                PullRequestReviewWorkflow.approve,
+                signal,
+                rpc_timeout=_TEMPORAL_RPC_TIMEOUT,
+            )
+        _insert_approval_receipt(
+            connection,
+            command,
+            internal_run_id,
+            event_key,
+            id_factory,
+            status="accepted",
+        )
+        return True
+
+
 async def dispatch_pending_commands(
     connection_factory: ConnectionFactory,
     client: Client,
@@ -224,16 +366,24 @@ async def dispatch_pending_commands(
     if poll_interval_seconds <= 0:
         raise ValueError("poll_interval_seconds must be positive")
     while stop_event is None or not stop_event.is_set():
-        try:
-            dispatched = await dispatch_next_command(
-                connection_factory,
-                client,
-                task_queue=task_queue,
-            )
-        except _TRANSIENT_ERRORS:
-            _LOGGER.warning("transient command dispatch failure; retrying", exc_info=True)
-            await _wait_or_stop(poll_interval_seconds, stop_event)
-            continue
+        dispatched = False
+        for dispatch_kind in ("approval", "start"):
+            try:
+                if dispatch_kind == "approval":
+                    result = await dispatch_next_approval(connection_factory, client)
+                else:
+                    result = await dispatch_next_command(
+                        connection_factory,
+                        client,
+                        task_queue=task_queue,
+                    )
+                dispatched = result or dispatched
+            except _TRANSIENT_ERRORS:
+                _LOGGER.warning(
+                    "transient %s dispatch failure; retrying",
+                    dispatch_kind,
+                    exc_info=True,
+                )
         if not dispatched:
             await _wait_or_stop(poll_interval_seconds, stop_event)
 
@@ -292,6 +442,37 @@ def _insert_receipt(
             command.owner_id,
             internal_run_id,
             f"{command.public_id}:dispatched",
+            json.dumps(event_data),
+        ),
+    )
+
+
+def _insert_approval_receipt(
+    connection: Connection[Any],
+    command: ApprovalCommand,
+    internal_run_id: int,
+    event_key: str,
+    id_factory: Callable[[], str],
+    *,
+    status: str,
+    reason: str | None = None,
+) -> None:
+    event_data = {"approval_id": command.public_id, "status": status}
+    if reason is not None:
+        event_data["reason"] = reason
+    connection.execute(
+        """
+        INSERT INTO run_events (
+            public_id, owner_id, run_id, event_key, event_type, event_data, occurred_at
+        )
+        VALUES (%s, %s, %s, %s, 'approval.signal_dispatched', %s::jsonb, now())
+        ON CONFLICT (run_id, event_key) DO NOTHING
+        """,
+        (
+            id_factory(),
+            command.owner_id,
+            internal_run_id,
+            f"{event_key}:dispatched",
             json.dumps(event_data),
         ),
     )

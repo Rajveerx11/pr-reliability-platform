@@ -47,8 +47,10 @@ Run the API after setting the required values in `.env`:
 uvicorn --factory pr_reliability_api.app:create_app_from_environment
 ```
 
-Webhook startup requires `DATABASE_URL`, `OWNER_ID`, `GITHUB_INSTALLATION_ID`, and
-`GITHUB_WEBHOOK_SECRET`.
+Webhook and approval startup requires `DATABASE_URL`, `OWNER_ID`, `GITHUB_INSTALLATION_ID`,
+`GITHUB_WEBHOOK_SECRET`, `APPROVAL_ACTOR_ID`, and `APPROVAL_REVIEWER_TOKEN`. Open
+`/approval-inbox`, enter the configured reviewer token, and load findings. Keep this token outside
+source control and rotate it like any other application secret.
 
 Run the durable command dispatcher with `DATABASE_URL`, `TEMPORAL_ADDRESS`,
 `TEMPORAL_NAMESPACE`, and `TEMPORAL_TASK_QUEUE` configured:

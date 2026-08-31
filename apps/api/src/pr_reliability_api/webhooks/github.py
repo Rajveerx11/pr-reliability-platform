@@ -6,8 +6,6 @@ import hashlib
 import hmac
 import json
 import re
-import secrets
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -25,6 +23,8 @@ from pydantic import (
     ValidationError,
     model_validator,
 )
+
+from ..identifiers import new_ulid
 
 ConnectionFactory = Callable[[], Connection[Any]]
 IdFactory = Callable[[], str]
@@ -95,7 +95,7 @@ def create_github_webhook_router(
     settings: GithubWebhookSettings,
     connection_factory: ConnectionFactory,
     *,
-    id_factory: IdFactory = lambda: _new_ulid(),
+    id_factory: IdFactory = new_ulid,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> APIRouter:
     """Build a router with explicit, injectable persistence dependencies."""
@@ -417,13 +417,3 @@ def _create_run(
         ),
     )
     return command_public_id
-
-
-def _new_ulid() -> str:
-    value = (time.time_ns() // 1_000_000 << 80) | secrets.randbits(80)
-    alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-    encoded = ""
-    for _ in range(26):
-        encoded = alphabet[value & 31] + encoded
-        value >>= 5
-    return encoded

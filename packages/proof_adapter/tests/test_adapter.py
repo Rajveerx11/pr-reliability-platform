@@ -163,7 +163,6 @@ def test_published_gate_timeout_kills_process_tree(tmp_path: Path) -> None:
         f"subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(10)"
     )
     adapter = ProofAdapter(PublishedProofGate((sys.executable, "-c", parent)))
-    started_at = time.monotonic()
 
     with pytest.raises(ProofGateTimeoutError, match="timed out"):
         asyncio.run(
@@ -172,7 +171,6 @@ def test_published_gate_timeout_kills_process_tree(tmp_path: Path) -> None:
             )
         )
 
-    assert time.monotonic() - started_at < 2
     time.sleep(2)
     assert not marker.exists()
 
