@@ -1,8 +1,9 @@
 """Commands and states for one durable pull request review run."""
 
 from enum import StrEnum
+from typing import Annotated, Literal, Self
 
-from pydantic import Field, StrictInt
+from pydantic import Field, StrictInt, StringConstraints, field_validator, model_validator
 
 from .base import GitSha, NonEmptyText, RunMessage, Ulid
 
@@ -56,6 +57,7 @@ def require_transition(current: RunState, target: RunState) -> None:
 
 
 class StartRunCommand(RunMessage):
+    schema_version: Literal["1", "1.1"]
     generation: StrictInt = Field(ge=1)
     repository_id: Ulid
     pull_request_id: Ulid
@@ -63,6 +65,31 @@ class StartRunCommand(RunMessage):
     base_sha: GitSha
     token_budget: StrictInt = Field(ge=1)
     cost_budget_usd_micros: StrictInt = Field(ge=0)
+    traceparent: (
+        Annotated[
+            str,
+            StringConstraints(
+                pattern=r"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+                max_length=55,
+            ),
+        ]
+        | None
+    ) = None
+
+    @field_validator("traceparent")
+    @classmethod
+    def require_nonzero_trace_identity(cls, value: str | None) -> str | None:
+        if value is not None:
+            _, trace_id, parent_id, _ = value.split("-")
+            if int(trace_id, 16) == 0 or int(parent_id, 16) == 0:
+                raise ValueError("traceparent identities must be nonzero")
+        return value
+
+    @model_validator(mode="after")
+    def require_minor_version_for_traceparent(self) -> Self:
+        if self.schema_version == "1" and self.traceparent is not None:
+            raise ValueError("traceparent requires schema version 1.1")
+        return self
 
 
 class CancelRunCommand(RunMessage):

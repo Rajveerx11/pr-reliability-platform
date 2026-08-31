@@ -71,6 +71,11 @@ docker compose --env-file .env -f infra/compose/compose.yaml up --build
 ```
 
 The configured PostgreSQL and Temporal addresses must be reachable from their consuming services.
+The local OpenTelemetry collector accepts OTLP/HTTP and exposes Prometheus metrics on port `8889`
+and collector health on port `13133`. API liveness and dependency readiness are available at
+`/health/live` and `/health/ready`. See `docs/observability.md` for trace and metric fields.
+Set `HEALTH_CHECK_TIMEOUT_SECONDS` to bound each readiness dependency check; the default is two
+seconds.
 `ACTIVITY_WORKER_IMAGE` must name an image built from this project that also installs a provider
 package. `REVIEW_ACTIVITY_OPERATIONS_FACTORY` must use `module:factory` and return one complete
 `ActivityOperations` value containing context, model, verification, publish, and terminal

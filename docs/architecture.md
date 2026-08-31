@@ -117,6 +117,14 @@ Activities heartbeat while running; cancellation waits for the current operation
 recording a terminal outcome. Identity-valid early approvals wait until verification completes.
 Temporal history stores identities and safe output references, not repository source, prompts,
 model output, comment bodies, or secrets.
+
+Webhook requests, outbox dispatch, workflows, and activities share one W3C trace. Only the bounded
+`traceparent` identity crosses the PostgreSQL outbox in `StartRunCommand` schema version `1.1`;
+workers still accept legacy version `1` commands without that optional field. Temporal propagates
+it to model and tool
+activity attempts. Run and activity histograms, retry counts, approval-wait spans, and explicit
+known/unknown provider usage are exported through OTLP. Readiness checks both PostgreSQL and the
+Temporal workflow service.
 ## Context boundary
 
 Context selection is deterministic. Changed files are ordered first, followed by their direct

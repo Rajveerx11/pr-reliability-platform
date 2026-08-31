@@ -28,6 +28,7 @@ class ReviewWorkflowInput:
     head_sha: str
     token_budget: int
     cost_budget_usd_micros: int
+    traceparent: str | None = None
     approval_timeout_seconds: int = 86_400
     activity_timeout_seconds: int = 300
 
@@ -74,8 +75,23 @@ class StageRequest:
 
 
 @dataclass(frozen=True)
+class ModelUsage:
+    """Provider-reported usage. Missing values remain unknown."""
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_usd_micros: int | None = None
+
+    def __post_init__(self) -> None:
+        values = (self.input_tokens, self.output_tokens, self.cost_usd_micros)
+        if any(value is not None and value < 0 for value in values):
+            raise ValueError("reported usage cannot be negative")
+
+
+@dataclass(frozen=True)
 class StageResult:
     output_ref: str
+    usage: ModelUsage | None = None
 
 
 @dataclass(frozen=True)
@@ -99,3 +115,6 @@ class TerminalRequest:
     outcome: WorkflowOutcome
     reason: str | None
     idempotency_key: str
+    run_duration_ms: int | None = None
+    approval_wait_ms: int | None = None
+    usage: ModelUsage | None = None

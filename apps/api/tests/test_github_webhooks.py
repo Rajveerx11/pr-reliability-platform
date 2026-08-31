@@ -15,6 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pr_reliability_api.app import create_app
+from pr_reliability_api.approvals import ApprovalInboxSettings
 from pr_reliability_api.db import apply_migrations
 from pr_reliability_api.webhooks import GithubWebhookSettings, create_github_webhook_router
 from pr_reliability_contracts import StartRunCommand
@@ -24,6 +25,7 @@ OWNER_ID = "01J00000000000000000000001"
 SECRET = b"test-only-secret"
 BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
+TRACEPARENT = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 
 
 def ids() -> Iterator[str]:
@@ -75,6 +77,7 @@ def client(connection_factory: Callable[[], Connection[object]]) -> TestClient:
             connection_factory,
             id_factory=lambda: next(id_values),
             now=lambda: datetime(2026, 8, 13, tzinfo=UTC),
+            traceparent_factory=lambda: TRACEPARENT,
         )
     )
     return TestClient(app)
@@ -89,6 +92,19 @@ def test_production_app_factory_registers_webhook(
     )
 
     assert "/webhooks/github" in app.openapi()["paths"]
+
+
+def test_production_app_factory_preserves_positional_approval_settings() -> None:
+    def unused_connection_factory() -> Connection[object]:
+        raise AssertionError("route registration must not connect to the database")
+
+    app = create_app(
+        GithubWebhookSettings(owner_id=OWNER_ID, installation_id=71, webhook_secret=SECRET),
+        unused_connection_factory,
+        ApprovalInboxSettings(OWNER_ID, "reviewer", "test-reviewer-token"),
+    )
+
+    assert "/api/approval-inbox" in app.openapi()["paths"]
 
 
 def payload(
@@ -375,6 +391,7 @@ def test_persists_complete_versioned_start_run_command(
     with connection_factory() as connection:
         event_data = connection.execute("SELECT event_data FROM run_events").fetchone()[0]
     command = StartRunCommand.model_validate(event_data)
+    assert command.schema_version == "1.1"
     assert command.public_id == response.json()["command_id"]
     assert command.owner_id == OWNER_ID
     assert command.generation == 1
@@ -383,6 +400,7 @@ def test_persists_complete_versioned_start_run_command(
     assert command.base_sha == BASE_SHA
     assert command.token_budget == 100_000
     assert command.cost_budget_usd_micros == 1_000_000
+    assert command.traceparent == TRACEPARENT
 
 
 @pytest.mark.parametrize("action", ["opened", "reopened", "synchronize"])

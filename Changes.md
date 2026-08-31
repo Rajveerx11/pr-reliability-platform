@@ -5,6 +5,21 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added traces, run metrics, and dependency health checks
+
+- Issue: [#13](https://github.com/Rajveerx11/pr-reliability-platform/issues/13)
+- Decision: [DEC-013 — One cloud VM](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation)
+- Reason: Production runs need one safe trace across API and workers, measurable latency and cost,
+  honest missing usage, and readiness based on database and workflow dependencies.
+- Changed files:
+  - `packages/observability/`, `apps/api/`, and `workers/` — W3C trace propagation, Temporal model
+    and tool attempt spans, per-generation continue-as-new trace ownership, wait and retry facts,
+    run histograms, usage coverage, and health routes.
+  - `infra/observability/` and `infra/compose/compose.yaml` — local OTLP collector, Prometheus
+    metric endpoint, and collector health endpoint.
+  - `docs/observability.md`, `docs/architecture.md`, and `docs/development.md` — trace, metric,
+    safety, health, and operations guidance.
+
 ### Added human approval inbox
 
 - Issue: [#11](https://github.com/Rajveerx11/pr-reliability-platform/issues/11)
@@ -26,7 +41,6 @@ them and names the affected files.
     `.github/workflows/quality.yml` — reviewer configuration and packaged browser shell.
   - `docs/architecture.md`, `docs/security.md`, and `docs/development.md` — approval boundary and
     operating instructions.
-
 ### Added disposable pull request command sandbox
 
 - Issue: [#9](https://github.com/Rajveerx11/pr-reliability-platform/issues/9)
