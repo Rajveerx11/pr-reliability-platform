@@ -2,9 +2,10 @@
 
 This runbook implements the repository-controlled part of issue
 [#15](https://github.com/Rajveerx11/pr-reliability-platform/issues/15) and
-[DEC-013](../plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation). It is stacked on
-`codex/issue-14-evaluation` because deployment depends on the evaluation and observability work.
-It does not claim that a VM, certificate, backup restore, or test-repository review exists.
+[DEC-013](../plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation). Its temporary
+stack base combines the open observability, evaluation-checkpoint, and dashboard branches because
+deployment depends on all three. Retarget the deployment PR to `main` only after those dependency
+PRs land. It does not claim that a VM, certificate, backup restore, or test-repository review exists.
 
 ## Boundary
 
@@ -24,9 +25,9 @@ only from the administration network. Do not expose TCP 80, 5432, 7233, 8000, 88
 
 All images must use real repository digests. The shipped environment template intentionally fails
 preflight until every example registry and repeated placeholder digest is replaced. Preflight
-rejects tags, public bind addresses, database credentials that differ from the external password
-file, tracked secret files, symlinks, missing files, broad secret permissions, and non-rootless
-sandbox paths.
+rejects tags, public bind addresses, application database credentials that differ from their
+external password file, reused database-role passwords, tracked secret files, symlinks, missing
+files, broad secret permissions, and non-rootless sandbox paths.
 
 ## Provision secrets outside source
 
@@ -39,10 +40,16 @@ sudo install -o 1001 -g 1001 -m 770 -d /run/user/1001/pr-reliability-sandbox-sta
 ```
 
 Replace every example value in `/etc/pr-reliability/deployment.env`. Put the TLS certificate, TLS
-key, private CA certificate, PostgreSQL password, and GitHub App private key at the absolute paths
-named there. Put the same URL-escaped PostgreSQL password in `DATABASE_URL`; preflight verifies it
-against `POSTGRES_PASSWORD_FILE`. The value remains outside source, but trusted Docker
-administrators can inspect container environments.
+key, private CA certificate, three distinct PostgreSQL passwords, and GitHub App private key at the
+absolute paths named there. The admin credential only bootstraps PostgreSQL. The application and
+Temporal use separate non-superuser roles. Put the URL-escaped application password in
+`DATABASE_URL`; preflight verifies it against `APPLICATION_DATABASE_PASSWORD_FILE`. Values remain
+outside source, but trusted Docker administrators can inspect container environments.
+
+Set a random `APPROVAL_REVIEWER_TOKEN` of at least 32 characters and a stable reviewer
+`APPROVAL_ACTOR_ID` ULID. The token protects both `/dashboard` and `/approval-inbox`; keep it in the
+external environment file and rotate it if exposed. After deployment, open
+`https://PRIVATE_HOSTNAME/dashboard` only from the approved private network.
 
 Keep the environment file at mode `0600`. Create a dedicated secret-reader group, set its numeric
 ID as `DEPLOYMENT_SECRET_GID`, assign secret files to that group, and use mode `0640`; the TLS
@@ -81,6 +88,10 @@ Use an SSH tunnel for Prometheus: `ssh -L 9090:127.0.0.1:9090 VM`, then open
 alert receiver is configured. Check container restart counts, disk use, certificate expiry,
 Prometheus readiness, API readiness, and failed publish audit events daily.
 
+The role-init script runs only when PostgreSQL creates a fresh data volume. Do not attach an older
+volume that was initialized with the former shared credential. Migrate roles on a recovery VM or
+restore a verified backup into a newly initialized volume before switching service traffic.
+
 ## Backup and restore drill
 
 The backup command records which database writers are running or restarting, stops all writers,
@@ -95,11 +106,14 @@ Concurrent manual or scheduled operations fail before changing service state.
 python -m infra.deployment.database --env-file /etc/pr-reliability/deployment.env backup /var/backups/pr-reliability
 ```
 
-After one manual backup succeeds, install the reviewed systemd service and timer from
-`infra/deployment/`, adjust `WorkingDirectory` only if the approved checkout uses another fixed
-path, then enable the timer. Inspect `systemctl list-timers pr-reliability-backup.timer` and the
-latest service result. Alert on any failed unit. The timer does not replace the off-VM encrypted
-copy or recovery drill.
+After one manual backup succeeds, install the approved checkout at exactly
+`/opt/pr-reliability-platform`. Make the complete checkout and its parent path root-owned and remove
+all group and world write permissions. Install the reviewed systemd service and timer from
+`infra/deployment/`, then enable the timer. Its pre-start guards refuse to execute repository Python
+if the checkout, any file below it, or a parent directory is writable by another account or is not
+owned by root. They also reject symlinks in the checkout or its fixed `/opt` path. Inspect
+`systemctl list-timers pr-reliability-backup.timer` and the latest service result. Alert on any
+failed unit. The timer does not replace the off-VM encrypted copy or recovery drill.
 
 Restore is destructive. It verifies the complete manifest before stopping writers. Restore only
 onto the intended disposable recovery VM first:

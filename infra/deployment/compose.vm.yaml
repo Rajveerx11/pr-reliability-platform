@@ -23,11 +23,16 @@ services:
     image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE is required}
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-pr_reliability}
-      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
-      POSTGRES_USER: ${POSTGRES_USER:-pr_reliability}
-    secrets: [postgres_password]
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+    group_add: ["${DEPLOYMENT_SECRET_GID:?DEPLOYMENT_SECRET_GID is required}"]
+    secrets:
+      - postgres_admin_password
+      - application_database_password
+      - temporal_database_password
     volumes:
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-pr-reliability-roles.sh:ro
       - postgres-data:/var/lib/postgresql/data
     networks: [private]
     healthcheck:
@@ -51,9 +56,9 @@ services:
       DB_PORT: "5432"
       DEFAULT_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       POSTGRES_SEEDS: postgres
-      POSTGRES_USER: ${POSTGRES_USER:-pr_reliability}
+      POSTGRES_USER: temporal
       TEMPORAL_ADDRESS: temporal:7233
-    secrets: [postgres_password]
+    secrets: [temporal_database_password]
     volumes:
       - ./temporal-entrypoint.sh:/deployment/temporal-entrypoint.sh:ro
     networks: [private]
@@ -91,6 +96,8 @@ services:
       - caddy
     expose: ["8000"]
     environment:
+      APPROVAL_ACTOR_ID: ${APPROVAL_ACTOR_ID:?APPROVAL_ACTOR_ID is required}
+      APPROVAL_REVIEWER_TOKEN: ${APPROVAL_REVIEWER_TOKEN:?APPROVAL_REVIEWER_TOKEN is required}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:?GITHUB_INSTALLATION_ID is required}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?GITHUB_WEBHOOK_SECRET is required}
@@ -240,10 +247,14 @@ volumes:
   prometheus-data:
 
 secrets:
+  application_database_password:
+    file: ${APPLICATION_DATABASE_PASSWORD_FILE:?APPLICATION_DATABASE_PASSWORD_FILE is required}
   github_private_key:
     file: ${GITHUB_PRIVATE_KEY_FILE:?GITHUB_PRIVATE_KEY_FILE is required}
-  postgres_password:
-    file: ${POSTGRES_PASSWORD_FILE:?POSTGRES_PASSWORD_FILE is required}
+  postgres_admin_password:
+    file: ${POSTGRES_ADMIN_PASSWORD_FILE:?POSTGRES_ADMIN_PASSWORD_FILE is required}
+  temporal_database_password:
+    file: ${TEMPORAL_DATABASE_PASSWORD_FILE:?TEMPORAL_DATABASE_PASSWORD_FILE is required}
   tls_certificate:
     file: ${TLS_CERTIFICATE_FILE:?TLS_CERTIFICATE_FILE is required}
   tls_private_key:

@@ -28,10 +28,12 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     secrets = tmp_path / "secrets"
     secrets.mkdir(mode=0o700)
     values = {
+        "APPROVAL_ACTOR_ID": "01J00000000000000000000002",
+        "APPROVAL_REVIEWER_TOKEN": "r" * 32,
         "PRIVATE_BIND_ADDRESS": "10.20.30.40",
         "PRIVATE_HOSTNAME": "reviews.internal.example",
         "PRIVATE_BASE_URL": "https://reviews.internal.example",
-        "DATABASE_URL": "postgresql://pr_reliability:database-secret@postgres:5432/pr_reliability",
+        "DATABASE_URL": f"postgresql://pr_reliability:{'d' * 32}@postgres:5432/pr_reliability",
         "OWNER_ID": "01J00000000000000000000001",
         "GITHUB_APP_ID": "1",
         "GITHUB_INSTALLATION_ID": "2",
@@ -40,8 +42,8 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "MODEL_PROVIDER": "test",
         "BACKUP_DIRECTORY": str(tmp_path / "backups"),
         "DEPLOYMENT_SECRET_GID": str(os.getgid()) if os.name == "posix" else "2001",
-        "POSTGRES_DB": "pr_reliability",
-        "POSTGRES_USER": "pr_reliability",
+        "POSTGRES_DB": "postgres",
+        "POSTGRES_USER": "postgres",
         "SANDBOX_DOCKER_SOCKET": "/run/user/1001/docker.sock",
         "SANDBOX_ENGINE_UID": "1001",
         "SANDBOX_ENGINE_GID": "1001",
@@ -53,11 +55,17 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         ("TLS_CERTIFICATE_FILE", "tls.crt"),
         ("TLS_PRIVATE_KEY_FILE", "tls.key"),
         ("TLS_CA_FILE", "ca.crt"),
-        ("POSTGRES_PASSWORD_FILE", "postgres-password"),
+        ("POSTGRES_ADMIN_PASSWORD_FILE", "postgres-admin-password"),
+        ("APPLICATION_DATABASE_PASSWORD_FILE", "application-database-password"),
+        ("TEMPORAL_DATABASE_PASSWORD_FILE", "temporal-database-password"),
         ("GITHUB_PRIVATE_KEY_FILE", "github.pem"),
     ):
         secret = secrets / filename
-        content = "database-secret" if name == "POSTGRES_PASSWORD_FILE" else "secret"
+        content = {
+            "POSTGRES_ADMIN_PASSWORD_FILE": "a" * 32,
+            "APPLICATION_DATABASE_PASSWORD_FILE": "d" * 32,
+            "TEMPORAL_DATABASE_PASSWORD_FILE": "t" * 32,
+        }.get(name, "secret")
         secret.write_text(content, encoding="utf-8")
         secret.chmod(0o640)
         values[name] = str(secret)
@@ -125,6 +133,8 @@ def test_preflight_rejects_placeholder_registries_with_valid_looking_digests(
             "postgresql://pr_reliability:wrong@postgres:5432/pr_reliability",
             "must match",
         ),
+        ("APPROVAL_REVIEWER_TOKEN", "short", "non-example secret"),
+        ("APPROVAL_ACTOR_ID", "not-a-ulid", "must be a ULID"),
     ],
 )
 def test_preflight_rejects_public_or_mutable_deployment_input(
@@ -162,6 +172,18 @@ def test_preflight_rejects_secret_inside_repository(
     )
 
     with pytest.raises(PreflightError, match="outside the repository"):
+        validate_environment(repository, environment_file)
+
+
+def test_preflight_rejects_reused_database_passwords(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment_file, values = _deployment_files(tmp_path)
+    monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
+    temporal_password = Path(values["TEMPORAL_DATABASE_PASSWORD_FILE"])
+    temporal_password.write_text("d" * 32, encoding="utf-8")
+
+    with pytest.raises(PreflightError, match="passwords must differ"):
         validate_environment(repository, environment_file)
 
 
@@ -212,25 +234,50 @@ def test_vm_compose_exposes_only_private_tls_and_loopback_monitoring() -> None:
         in compose
     )
     assert compose.count("${SANDBOX_STAGING_DIRECTORY:?SANDBOX_STAGING_DIRECTORY is required}") >= 3
+    assert "APPROVAL_ACTOR_ID: ${APPROVAL_ACTOR_ID:?APPROVAL_ACTOR_ID is required}" in compose
+    assert (
+        "APPROVAL_REVIEWER_TOKEN: "
+        "${APPROVAL_REVIEWER_TOKEN:?APPROVAL_REVIEWER_TOKEN is required}" in compose
+    )
     assert (
         '    user: "${SANDBOX_ENGINE_UID:?SANDBOX_ENGINE_UID is required}:'
         '${SANDBOX_ENGINE_GID:?SANDBOX_ENGINE_GID is required}"' in compose
     )
     for secret in (
+        "application_database_password",
         "github_private_key",
-        "postgres_password",
+        "postgres_admin_password",
+        "temporal_database_password",
         "tls_certificate",
         "tls_private_key",
     ):
         assert f"  {secret}:\n" in compose
 
 
-def test_backup_timer_is_persistent_and_uses_private_umask() -> None:
+def test_backup_timer_is_persistent_and_rejects_a_mutable_checkout() -> None:
     deployment = Path(__file__).parents[1]
     service = (deployment / "pr-reliability-backup.service").read_text(encoding="utf-8")
     timer = (deployment / "pr-reliability-backup.timer").read_text(encoding="utf-8")
 
     assert "UMask=0077" in service
     assert "infra.deployment.database" in service
+    assert service.count("ExecStartPre=") == 4
+    assert "-type l -o ! -user root -o -perm /022" in service
+    assert "ProtectSystem=strict" in service
+    assert "NoNewPrivileges=true" in service
+    assert "ReadWritePaths=/etc/pr-reliability /var/backups/pr-reliability" in service
     assert "Persistent=true" in timer
     assert "RandomizedDelaySec=15m" in timer
+
+
+def test_postgres_initialization_separates_runtime_and_backup_roles() -> None:
+    deployment = Path(__file__).parents[1]
+    init = (deployment / "postgres-init.sh").read_text(encoding="utf-8")
+    database = (deployment / "database.py").read_text(encoding="utf-8")
+
+    assert "CREATE ROLE pr_reliability LOGIN NOSUPERUSER" in init
+    assert "CREATE ROLE temporal LOGIN NOSUPERUSER CREATEDB" in init
+    assert "CREATE ROLE backup_operator LOGIN NOSUPERUSER" in init
+    assert "GRANT pr_reliability, temporal TO backup_operator" in init
+    assert '"--username=backup_operator"' in database
+    assert '"--username=pr_reliability"' not in database

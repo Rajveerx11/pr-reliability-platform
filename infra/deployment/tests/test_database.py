@@ -119,6 +119,16 @@ def test_backup_and_restore_cover_application_and_temporal_databases(tmp_path: P
     assert [command[-1] for command in restore_commands] == [
         f"--dbname={name}" for name in DATABASES
     ]
+    dump_commands = [command for command in runner.commands if "pg_dump" in command]
+    assert all("--username=backup_operator" in command for command in dump_commands)
+    assert all("--username=backup_operator" in command for command in restore_commands)
+    assert [
+        next(value for value in command if value.startswith("--role=")) for command in dump_commands
+    ] == [
+        "--role=pr_reliability",
+        "--role=temporal",
+        "--role=temporal",
+    ]
     assert runner.commands[-1][-6:] == (
         "start",
         "api",

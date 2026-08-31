@@ -14,7 +14,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 
-DATABASES = ("pr_reliability", "temporal", "temporal_visibility")
+DATABASE_ROLES = {
+    "pr_reliability": "pr_reliability",
+    "temporal": "temporal",
+    "temporal_visibility": "temporal",
+}
+DATABASES = tuple(DATABASE_ROLES)
 RESTORE_CONFIRMATION = "restore-pr-reliability-v1"
 _WRITERS = ("api", "command-dispatcher", "workflow-worker", "activity-worker", "temporal")
 Runner = Callable[[Sequence[str], BinaryIO | None, BinaryIO | None], int]
@@ -60,7 +65,8 @@ def backup(
                             "--format=custom",
                             "--no-owner",
                             "--no-privileges",
-                            "--username=pr_reliability",
+                            "--username=backup_operator",
+                            f"--role={DATABASE_ROLES[database_name]}",
                             f"--dbname={database_name}",
                         ],
                         stdout=output,
@@ -128,7 +134,8 @@ def restore(
                         "--single-transaction",
                         "--no-owner",
                         "--no-privileges",
-                        "--username=pr_reliability",
+                        "--username=backup_operator",
+                        f"--role={DATABASE_ROLES[database_name]}",
                         f"--dbname={database_name}",
                     ],
                     stdin=source,

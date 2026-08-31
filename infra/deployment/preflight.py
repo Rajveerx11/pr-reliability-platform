@@ -24,10 +24,14 @@ _SECRET_FILE_KEYS = (
     "TLS_CERTIFICATE_FILE",
     "TLS_PRIVATE_KEY_FILE",
     "TLS_CA_FILE",
-    "POSTGRES_PASSWORD_FILE",
+    "POSTGRES_ADMIN_PASSWORD_FILE",
+    "APPLICATION_DATABASE_PASSWORD_FILE",
+    "TEMPORAL_DATABASE_PASSWORD_FILE",
     "GITHUB_PRIVATE_KEY_FILE",
 )
 _REQUIRED_VALUES = (
+    "APPROVAL_ACTOR_ID",
+    "APPROVAL_REVIEWER_TOKEN",
     "DATABASE_URL",
     "OWNER_ID",
     "GITHUB_APP_ID",
@@ -86,6 +90,12 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
         "replace-"
     ):
         raise PreflightError("GITHUB_WEBHOOK_SECRET must be a non-example secret")
+    if len(values["APPROVAL_REVIEWER_TOKEN"]) < 32 or values["APPROVAL_REVIEWER_TOKEN"].startswith(
+        "replace-"
+    ):
+        raise PreflightError("APPROVAL_REVIEWER_TOKEN must be a non-example secret")
+    if re.fullmatch(r"[0-7][0-9A-HJKMNP-TV-Z]{25}", values["APPROVAL_ACTOR_ID"]) is None:
+        raise PreflightError("APPROVAL_ACTOR_ID must be a ULID")
     if values["MODEL_PROVIDER"] == "openai" and (
         len(values.get("OPENAI_API_KEY", "")) < 20
         or values["OPENAI_API_KEY"].startswith("replace-")
@@ -117,12 +127,12 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
         or not database_url.password
     ):
         raise PreflightError("DATABASE_URL must use the private Postgres service with credentials")
-    if values["POSTGRES_DB"] != "pr_reliability" or values["POSTGRES_USER"] != "pr_reliability":
-        raise PreflightError("Postgres database and user names must match the backup contract")
+    if values["POSTGRES_DB"] != "postgres" or values["POSTGRES_USER"] != "postgres":
+        raise PreflightError("Postgres bootstrap database and user must both be postgres")
     if not values["DEPLOYMENT_SECRET_GID"].isdigit() or int(values["DEPLOYMENT_SECRET_GID"]) < 1:
         raise PreflightError("DEPLOYMENT_SECRET_GID must be positive")
     secret_group = int(values["DEPLOYMENT_SECRET_GID"])
-    postgres_password: str | None = None
+    database_passwords: dict[str, str] = {}
 
     for name in _SECRET_FILE_KEYS:
         secret = _external_regular_file(repository, Path(values[name]), name)
@@ -134,10 +144,19 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
             raise PreflightError(f"{name} must use mode 0640")
         if os.name == "posix" and not public_certificate and secret.stat().st_gid != secret_group:
             raise PreflightError(f"{name} must belong to DEPLOYMENT_SECRET_GID")
-        if name == "POSTGRES_PASSWORD_FILE":
-            postgres_password = secret.read_text(encoding="utf-8").rstrip("\r\n")
-    if unquote(database_url.password) != postgres_password:
-        raise PreflightError("DATABASE_URL password must match POSTGRES_PASSWORD_FILE")
+        if name in {
+            "POSTGRES_ADMIN_PASSWORD_FILE",
+            "APPLICATION_DATABASE_PASSWORD_FILE",
+            "TEMPORAL_DATABASE_PASSWORD_FILE",
+        }:
+            password = secret.read_text(encoding="utf-8").rstrip("\r\n")
+            if len(password) < 32 or password.startswith("replace-"):
+                raise PreflightError(f"{name} must contain a non-example password")
+            database_passwords[name] = password
+    if len(set(database_passwords.values())) != len(database_passwords):
+        raise PreflightError("Postgres admin, application, and Temporal passwords must differ")
+    if unquote(database_url.password) != database_passwords["APPLICATION_DATABASE_PASSWORD_FILE"]:
+        raise PreflightError("DATABASE_URL password must match APPLICATION_DATABASE_PASSWORD_FILE")
     backup_directory = Path(values["BACKUP_DIRECTORY"])
     if not backup_directory.is_absolute() or backup_directory.resolve().is_relative_to(repository):
         raise PreflightError("BACKUP_DIRECTORY must be an absolute path outside the repository")

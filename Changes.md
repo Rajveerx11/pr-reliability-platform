@@ -13,9 +13,11 @@ them and names the affected files.
   any real test-repository use.
 - Changed files:
   - `infra/deployment/` — private-IP TLS Compose stack, immutable-image and external-secret
-    preflight, local monitoring, deployment health, consistent database backup and restore, and
-    a daily systemd backup timer with focused policy tests. A host lock serializes backup and
-    restore, both preserve running, restarting, and stopped writer state, and preflight rejects
+    preflight, reviewer-token and actor configuration for the dashboard and approval inbox, local
+    monitoring, deployment health, consistent database backup and restore, and a daily systemd
+    backup timer with focused policy tests. Application, Temporal, backup, and bootstrap database
+    roles are separated; the root timer refuses a mutable checkout. A host lock serializes backup
+    and restore, both preserve running, restarting, and stopped writer state, and preflight rejects
     every shipped placeholder image reference.
   - `apps/api/src/pr_reliability_api/migrate.py` — one-shot checksummed deployment migrations.
   - `docs/deployment.md`, `docs/development.md`, and `docs/security.md` — provisioning, monitoring,
