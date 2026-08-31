@@ -20,6 +20,27 @@ them and names the affected files.
   - `pyproject.toml` and `uv.lock` — published Proof of Work dependency and packaged adapter.
   - `docs/evaluation.md` — adapter contract and sandbox boundary.
 
+### Added reproducible version-one evaluation harness replay
+
+- Issue: [#14](https://github.com/Rajveerx11/pr-reliability-platform/issues/14)
+- Decision: [DEC-002 — Single-agent baseline](plan/v1.md#dec-002--start-with-one-agent)
+- Reason: The frozen ten-task cohort needs reproducible scoring and honest unknown measurements
+  before a real provider baseline can be claimed.
+- Changed files:
+  - `evals/evaluation_models.py`, `evaluation_runner.py`, `evaluation_report.py`, and `replays/` —
+    strict full-cohort deterministic replay, protected-verifier execution, metric calculations,
+    cohort-wide recall denominators, completed-only finding credit, environment and limit capture,
+    and fail-closed input validation.
+  - `packages/contracts/src/pr_reliability_contracts/reviews.py` and
+    `workers/src/pr_reliability_workers/agents/` — restored issue #6's provider-neutral agent
+    boundary required by evaluation without changing current context or workflow code.
+  - `evals/golden_prs/corpus.py` — line-ending-independent frozen fingerprint across platforms.
+  - `evals/tests/` and `workers/tests/agents/` — cohort, scoring, unknown measurement, portability,
+    and provider-boundary coverage.
+  - `docs/evaluation.md`, `docs/evaluation-report.md`, `docs/architecture.md`, and
+    `docs/README.md` — methodology, complete replay cohort, unmerged PR #25 stack, limitations,
+    and exact blockers.
+
 ### Added private review operations dashboard
 
 - Issue: [#30](https://github.com/Rajveerx11/pr-reliability-platform/issues/30)
