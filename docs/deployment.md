@@ -2,10 +2,9 @@
 
 This runbook implements the repository-controlled part of issue
 [#15](https://github.com/Rajveerx11/pr-reliability-platform/issues/15) and
-[DEC-013](../plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation). Its temporary
-stack base combines the open observability, evaluation-checkpoint, and dashboard branches because
-deployment depends on all three. Retarget the deployment PR to `main` only after those dependency
-PRs land. It does not claim that a VM, certificate, backup restore, or test-repository review exists.
+[DEC-013](../plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation). The deployment,
+observability, evaluation-harness, and dashboard code is merged to `main`. This runbook does not
+claim that a VM, certificate, backup restore, or test-repository review exists.
 
 ## Boundary
 

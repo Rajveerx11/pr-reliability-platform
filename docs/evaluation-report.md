@@ -9,8 +9,8 @@
 - Label: Full-cohort harness replay with no model findings
 - Recorded: `2026-08-16T07:56:00Z`
 - Evaluated commit: `8a74102156a6d95b40f5d6bd6dff5990cb3b6f5d`
-- Stack base: unmerged [PR #25](https://github.com/Rajveerx11/pr-reliability-platform/pull/25),
-  not `main`
+- Repository status: the harness and its dependencies are now merged to `main`; this recorded run
+  still applies only to the historical evaluated commit above
 - Corpus fingerprint: `6023eb95d144931eeb8cd5fb7499bc11ed26ce7dde50be7f02fc11815ec9a6aa`
 - Provider: unknown; no provider credentials were configured
 - Model: unknown; no model was configured
@@ -47,13 +47,13 @@ Every protected verifier rejected its broken fixture and accepted its reference 
 
 ## Limits and blockers
 
-- This evaluation branch is stacked on unmerged PR #25 at the evaluated commit. Results cannot be
-  treated as a `main` baseline until that dependency merges or this branch is rebased.
+- The recorded replay predates the final merged integration. It cannot be treated as a current
+  `main` model-quality baseline because no model attempt ran.
 - Context token budget is unknown because context selection did not run.
 - Protected verifier timeout was 10 seconds per invocation.
 - Disposable sandbox was not enabled.
-- Issue [#10](https://github.com/Rajveerx11/pr-reliability-platform/issues/10) remains open, so
-  the Proof of Work adapter was not included.
+- The recorded replay did not execute the Proof of Work adapter. The adapter is now merged, but a
+  new real-provider run must exercise the current pipeline.
 - No provider or model credentials were available. The committed replay contains intentionally
   empty finding lists, not invented model output.
 - No latency, duration, usage, or cost was measured. These values remain unknown, not zero.
@@ -62,5 +62,5 @@ Every protected verifier rejected its broken fixture and accepted its reference 
   replay has no reported findings, so the metric cannot be calculated.
 
 This report proves harness reproducibility and full-cohort verifier execution only. A real
-single-agent baseline remains blocked until one provider/model is configured and issue #10 is
-ready to combine or rebase.
+single-agent baseline remains blocked until one provider/model is configured and the frozen cohort
+runs through the current merged pipeline.
