@@ -7,8 +7,13 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pr_reliability_contracts import StartRunCommand
 from pr_reliability_proof_adapter import ProofAdapter, ProofGateResult, ProofRequest
+from pr_reliability_observability import PersistedTraceTracingInterceptor
 from pr_reliability_workers.activities import (
     ActivityOperations,
     ReviewActivities,
@@ -24,6 +29,7 @@ from pr_reliability_workers.worker import (
 )
 from pr_reliability_workers.workflows import (
     ApprovalSignal,
+    ModelUsage,
     PullRequestReviewWorkflow,
     ReviewWorkflowInput,
     WorkflowOutcome,
@@ -34,6 +40,7 @@ from pr_reliability_workers.workflows.types import (
     StageResult,
     TerminalRequest,
 )
+from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer
@@ -50,6 +57,8 @@ NEXT_HEAD_SHA = "c" * 40
 LATEST_HEAD_SHA = "d" * 40
 TASK_QUEUE = "review-workflow-tests"
 SANDBOX_IMAGE = f"sha256:{'a' * 64}"
+RUN_TRACE_ID = "11111111111111111111111111111111"
+REOPENED_TRACE_ID = "22222222222222222222222222222222"
 
 
 class RecordingSandboxRunner:
@@ -79,6 +88,7 @@ class RecordingOperations:
         fail_publish: bool = False,
         block_analysis: bool = False,
         block_terminal: bool = False,
+        usage: ModelUsage | None = None,
     ) -> None:
         self.calls: list[tuple[str, str]] = []
         self.completed_keys: set[str] = set()
@@ -86,16 +96,20 @@ class RecordingOperations:
         self.fail_publish = fail_publish
         self.block_analysis = block_analysis
         self.block_terminal = block_terminal
+        self.usage = usage
         self.analyze_attempts = 0
         self.analysis_started = asyncio.Event()
         self.release_analysis = asyncio.Event()
         self.terminal_started = asyncio.Event()
         self.release_terminal = asyncio.Event()
+        self.terminal_requests: list[TerminalRequest] = []
+        self.activity_trace_ids: list[tuple[str, str, int]] = []
 
     async def select_context(self, request: StageRequest) -> StageResult:
         return self._complete("select_context", request, "context-ref")
 
     async def analyze(self, request: StageRequest) -> StageResult:
+        self._record_trace("analyze", request.idempotency_key)
         self.calls.append(("analyze", request.idempotency_key))
         self.analyze_attempts += 1
         self.analysis_started.set()
@@ -104,7 +118,7 @@ class RecordingOperations:
         if self.fail_analyze_once and self.analyze_attempts == 1:
             raise ApplicationError("retry analysis")
         self.completed_keys.add(request.idempotency_key)
-        return StageResult("analysis-ref")
+        return StageResult("analysis-ref", self.usage)
 
     async def verify(self, request: StageRequest) -> StageResult:
         return self._complete("verify", request, "verification-ref")
@@ -126,12 +140,15 @@ class RecordingOperations:
         return await self.verify(request)
 
     async def publish(self, request: PublishRequest) -> None:
+        self._record_trace("publish", request.idempotency_key)
         self.calls.append(("publish", request.idempotency_key))
         if self.fail_publish:
             raise ApplicationError("publish failed")
         self.completed_keys.add(request.idempotency_key)
 
     async def record_terminal(self, request: TerminalRequest) -> None:
+        self._record_trace("record_terminal", request.idempotency_key)
+        self.terminal_requests.append(request)
         self.calls.append(("record_terminal", request.idempotency_key))
         self.terminal_started.set()
         if self.block_terminal:
@@ -139,9 +156,14 @@ class RecordingOperations:
         self.completed_keys.add(request.idempotency_key)
 
     def _complete(self, name: str, request: StageRequest, output_ref: str) -> StageResult:
+        self._record_trace(name, request.idempotency_key)
         self.calls.append((name, request.idempotency_key))
         self.completed_keys.add(request.idempotency_key)
         return StageResult(output_ref)
+
+    def _record_trace(self, name: str, idempotency_key: str) -> None:
+        trace_id = trace.get_current_span().get_span_context().trace_id
+        self.activity_trace_ids.append((name, idempotency_key, trace_id))
 
     def activities(self) -> ReviewActivities:
         return ReviewActivities(
@@ -197,10 +219,15 @@ def test_activity_operations_reject_unsandboxed_verification() -> None:
 
 
 def start_command(
-    *, public_id: str, run_id: str, head_sha: str, generation: int = 1
+    *,
+    public_id: str,
+    run_id: str,
+    head_sha: str,
+    generation: int = 1,
+    traceparent: str | None = None,
 ) -> StartRunCommand:
     return StartRunCommand(
-        schema_version="1",
+        schema_version="1.1" if traceparent else "1",
         public_id=public_id,
         owner_id=OWNER_ID,
         run_id=run_id,
@@ -212,6 +239,7 @@ def start_command(
         head_sha=head_sha,
         token_budget=100_000,
         cost_budget_usd_micros=1_000_000,
+        traceparent=traceparent,
     )
 
 
@@ -324,8 +352,43 @@ def test_cancel_and_timeout_are_explicit() -> None:
         assert cancelled_result.reason == "user cancelled"
         assert timeout_result.outcome is WorkflowOutcome.TIMED_OUT
         assert timeout_result.reason == "approval timeout"
+        timeout_terminal = next(
+            request for request in operations.terminal_requests if request.run_id == NEXT_RUN_ID
+        )
+        assert timeout_terminal.approval_wait_ms is not None
+        assert timeout_terminal.approval_wait_ms >= 1_000
+        assert timeout_terminal.run_duration_ms is not None
 
     asyncio.run(run())
+
+
+def test_provider_usage_reaches_terminal_metrics_without_estimation() -> None:
+    async def run() -> None:
+        usage = ModelUsage(input_tokens=120, output_tokens=30, cost_usd_micros=55)
+        operations = RecordingOperations(usage=usage)
+        environment, worker = await start_environment(operations)
+        async with environment, worker:
+            handle = await environment.client.start_workflow(
+                PullRequestReviewWorkflow.run,
+                workflow_input(),
+                id="review-usage",
+                task_queue=TASK_QUEUE,
+            )
+            await wait_for_status(handle, "awaiting_approval")
+            await handle.signal(
+                PullRequestReviewWorkflow.approve,
+                ApprovalSignal(RUN_ID, HEAD_SHA, False),
+            )
+            await handle.result()
+
+        assert operations.terminal_requests[-1].usage == usage
+
+    asyncio.run(run())
+
+
+def test_negative_provider_usage_is_rejected() -> None:
+    with pytest.raises(ValueError, match="cannot be negative"):
+        ModelUsage(input_tokens=-1)
 
 
 def test_cancel_interrupts_obsolete_activity() -> None:
@@ -521,6 +584,70 @@ def test_reopen_generation_supersedes_same_head_old_run() -> None:
         assert result.outcome is WorkflowOutcome.REJECTED
         terminal_keys = [key for name, key in operations.calls if name == "record_terminal"]
         assert f"{RUN_ID}:{HEAD_SHA}:terminal:cancelled" in terminal_keys
+
+    asyncio.run(run())
+
+
+def test_reopened_generation_activities_use_its_persisted_webhook_trace() -> None:
+    async def run() -> None:
+        operations = RecordingOperations()
+        environment = await WorkflowEnvironment.start_time_skipping()
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracing = PersistedTraceTracingInterceptor(provider.get_tracer("generation-test"))
+        client_config = environment.client.config()
+        client_config["interceptors"] = [tracing]
+        client = Client(**client_config)
+        worker = create_worker(client, TASK_QUEUE, operations.activities())
+
+        run_traceparent = f"00-{RUN_TRACE_ID}-1111111111111111-01"
+        reopened_traceparent = f"00-{REOPENED_TRACE_ID}-2222222222222222-01"
+        first_command = start_command(
+            public_id="01J00000000000000000000032",
+            run_id=RUN_ID,
+            head_sha=HEAD_SHA,
+            traceparent=run_traceparent,
+        )
+        reopened_command = start_command(
+            public_id="01J00000000000000000000033",
+            run_id=NEXT_RUN_ID,
+            head_sha=HEAD_SHA,
+            generation=2,
+            traceparent=reopened_traceparent,
+        )
+
+        async with environment, worker:
+            handle = await dispatch_start_run(client, first_command, task_queue=TASK_QUEUE)
+            await wait_for_status(handle, "awaiting_approval")
+            await dispatch_start_run(client, reopened_command, task_queue=TASK_QUEUE)
+            await wait_for_status(handle, "awaiting_approval", run_id=NEXT_RUN_ID)
+            await handle.signal(
+                PullRequestReviewWorkflow.approve,
+                ApprovalSignal(NEXT_RUN_ID, HEAD_SHA, False),
+            )
+            await handle.result()
+
+        first_activity_traces = {
+            trace_id
+            for _, key, trace_id in operations.activity_trace_ids
+            if key.startswith(f"{RUN_ID}:")
+        }
+        reopened_activity_traces = {
+            trace_id
+            for _, key, trace_id in operations.activity_trace_ids
+            if key.startswith(f"{NEXT_RUN_ID}:")
+        }
+        assert first_activity_traces == {int(RUN_TRACE_ID, 16)}
+        assert reopened_activity_traces == {int(REOPENED_TRACE_ID, 16)}
+
+        activity_span_traces = {
+            span.context.trace_id
+            for span in exporter.get_finished_spans()
+            if span.name.startswith("RunActivity:")
+        }
+        assert int(RUN_TRACE_ID, 16) in activity_span_traces
+        assert int(REOPENED_TRACE_ID, 16) in activity_span_traces
 
     asyncio.run(run())
 

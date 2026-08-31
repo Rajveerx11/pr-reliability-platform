@@ -36,10 +36,15 @@ class PullRequestReviewWorkflow:
         self._approval: ApprovalSignal | None = None
         self._cancel_reason: str | None = None
         self._supersede: SupersedeSignal | None = None
+        self._started_at = None
+        self._approval_wait_started_at = None
+        self._approval_wait_ms: int | None = None
+        self._usage = None
 
     @workflow.run
     async def run(self, request: ReviewWorkflowInput) -> ReviewWorkflowResult:
         self._input = request
+        self._started_at = workflow.now()
         if (
             self._supersede is not None
             and self._supersede.next_run.generation <= request.generation
@@ -58,12 +63,14 @@ class PullRequestReviewWorkflow:
                 return result
             if analysis is None:
                 raise RuntimeError("activity stopped without an interrupt")
+            self._usage = analysis.usage
             await self._stage("verify", "verifying", analysis.output_ref)
             if result := await self._honor_interrupt():
                 return result
         except ActivityError:
             return await self._finish(WorkflowOutcome.FAILED, "review activity failed")
         self._state = "awaiting_approval"
+        self._approval_wait_started_at = workflow.now()
 
         try:
             await workflow.wait_condition(
@@ -72,11 +79,13 @@ class PullRequestReviewWorkflow:
                 timeout_summary="human approval wait",
             )
         except TimeoutError:
+            self._finish_approval_wait()
             return await self._finish(
                 WorkflowOutcome.TIMED_OUT,
                 "approval timeout",
             )
 
+        self._finish_approval_wait()
         if result := await self._honor_interrupt():
             return result
 
@@ -192,6 +201,9 @@ class PullRequestReviewWorkflow:
                 outcome=outcome,
                 reason=reason,
                 idempotency_key=self._key(f"terminal:{outcome.value}"),
+                run_duration_ms=self._run_duration_ms(),
+                approval_wait_ms=self._approval_wait_ms,
+                usage=self._usage,
             ),
             **self._activity_options("record_terminal"),
         )
@@ -219,6 +231,18 @@ class PullRequestReviewWorkflow:
         if self._input is None:
             raise RuntimeError("workflow input is not initialized")
         return self._input
+
+    def _finish_approval_wait(self) -> None:
+        if self._approval_wait_started_at is not None:
+            elapsed = workflow.now() - self._approval_wait_started_at
+            self._approval_wait_ms = max(0, int(elapsed.total_seconds() * 1_000))
+            self._approval_wait_started_at = None
+
+    def _run_duration_ms(self) -> int | None:
+        if self._started_at is None:
+            return None
+        elapsed = workflow.now() - self._started_at
+        return max(0, int(elapsed.total_seconds() * 1_000))
 
     def _approval_matches(self, approval: ApprovalSignal) -> bool:
         request = self._required_input()

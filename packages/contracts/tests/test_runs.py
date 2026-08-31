@@ -14,6 +14,44 @@ from pydantic import ValidationError
 
 
 def test_start_run_round_trips_and_keeps_identity(run_identity: dict) -> None:
+    run_identity["schema_version"] = "1.1"
+    command = StartRunCommand(
+        **run_identity,
+        generation=1,
+        repository_id=REPOSITORY_ID,
+        pull_request_id=PULL_REQUEST_ID,
+        pull_request_number=17,
+        base_sha=BASE_SHA,
+        token_budget=12_000,
+        cost_budget_usd_micros=500_000,
+        traceparent="00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+    )
+
+    restored = StartRunCommand.model_validate_json(command.model_dump_json())
+
+    assert restored == command
+    assert restored.schema_version == "1.1"
+    assert restored.run_id == RUN_ID
+    assert restored.traceparent == "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
+
+
+def test_start_run_rejects_invalid_traceparent(run_identity: dict) -> None:
+    run_identity["schema_version"] = "1.1"
+    with pytest.raises(ValidationError, match="traceparent"):
+        StartRunCommand(
+            **run_identity,
+            generation=1,
+            repository_id=REPOSITORY_ID,
+            pull_request_id=PULL_REQUEST_ID,
+            pull_request_number=17,
+            base_sha=BASE_SHA,
+            token_budget=12_000,
+            cost_budget_usd_micros=500_000,
+            traceparent="secret or malformed context",
+        )
+
+
+def test_start_run_parses_legacy_version_without_traceparent(run_identity: dict) -> None:
     command = StartRunCommand(
         **run_identity,
         generation=1,
@@ -25,11 +63,23 @@ def test_start_run_round_trips_and_keeps_identity(run_identity: dict) -> None:
         cost_budget_usd_micros=500_000,
     )
 
-    restored = StartRunCommand.model_validate_json(command.model_dump_json())
+    assert command.schema_version == "1"
+    assert command.traceparent is None
 
-    assert restored == command
-    assert restored.schema_version == "1"
-    assert restored.run_id == RUN_ID
+
+def test_legacy_version_rejects_new_traceparent_field(run_identity: dict) -> None:
+    with pytest.raises(ValidationError, match="requires schema version 1.1"):
+        StartRunCommand(
+            **run_identity,
+            generation=1,
+            repository_id=REPOSITORY_ID,
+            pull_request_id=PULL_REQUEST_ID,
+            pull_request_number=17,
+            base_sha=BASE_SHA,
+            token_budget=12_000,
+            cost_budget_usd_micros=500_000,
+            traceparent="00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+        )
 
 
 @pytest.mark.parametrize("field", ["public_id", "owner_id", "run_id", "head_sha"])
