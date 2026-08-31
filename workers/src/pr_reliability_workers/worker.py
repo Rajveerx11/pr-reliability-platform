@@ -8,6 +8,7 @@ import os
 from collections.abc import Callable
 
 from pr_reliability_observability import configure_telemetry
+from pr_reliability_proof_adapter import ProofAdapter
 from temporalio.client import Client
 from temporalio.worker import Worker
 
@@ -108,6 +109,9 @@ def load_activity_operations(factory_path: str) -> ActivityOperations:
     runner = operations.verify.runner
     if type(runner) is not DockerSandboxRunner or not runner.production_isolation_enabled:
         raise TypeError("production verification must use DockerSandboxRunner")
+    proof = operations.verify.proof
+    if type(proof) is not ProofAdapter or not proof.production_gate_enabled:
+        raise TypeError("production verification must use PublishedProofGate")
     return operations
 
 

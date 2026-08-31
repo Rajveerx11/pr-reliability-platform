@@ -6,6 +6,12 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from pr_reliability_proof_adapter import (
+    ProofAdapter,
+    ProofGateError,
+    ProofRequest,
+    ProofVerdict,
+)
 from temporalio.exceptions import ApplicationError
 
 from ..sandbox import SandboxRequest, SandboxResult
@@ -17,25 +23,67 @@ class SandboxRunner(Protocol):
 
 
 PrepareSandbox = Callable[[StageRequest], Awaitable[SandboxRequest]]
-RecordSandboxResult = Callable[[StageRequest, SandboxResult], Awaitable[StageResult]]
+
+
+@dataclass(frozen=True)
+class VerificationEvidence:
+    """Bounded sandbox and Proof of Work evidence recorded before any output."""
+
+    sandbox: SandboxResult
+    proof: ProofVerdict | None = None
+    proof_error: str | None = None
+
+
+RecordVerificationEvidence = Callable[[StageRequest, VerificationEvidence], Awaitable[StageResult]]
 
 
 @dataclass(frozen=True)
 class SandboxVerificationOperation:
-    """Resolve, execute, and record verification without a host-execution path."""
+    """Require isolated tests and the local Proof of Work adapter to pass."""
 
     prepare: PrepareSandbox
     runner: SandboxRunner
-    record: RecordSandboxResult
+    record: RecordVerificationEvidence
+    proof: ProofAdapter
 
     async def __call__(self, request: StageRequest) -> StageResult:
         sandbox_request = await self.prepare(request)
         sandbox_result = await self.runner.run(sandbox_request)
-        stage_result = await self.record(request, sandbox_result)
         if not sandbox_result.succeeded:
+            await self.record(request, VerificationEvidence(sandbox=sandbox_result))
             raise ApplicationError(
                 "sandbox verification failed",
                 type="SandboxVerificationFailed",
+                non_retryable=True,
+            )
+
+        proof_request = ProofRequest(
+            repository=sandbox_request.workspace,
+            head_sha=request.head_sha,
+            base_ref=request.base_sha or "HEAD",
+            timeout_seconds=sandbox_request.limits.timeout_seconds,
+        )
+        try:
+            verdict = await self.proof.verify(proof_request)
+        except ProofGateError as exc:
+            await self.record(
+                request,
+                VerificationEvidence(sandbox=sandbox_result, proof_error=str(exc)),
+            )
+            raise ApplicationError(
+                "proof gate failed",
+                type="ProofGateFailed",
+                non_retryable=True,
+            ) from exc
+
+        stage_result = await self.record(
+            request,
+            VerificationEvidence(sandbox=sandbox_result, proof=verdict),
+        )
+        if not verdict.passed:
+            raise ApplicationError(
+                "proof gate rejected the changeset",
+                type="ProofGateRejected",
                 non_retryable=True,
             )
         return stage_result

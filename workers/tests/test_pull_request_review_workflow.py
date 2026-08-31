@@ -13,10 +13,12 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pr_reliability_contracts import StartRunCommand
 from pr_reliability_observability import PersistedTraceTracingInterceptor
+from pr_reliability_proof_adapter import ProofAdapter, ProofGateResult, ProofRequest
 from pr_reliability_workers.activities import (
     ActivityOperations,
     ReviewActivities,
     SandboxVerificationOperation,
+    VerificationEvidence,
 )
 from pr_reliability_workers.dispatch import dispatch_start_run, workflow_id_for
 from pr_reliability_workers.sandbox import SandboxRequest, SandboxResult
@@ -63,6 +65,19 @@ class RecordingSandboxRunner:
     async def run(self, request: SandboxRequest) -> SandboxResult:
         assert request.image == SANDBOX_IMAGE
         return SandboxResult(exit_code=0, stdout="", stderr="", duration_ms=1)
+
+
+class PassingProofRunner:
+    async def run(self, request: ProofRequest) -> ProofGateResult:
+        assert request.base_ref == BASE_SHA
+        return ProofGateResult(
+            "0.2.0",
+            {
+                "passed": True,
+                "reasons": ["no cheat signals; facts check out"],
+                "findings": [],
+            },
+        )
 
 
 class RecordingOperations:
@@ -118,9 +133,10 @@ class RecordingOperations:
     async def record_verification(
         self,
         request: StageRequest,
-        result: SandboxResult,
+        result: VerificationEvidence,
     ) -> StageResult:
-        assert result.succeeded
+        assert result.sandbox.succeeded
+        assert result.proof is not None and result.proof.passed
         return await self.verify(request)
 
     async def publish(self, request: PublishRequest) -> None:
@@ -158,6 +174,7 @@ class RecordingOperations:
                     prepare=self.prepare_verification,
                     runner=RecordingSandboxRunner(),
                     record=self.record_verification,
+                    proof=ProofAdapter(PassingProofRunner()),
                 ),
                 publish=self.publish,
                 record_terminal=self.record_terminal,

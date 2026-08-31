@@ -10,6 +10,7 @@ dependencies = [
   "opentelemetry-sdk>=1.36,<2",
   "pydantic>=2.11,<3",
   "psycopg[binary]>=3.2,<4",
+  "proof-of-work-agent>=0.2,<0.3",
   "temporalio>=1.30,<2",
   "uvicorn>=0.35,<1",
 ]
@@ -60,6 +61,7 @@ build-backend = "hatchling.build"
 packages = [
   "apps/api/src/pr_reliability_api",
   "packages/contracts/src/pr_reliability_contracts",
+  "packages/proof_adapter/src/pr_reliability_proof_adapter",
   "packages/observability/src/pr_reliability_observability",
   "workers/src/pr_reliability_workers",
 ]

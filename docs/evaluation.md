@@ -32,6 +32,27 @@ reference-fix, and verifier bytes so accidental changes are visible.
 This runner is tamper-resistant evaluation for reviewed fixtures. It is not a security sandbox.
 Untrusted pull request code must use the disposable sandbox planned in issue #9.
 
+## Proof of Work gate
+
+The worker first runs repository tests in the disposable Docker sandbox. It then calls the
+published `proof-of-work-agent` package through `pr_reliability_proof_adapter`. Package test
+execution stays disabled because untrusted tests must never run on the activity-worker host.
+
+The adapter returns version 1 of a small verdict: pass or fail, reasons, unique finding rule
+IDs, and the installed package version. Application code imports only this local adapter, not
+Proof of Work modules. Package errors, timeouts, and malformed results produce no verdict and
+fail verification. A failed verdict is recorded as evidence but cannot reach human approval.
+
+The published package runs in a dedicated child process. Before it starts, the adapter requires a
+clean workspace whose `HEAD` equals the requested review head and whose base commit is its ancestor.
+It clones that exact commit into a private local snapshot, so concurrent source changes cannot
+change the inspected tree. On Linux, a durable subreaper supervisor starts the package as a child,
+stays alive after hard package exits, and kills and reaps adopted descendants through a bounded
+cleanup handshake. Windows uses a kill-on-close Job Object. Cleanup runs after success, failure,
+malformed output, cancellation, or timeout. Production workers reject injected proof runners.
+Output is bounded and package logs stay only in the private temporary directory. Cleanup failure
+blocks verification, and the directory is removed after every outcome.
+
 The ten tasks cover:
 
 - Payment idempotency

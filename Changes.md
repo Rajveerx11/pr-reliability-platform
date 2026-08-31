@@ -5,6 +5,21 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added stable Proof of Work adapter
+
+- Issue: [#10](https://github.com/Rajveerx11/pr-reliability-platform/issues/10)
+- Decision: [DEC-007 — Proof of Work adapter](plan/v1.md#dec-007--keep-proof-of-work-behind-an-adapter)
+- Reason: Published Proof of Work results need one stable, fail-closed contract before they can
+  affect review approval.
+- Changed files:
+  - `packages/proof_adapter/` — versioned local verdict, immutable clean-commit snapshots,
+    cross-platform whole-tree process cleanup with a durable Linux subreaper, isolated temporary
+    logs, strict result bounds, and regression tests.
+  - `workers/src/pr_reliability_workers/activities/` — combined sandbox and Proof of Work gate
+    that records bounded evidence and blocks output on every failure.
+  - `pyproject.toml` and `uv.lock` — published Proof of Work dependency and packaged adapter.
+  - `docs/evaluation.md` — adapter contract and sandbox boundary.
+
 ### Added reproducible version-one evaluation harness replay
 
 - Issue: [#14](https://github.com/Rajveerx11/pr-reliability-platform/issues/14)
