@@ -1,6 +1,15 @@
 """Public version-one message contracts."""
 
-from .approvals import ApprovalCommand, ApprovalDecision, PublishCommentCommand
+from .approvals import (
+    ApprovalCommand,
+    ApprovalDecision,
+    ApprovalDecisionReceipt,
+    ApprovalDecisionRequest,
+    ApprovalInboxItem,
+    FindingApprovalStatus,
+    PublishCommentCommand,
+    VerificationStatus,
+)
 from .base import (
     Contract,
     GitSha,
@@ -26,11 +35,15 @@ __all__ = [
     "TERMINAL_RUN_STATES",
     "ApprovalCommand",
     "ApprovalDecision",
+    "ApprovalDecisionReceipt",
+    "ApprovalDecisionRequest",
+    "ApprovalInboxItem",
     "CancelRunCommand",
     "Contract",
     "Evidence",
     "EvidenceKind",
     "Finding",
+    "FindingApprovalStatus",
     "FindingSeverity",
     "GitSha",
     "ModelUsage",
@@ -47,6 +60,7 @@ __all__ = [
     "TimedRunMessage",
     "Ulid",
     "UsageCoverage",
+    "VerificationStatus",
     "can_transition",
     "require_transition",
 ]
