@@ -26,6 +26,23 @@ them and names the affected files.
     `docs/README.md` — methodology, complete replay cohort, unmerged PR #25 stack, limitations,
     and exact blockers.
 
+### Added private review operations dashboard
+
+- Issue: [#30](https://github.com/Rajveerx11/pr-reliability-platform/issues/30)
+- Decisions: [DEC-009 — Human approval](plan/v1.md#dec-009--require-human-approval-before-every-external-write)
+  and [DEC-013 — One cloud VM](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation)
+- Reason: Operators need one authenticated view of review activity, approval pressure, latency,
+  dependency health, and evidence before hosting the service on a private VM.
+- Changed files:
+  - `apps/web/dashboard.*` — responsive control-room interface with in-memory reviewer access,
+    filters, pagination, run detail, health, and explicit unknown usage.
+  - `apps/api/src/pr_reliability_api/dashboard/` — owner-scoped read APIs, fixed safe event
+    summaries, bounded queries, and hardened same-origin static assets.
+  - `packages/contracts/src/pr_reliability_contracts/dashboard.py` — strict dashboard read models.
+  - `apps/api/tests/test_dashboard.py` and `packages/contracts/tests/test_dashboard_contracts.py` — access,
+    ownership, filtering, evidence, pagination, and validation coverage.
+  - `docs/dashboard.md`, `docs/README.md`, and `plan/v1.md` — operating guidance and issue map.
+
 ### Added traces, run metrics, and dependency health checks
 
 - Issue: [#13](https://github.com/Rajveerx11/pr-reliability-platform/issues/13)

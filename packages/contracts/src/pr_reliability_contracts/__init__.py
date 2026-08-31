@@ -19,6 +19,18 @@ from .base import (
     TimedRunMessage,
     Ulid,
 )
+from .dashboard import (
+    DashboardFinding,
+    DashboardFindingStatus,
+    DashboardOverview,
+    DashboardRunDetail,
+    DashboardRunPage,
+    DashboardRunSummary,
+    DashboardStage,
+    DashboardStageName,
+    DashboardStageStatus,
+    DashboardTimelineEvent,
+)
 from .findings import Evidence, EvidenceKind, Finding, FindingSeverity
 from .github import PullRequestAction, PullRequestWebhook
 from .reviews import ModelUsage, ReviewCommand, ReviewResult, UsageCoverage
@@ -40,6 +52,16 @@ __all__ = [
     "ApprovalInboxItem",
     "CancelRunCommand",
     "Contract",
+    "DashboardFinding",
+    "DashboardFindingStatus",
+    "DashboardOverview",
+    "DashboardRunDetail",
+    "DashboardRunPage",
+    "DashboardRunSummary",
+    "DashboardStage",
+    "DashboardStageName",
+    "DashboardStageStatus",
+    "DashboardTimelineEvent",
     "Evidence",
     "EvidenceKind",
     "Finding",
