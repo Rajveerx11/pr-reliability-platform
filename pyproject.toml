@@ -69,3 +69,6 @@ packages = [
 [tool.hatch.build.targets.wheel.force-include]
 "migrations" = "pr_reliability_api/_migrations"
 "apps/web/approval_inbox.html" = "pr_reliability_api/_web/approval_inbox.html"
+"apps/web/dashboard.html" = "pr_reliability_api/_web/dashboard.html"
+"apps/web/dashboard.css" = "pr_reliability_api/_web/dashboard.css"
+"apps/web/dashboard.js" = "pr_reliability_api/_web/dashboard.js"

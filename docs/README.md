@@ -5,6 +5,7 @@
 - `security.md` — trust boundaries, secrets, sandboxing, and approval controls.
 - `evaluation.md` — golden tasks, metrics, comparison rules, and reporting.
 - `observability.md` — run tracing, latency and usage metrics, and dependency health.
+- `dashboard.md` — private run, approval, health, latency, and evidence operations view.
 
 Product scope and decisions live in `plan/v1.md`.
 
