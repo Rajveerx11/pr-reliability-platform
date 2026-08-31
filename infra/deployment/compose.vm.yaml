@@ -1,0 +1,261 @@
+name: pr-reliability-v1
+
+x-app: &app
+  image: ${PLATFORM_IMAGE:?PLATFORM_IMAGE is required}
+  restart: unless-stopped
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  group_add: ["${DEPLOYMENT_SECRET_GID:?DEPLOYMENT_SECRET_GID is required}"]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:size=128m,mode=1777
+  networks: [private]
+
+x-temporal-environment: &temporal-environment
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  TEMPORAL_ADDRESS: temporal:7233
+  TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+  TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-pr-review}
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+    group_add: ["${DEPLOYMENT_SECRET_GID:?DEPLOYMENT_SECRET_GID is required}"]
+    secrets:
+      - postgres_admin_password
+      - application_database_password
+      - temporal_database_password
+    volumes:
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-pr-reliability-roles.sh:ro
+      - postgres-data:/var/lib/postgresql/data
+    networks: [private]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    security_opt: [no-new-privileges:true]
+
+  temporal:
+    image: ${TEMPORAL_IMAGE:?TEMPORAL_IMAGE is required}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: [/bin/sh, /deployment/temporal-entrypoint.sh]
+    group_add: ["${DEPLOYMENT_SECRET_GID:?DEPLOYMENT_SECRET_GID is required}"]
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      DEFAULT_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      TEMPORAL_ADDRESS: temporal:7233
+    secrets: [temporal_database_password]
+    volumes:
+      - ./temporal-entrypoint.sh:/deployment/temporal-entrypoint.sh:ro
+    networks: [private]
+    healthcheck:
+      test: [CMD, temporal, operator, cluster, health]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: [python, -m, pr_reliability_api.migrate]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    command:
+      - uvicorn
+      - --factory
+      - pr_reliability_api.app:create_app_from_environment
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - caddy
+    expose: ["8000"]
+    environment:
+      APPROVAL_ACTOR_ID: ${APPROVAL_ACTOR_ID:?APPROVAL_ACTOR_ID is required}
+      APPROVAL_REVIEWER_TOKEN: ${APPROVAL_REVIEWER_TOKEN:?APPROVAL_REVIEWER_TOKEN is required}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:?GITHUB_INSTALLATION_ID is required}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?GITHUB_WEBHOOK_SECRET is required}
+      HEALTH_CHECK_TIMEOUT_SECONDS: ${HEALTH_CHECK_TIMEOUT_SECONDS:-2}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OWNER_ID: ${OWNER_ID:?OWNER_ID is required}
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2).read()
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  command-dispatcher:
+    <<: *app
+    command: [pr-reliability-command-dispatcher]
+    environment:
+      <<: *temporal-environment
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      temporal:
+        condition: service_healthy
+
+  workflow-worker:
+    <<: *app
+    command: [pr-reliability-workflow-worker]
+    environment: *temporal-environment
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  activity-worker:
+    image: ${ACTIVITY_WORKER_IMAGE:?ACTIVITY_WORKER_IMAGE is required}
+    restart: unless-stopped
+    init: true
+    user: "${SANDBOX_ENGINE_UID:?SANDBOX_ENGINE_UID is required}:${SANDBOX_ENGINE_GID:?SANDBOX_ENGINE_GID is required}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    entrypoint: [/bin/sh, /deployment/activity-entrypoint.sh]
+    command: [pr-reliability-activity-worker]
+    group_add:
+      - "${DEPLOYMENT_SECRET_GID:?DEPLOYMENT_SECRET_GID is required}"
+      - "${SANDBOX_ENGINE_GID:?SANDBOX_ENGINE_GID is required}"
+    environment:
+      <<: *temporal-environment
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:?GITHUB_APP_ID is required}
+      GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:?GITHUB_INSTALLATION_ID is required}
+      GITHUB_PRIVATE_KEY_PATH: /run/secrets/github_private_key
+      MODEL_PROVIDER: ${MODEL_PROVIDER:?MODEL_PROVIDER is required}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      REVIEW_ACTIVITY_OPERATIONS_FACTORY: ${REVIEW_ACTIVITY_OPERATIONS_FACTORY:?REVIEW_ACTIVITY_OPERATIONS_FACTORY is required}
+      SANDBOX_STAGING_DIRECTORY: ${SANDBOX_STAGING_DIRECTORY:?SANDBOX_STAGING_DIRECTORY is required}
+      HOME: /tmp
+      TMPDIR: ${SANDBOX_STAGING_DIRECTORY:?SANDBOX_STAGING_DIRECTORY is required}
+    secrets: [github_private_key]
+    volumes:
+      - ./activity-entrypoint.sh:/deployment/activity-entrypoint.sh:ro
+      - type: bind
+        source: ${SANDBOX_DOCKER_SOCKET:?SANDBOX_DOCKER_SOCKET is required}
+        target: /var/run/docker.sock
+      - type: bind
+        source: ${SANDBOX_STAGING_DIRECTORY:?SANDBOX_STAGING_DIRECTORY is required}
+        target: ${SANDBOX_STAGING_DIRECTORY:?SANDBOX_STAGING_DIRECTORY is required}
+    networks: [private, egress]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      temporal:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  otel-collector:
+    image: ${OTEL_COLLECTOR_IMAGE:?OTEL_COLLECTOR_IMAGE is required}
+    restart: unless-stopped
+    command: [--config=/etc/otelcol-contrib/config.yaml]
+    volumes:
+      - ../observability/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    networks: [private]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:?PROMETHEUS_IMAGE is required}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./rules.yaml:/etc/prometheus/rules.yaml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - 127.0.0.1:9090:9090
+    networks: [private]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  caddy:
+    image: ${CADDY_IMAGE:?CADDY_IMAGE is required}
+    restart: unless-stopped
+    read_only: true
+    environment:
+      PRIVATE_HOSTNAME: ${PRIVATE_HOSTNAME:?PRIVATE_HOSTNAME is required}
+    group_add: ["${DEPLOYMENT_SECRET_GID:?DEPLOYMENT_SECRET_GID is required}"]
+    ports:
+      - ${PRIVATE_BIND_ADDRESS:?PRIVATE_BIND_ADDRESS is required}:443:443
+    secrets: [tls_certificate, tls_private_key]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    tmpfs:
+      - /config:size=16m
+      - /data:size=16m
+    networks: [private]
+    depends_on:
+      api:
+        condition: service_healthy
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  private:
+    internal: true
+  egress: {}
+
+volumes:
+  postgres-data:
+  prometheus-data:
+
+secrets:
+  application_database_password:
+    file: ${APPLICATION_DATABASE_PASSWORD_FILE:?APPLICATION_DATABASE_PASSWORD_FILE is required}
+  github_private_key:
+    file: ${GITHUB_PRIVATE_KEY_FILE:?GITHUB_PRIVATE_KEY_FILE is required}
+  postgres_admin_password:
+    file: ${POSTGRES_ADMIN_PASSWORD_FILE:?POSTGRES_ADMIN_PASSWORD_FILE is required}
+  temporal_database_password:
+    file: ${TEMPORAL_DATABASE_PASSWORD_FILE:?TEMPORAL_DATABASE_PASSWORD_FILE is required}
+  tls_certificate:
+    file: ${TLS_CERTIFICATE_FILE:?TLS_CERTIFICATE_FILE is required}
+  tls_private_key:
+    file: ${TLS_PRIVATE_KEY_FILE:?TLS_PRIVATE_KEY_FILE is required}

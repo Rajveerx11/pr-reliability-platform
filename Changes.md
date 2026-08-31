@@ -5,6 +5,27 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added private single-VM deployment controls
+
+- Issue: [#15](https://github.com/Rajveerx11/pr-reliability-platform/issues/15)
+- Decision: [DEC-013 — One cloud VM](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation)
+- Reason: The validated local flow needs a small, private, recoverable deployment boundary before
+  any real test-repository use.
+- Changed files:
+  - `infra/deployment/` — private-IP TLS Compose stack, immutable-image and external-secret
+    preflight, reviewer-token and actor configuration for the dashboard and approval inbox, local
+    monitoring, deployment health, consistent database backup and restore, and a daily systemd
+    backup timer with focused policy tests. Application, Temporal, backup, and bootstrap database
+    roles are separated; the root timer refuses a mutable checkout. A host lock serializes backup
+    and restore, both preserve running, restarting, and stopped writer state, and preflight rejects
+    every shipped placeholder image reference.
+  - `apps/api/src/pr_reliability_api/migrate.py` — one-shot checksummed deployment migrations.
+  - `docs/deployment.md`, `docs/development.md`, and `docs/security.md` — provisioning, monitoring,
+    recovery drill, end-to-end acceptance, rollback, and current external blockers.
+  - `.github/workflows/quality.yml` — private VM Compose validation.
+  - `pyproject.toml` — deployment policy tests in the default test suite.
+  - `.gitignore` — deployment environment, secret directory, private key, and PEM exclusions.
+
 ### Added stable Proof of Work adapter
 
 - Issue: [#10](https://github.com/Rajveerx11/pr-reliability-platform/issues/10)
@@ -54,8 +75,9 @@ them and names the affected files.
   - `apps/api/src/pr_reliability_api/dashboard/` — owner-scoped read APIs, fixed safe event
     summaries, bounded queries, and hardened same-origin static assets.
   - `packages/contracts/src/pr_reliability_contracts/dashboard.py` — strict dashboard read models.
-  - `apps/api/tests/test_dashboard.py` and `packages/contracts/tests/test_dashboard_contracts.py` — access,
-    ownership, filtering, evidence, pagination, and validation coverage.
+  - `apps/api/tests/test_dashboard.py` and
+    `packages/contracts/tests/test_dashboard_contracts.py` — access, ownership, filtering,
+    evidence, pagination, and validation coverage.
   - `docs/dashboard.md`, `docs/README.md`, and `plan/v1.md` — operating guidance and issue map.
 
 ### Added traces, run metrics, and dependency health checks

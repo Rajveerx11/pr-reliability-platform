@@ -43,6 +43,7 @@ testpaths = [
   "packages/observability/tests",
   "packages/proof_adapter/tests",
   "evals/tests",
+  "infra/deployment/tests",
 ]
 
 [tool.ruff]

@@ -1,0 +1,27 @@
+[Unit]
+Description=Back up PR Reliability application and Temporal databases
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/pr-reliability-platform
+UMask=0077
+ExecStartPre=/usr/bin/test ! -L /opt
+ExecStartPre=/usr/bin/test ! -L /opt/pr-reliability-platform
+ExecStartPre=/usr/bin/bash -ceu '! /usr/bin/find / /opt /opt/pr-reliability-platform -maxdepth 0 \( ! -user root -o -perm /022 \) -print -quit | /usr/bin/grep -q .'
+ExecStartPre=/usr/bin/bash -ceu '! /usr/bin/find /opt/pr-reliability-platform \( -type l -o ! -user root -o -perm /022 \) -print -quit | /usr/bin/grep -q .'
+ExecStart=/usr/bin/python3 -m infra.deployment.database --env-file /etc/pr-reliability/deployment.env backup /var/backups/pr-reliability
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectHome=read-only
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=/etc/pr-reliability /var/backups/pr-reliability
+LockPersonality=true
+RestrictSUIDSGID=true

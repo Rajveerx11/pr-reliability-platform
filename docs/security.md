@@ -71,3 +71,19 @@ Not allowed:
 If a write happens without approval, disable publishing immediately, preserve safe audit facts,
 rotate affected credentials, and document the event before restoring writes.
 
+## Private VM operations
+
+- Bind the only published application port, TLS 443, to one private VM address and restrict it to
+  the approved VPN or private CIDR. Keep databases, Temporal, application ports, telemetry, and
+  Docker sockets off public interfaces.
+- Use certificate, key, provider, GitHub, and database secrets from root-owned files outside the
+  checkout. Repository builds and backups must never include them.
+- Address every runtime image by a reviewed SHA-256 digest. Run deployment preflight before pull,
+  startup, rollback, or restore.
+- Give the activity worker only a dedicated rootless sandbox Docker socket. The primary host Docker
+  socket is a control-plane secret and must never enter an application container.
+- Store backup bundles on encrypted storage outside the checkout, restrict them to operators, copy
+  them off the VM, verify checksums before restore, and test recovery on a disposable VM.
+- Treat VM root and Docker-administrator access as privileged production access. Preserve private
+  firewall, certificate, backup, health, and rollback evidence without storing secret contents.
+
