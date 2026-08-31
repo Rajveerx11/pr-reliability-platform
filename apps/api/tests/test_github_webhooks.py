@@ -15,6 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pr_reliability_api.app import create_app
+from pr_reliability_api.approvals import ApprovalInboxSettings
 from pr_reliability_api.db import apply_migrations
 from pr_reliability_api.webhooks import GithubWebhookSettings, create_github_webhook_router
 from pr_reliability_contracts import StartRunCommand
@@ -91,6 +92,19 @@ def test_production_app_factory_registers_webhook(
     )
 
     assert "/webhooks/github" in app.openapi()["paths"]
+
+
+def test_production_app_factory_preserves_positional_approval_settings() -> None:
+    def unused_connection_factory() -> Connection[object]:
+        raise AssertionError("route registration must not connect to the database")
+
+    app = create_app(
+        GithubWebhookSettings(owner_id=OWNER_ID, installation_id=71, webhook_secret=SECRET),
+        unused_connection_factory,
+        ApprovalInboxSettings(OWNER_ID, "reviewer", "test-reviewer-token"),
+    )
+
+    assert "/api/approval-inbox" in app.openapi()["paths"]
 
 
 def payload(

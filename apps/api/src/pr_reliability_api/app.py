@@ -14,6 +14,7 @@ from pr_reliability_observability import configure_telemetry, tracer
 from psycopg import Connection
 from temporalio.client import Client
 
+from .approvals import ApprovalInboxSettings, create_approval_inbox_router
 from .db import apply_migrations
 from .health import DatabaseHealthCheck, WorkflowHealthCheck, create_health_router
 from .webhooks import GithubWebhookSettings, create_github_webhook_router
@@ -22,8 +23,9 @@ from .webhooks import GithubWebhookSettings, create_github_webhook_router
 def create_app(
     settings: GithubWebhookSettings,
     connection_factory: Callable[[], Connection[object]],
-    workflow_health_check: WorkflowHealthCheck | None = None,
+    approval_settings: ApprovalInboxSettings | None = None,
     *,
+    workflow_health_check: WorkflowHealthCheck | None = None,
     database_health_check: DatabaseHealthCheck | None = None,
     health_check_timeout_seconds: float = 2.0,
 ) -> FastAPI:
@@ -38,6 +40,8 @@ def create_app(
         )
     )
     app.include_router(create_github_webhook_router(settings, connection_factory))
+    if approval_settings is not None:
+        app.include_router(create_approval_inbox_router(approval_settings, connection_factory))
 
     @app.middleware("http")
     async def trace_request(request: Request, call_next):
@@ -69,6 +73,11 @@ def create_app_from_environment() -> FastAPI:
         installation_id=int(_required_environment("GITHUB_INSTALLATION_ID")),
         webhook_secret=_required_environment("GITHUB_WEBHOOK_SECRET").encode(),
     )
+    approval_settings = ApprovalInboxSettings(
+        owner_id=settings.owner_id,
+        actor_id=_required_environment("APPROVAL_ACTOR_ID"),
+        reviewer_token=_required_environment("APPROVAL_REVIEWER_TOKEN"),
+    )
     with psycopg.connect(database_url) as connection:
         apply_migrations(connection)
     workflow_health_check = _temporal_health_check(
@@ -82,7 +91,8 @@ def create_app_from_environment() -> FastAPI:
             database_url,
             connect_timeout=max(1, math.ceil(health_check_timeout_seconds)),
         ),
-        workflow_health_check,
+        approval_settings,
+        workflow_health_check=workflow_health_check,
         database_health_check=_database_health_check(
             database_url,
             health_check_timeout_seconds,

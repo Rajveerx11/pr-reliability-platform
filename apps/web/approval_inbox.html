@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Approval inbox</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        background: #f4f1e9;
+        color: #18231d;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0 80px; }
+      header { display: grid; gap: 20px; margin-bottom: 32px; }
+      h1 { margin: 0; font: 700 clamp(2rem, 6vw, 4.5rem)/0.95 Georgia, serif; }
+      .lede { max-width: 620px; margin: 0; color: #536158; font-size: 1.05rem; }
+      .access { display: flex; gap: 10px; max-width: 620px; }
+      input, textarea, button { font: inherit; }
+      input, textarea { width: 100%; border: 1px solid #b8b6aa; border-radius: 8px; padding: 11px 12px; background: #fffefa; }
+      button { border: 0; border-radius: 999px; padding: 11px 18px; font-weight: 700; cursor: pointer; }
+      .load, .approve { background: #155b3a; color: white; }
+      .reject { background: #8c2d24; color: white; }
+      #notice { min-height: 24px; color: #536158; }
+      #findings { display: grid; gap: 18px; }
+      article { border: 1px solid #d5d0c2; border-radius: 16px; padding: 24px; background: #fffefa; box-shadow: 0 8px 24px #1723190d; }
+      .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+      .pill { border-radius: 999px; padding: 5px 10px; background: #e8e3d6; font-size: .8rem; font-weight: 700; }
+      .claim { margin: 0 0 20px; font: 700 1.35rem/1.3 Georgia, serif; }
+      dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0 0 20px; }
+      dt { color: #677269; }
+      dd { margin: 0; overflow-wrap: anywhere; }
+      .evidence { margin: 0 0 20px; padding: 16px; border-left: 3px solid #d39d2a; background: #f8f3e6; }
+      .evidence p { margin: 5px 0; }
+      .decision { display: grid; gap: 10px; }
+      .actions { display: flex; gap: 10px; }
+      button:disabled { cursor: not-allowed; opacity: .55; }
+      @media (max-width: 560px) { .access, .actions { flex-direction: column; } dl { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Approval inbox</h1>
+        <p class="lede">Inspect each claim, commit, verification result, evidence, and cost before recording a decision. Decisions never publish from this page.</p>
+        <div class="access">
+          <input id="token" type="password" autocomplete="off" aria-label="Reviewer token" placeholder="Reviewer token">
+          <button class="load" id="load" type="button">Load findings</button>
+        </div>
+        <div id="notice" role="status" aria-live="polite"></div>
+      </header>
+      <section id="findings" aria-label="Findings"></section>
+    </main>
+    <script>
+      const tokenInput = document.querySelector("#token");
+      const findings = document.querySelector("#findings");
+      const notice = document.querySelector("#notice");
+
+      function node(tag, text, className) {
+        const element = document.createElement(tag);
+        if (text !== undefined) element.textContent = text;
+        if (className) element.className = className;
+        return element;
+      }
+
+      function money(micros) {
+        return micros === null ? "Unknown" : `$${(micros / 1_000_000).toFixed(4)}`;
+      }
+
+      function addFact(list, term, value) {
+        list.append(node("dt", term), node("dd", value));
+      }
+
+      async function decide(item, decision, reason, card) {
+        const response = await fetch(`/api/approval-inbox/${item.finding_id}/decision`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${tokenInput.value}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            schema_version: "1",
+            head_sha: item.head_sha,
+            decision,
+            reason: reason.value.trim() || null
+          })
+        });
+        if (!response.ok) throw new Error((await response.json()).detail || "Decision failed");
+        const receipt = await response.json();
+        card.querySelectorAll("button, textarea").forEach((control) => control.disabled = true);
+        card.querySelector(".status").textContent = receipt.decision;
+        notice.textContent = `${receipt.decision} recorded for ${receipt.finding_id}. Nothing published.`;
+      }
+
+      function render(item) {
+        const card = node("article");
+        const meta = node("div", undefined, "meta");
+        meta.append(
+          node("span", `${item.repository_full_name} #${item.pull_request_number}`, "pill"),
+          node("span", item.verification, "pill"),
+          node("span", item.status, "pill status")
+        );
+        card.append(meta, node("p", item.claim, "claim"));
+
+        const facts = node("dl");
+        addFact(facts, "Commit", item.head_sha);
+        addFact(facts, "Reported cost", money(item.cost_usd_micros));
+        addFact(facts, "Cost budget", money(item.cost_budget_usd_micros));
+        card.append(facts);
+
+        item.evidence.forEach((entry) => {
+          const evidence = node("div", undefined, "evidence");
+          evidence.append(node("strong", entry.kind), node("p", entry.summary));
+          if (entry.file_path) evidence.append(node("p", `${entry.file_path}${entry.start_line ? `:${entry.start_line}` : ""}`));
+          if (entry.command) evidence.append(node("p", `${entry.command.join(" ")} (exit ${entry.exit_code})`));
+          card.append(evidence);
+        });
+
+        const decision = node("div", undefined, "decision");
+        const reason = node("textarea");
+        reason.rows = 2;
+        reason.placeholder = "Optional decision reason";
+        reason.setAttribute("aria-label", "Decision reason");
+        const actions = node("div", undefined, "actions");
+        const approve = node("button", "Approve finding", "approve");
+        const reject = node("button", "Reject finding", "reject");
+        approve.type = reject.type = "button";
+        approve.addEventListener("click", () => decide(item, "approved", reason, card).catch(showError));
+        reject.addEventListener("click", () => decide(item, "rejected", reason, card).catch(showError));
+        if (item.status !== "pending") approve.disabled = reject.disabled = reason.disabled = true;
+        actions.append(approve, reject);
+        decision.append(reason, actions);
+        card.append(decision);
+        return card;
+      }
+
+      function showError(error) { notice.textContent = error.message; }
+
+      async function load() {
+        notice.textContent = "Loading…";
+        const response = await fetch("/api/approval-inbox", {
+          headers: {"Authorization": `Bearer ${tokenInput.value}`}
+        });
+        if (!response.ok) throw new Error((await response.json()).detail || "Load failed");
+        const items = await response.json();
+        findings.replaceChildren(...items.map(render));
+        notice.textContent = items.length ? `${items.length} finding${items.length === 1 ? "" : "s"} ready.` : "No findings await approval.";
+      }
+
+      document.querySelector("#load").addEventListener("click", () => load().catch(showError));
+    </script>
+  </body>
+</html>

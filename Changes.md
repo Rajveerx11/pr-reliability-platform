@@ -20,6 +20,27 @@ them and names the affected files.
   - `docs/observability.md`, `docs/architecture.md`, and `docs/development.md` — trace, metric,
     safety, health, and operations guidance.
 
+### Added human approval inbox
+
+- Issue: [#11](https://github.com/Rajveerx11/pr-reliability-platform/issues/11)
+- Decision: [DEC-009 — Human approval](plan/v1.md#dec-009--require-human-approval-before-every-external-write)
+- Reason: Reviewers need one authenticated place to inspect evidence and record a decision bound
+  to the analyzed commit without publishing from the browser.
+- Changed files:
+  - `apps/web/approval_inbox.html` — responsive finding review and approve or reject interface.
+  - `apps/api/src/pr_reliability_api/approvals/` — owner-scoped inbox reads, bearer authorization,
+    stale-commit protection, idempotent decisions, and append-only audit events.
+  - `packages/contracts/src/pr_reliability_contracts/approvals.py` — inbox, decision request, and
+    receipt contracts.
+  - `apps/api/tests/test_approval_inbox.py` and `packages/contracts/tests/test_approvals.py` —
+    authorization, evidence display, commit binding, idempotency, and no-publish coverage.
+  - `workers/src/pr_reliability_workers/dispatch.py` and
+    `workers/tests/test_command_dispatcher.py` — durable, retry-safe delivery of recorded
+    decisions to the waiting Temporal workflow.
+  - `.env.example`, `pyproject.toml`, `infra/compose/compose.yaml`, and
+    `.github/workflows/quality.yml` — reviewer configuration and packaged browser shell.
+  - `docs/architecture.md`, `docs/security.md`, and `docs/development.md` — approval boundary and
+    operating instructions.
 ### Added disposable pull request command sandbox
 
 - Issue: [#9](https://github.com/Rajveerx11/pr-reliability-platform/issues/9)
