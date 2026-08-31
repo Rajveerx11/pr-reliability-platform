@@ -73,9 +73,22 @@ def test_scoring_counts_adjudicated_matches_and_false_findings() -> None:
 
     report = run_evaluation(scored)
 
-    assert report["quality"]["defect_recall"] == 1
+    assert report["quality"]["defect_recall"] == 0.1
+    assert report["quality"]["false_negative_count"] == 9
+    assert report["quality"]["defect_recall_status"] == (
+        "known_partial_cohort_not_run_counted_as_missed"
+    )
     assert report["quality"]["reported_finding_false_positive_rate"] == 0.5
     assert report["performance"]["run_success_rate"] == 1
+
+
+def test_failed_or_timed_out_attempt_cannot_contribute_scored_findings() -> None:
+    attempt = manifest().attempts[0].model_dump(mode="json")
+    attempt["status"] = "failed"
+    attempt["findings"] = [{"summary": "partial output", "matched_defect_index": 0}]
+
+    with pytest.raises(ValidationError, match="only completed attempts"):
+        ReplayAttempt.model_validate(attempt)
 
 
 def test_cli_writes_machine_and_human_reports(tmp_path: Path) -> None:

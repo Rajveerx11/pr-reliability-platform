@@ -14,7 +14,8 @@ them and names the affected files.
 - Changed files:
   - `evals/evaluation_models.py`, `evaluation_runner.py`, `evaluation_report.py`, and `replays/` —
     strict full-cohort deterministic replay, protected-verifier execution, metric calculations,
-    environment and limit capture, and fail-closed input validation.
+    cohort-wide recall denominators, completed-only finding credit, environment and limit capture,
+    and fail-closed input validation.
   - `packages/contracts/src/pr_reliability_contracts/reviews.py` and
     `workers/src/pr_reliability_workers/agents/` — restored issue #6's provider-neutral agent
     boundary required by evaluation without changing current context or workflow code.

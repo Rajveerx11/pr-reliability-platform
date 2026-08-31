@@ -65,6 +65,12 @@ there are no reported findings, the false-positive rate is unknown because its d
 zero. This definition measures false discoveries among findings; the frozen set has no clean
 negative tasks for a task-level specificity measure.
 
+If at least one model attempt runs but part of the cohort remains `not_run`, every known defect in
+the frozen cohort stays in the recall denominator. This prevents partial runs from overstating
+recall. A run with no model attempts keeps recall unknown. Only `completed` attempts may contribute
+scored findings; failed and timed-out attempts retain performance facts but never partial quality
+credit.
+
 ## Reproducible runner
 
 `evals/evaluation_runner.py` loads one strict replay manifest, requires exactly the frozen ten-task

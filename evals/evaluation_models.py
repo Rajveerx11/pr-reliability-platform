@@ -55,6 +55,8 @@ class ReplayAttempt(EvaluationModel):
 
     @model_validator(mode="after")
     def keep_not_run_measurements_unknown(self) -> ReplayAttempt:
+        if self.status != "completed" and self.findings:
+            raise ValueError("only completed attempts may contain scored findings")
         if self.status != "not_run":
             return self
         if (

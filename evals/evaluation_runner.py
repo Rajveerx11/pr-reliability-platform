@@ -38,7 +38,8 @@ def run_evaluation(manifest: ReplayManifest) -> dict[str, Any]:
         raise EvaluationError(f"replay must contain full cohort; missing={missing}, extra={extra}")
 
     task_results = []
-    true_positives = false_positives = false_negatives = 0
+    true_positives = false_positives = 0
+    total_known_defects = sum(len(task.known_defects) for task in tasks)
     for task in tasks:
         attempt = attempts[task.id]
         broken = verify_task(
@@ -89,7 +90,6 @@ def run_evaluation(manifest: ReplayManifest) -> dict[str, Any]:
         task_false_negatives = len(task.known_defects) - task_true_positives
         true_positives += task_true_positives
         false_positives += task_false_positives
-        false_negatives += task_false_negatives
         task_results.append(
             {
                 "task_id": task.id,
@@ -109,7 +109,6 @@ def run_evaluation(manifest: ReplayManifest) -> dict[str, Any]:
         )
 
     reported_findings = true_positives + false_positives
-    recall_denominator = true_positives + false_negatives
     latencies = [
         attempt.end_to_end_latency_ms
         for attempt in manifest.attempts
@@ -128,6 +127,17 @@ def run_evaluation(manifest: ReplayManifest) -> dict[str, Any]:
     ]
     attempted = sum(attempt.status != "not_run" for attempt in manifest.attempts)
     successful = sum(attempt.status == "completed" for attempt in manifest.attempts)
+    false_negatives = total_known_defects - true_positives if attempted else None
+    if not attempted:
+        recall = None
+        recall_status = "unknown_no_model_attempts"
+    else:
+        recall = true_positives / total_known_defects if total_known_defects else None
+        recall_status = (
+            "known_full_cohort"
+            if attempted == len(manifest.attempts)
+            else "known_partial_cohort_not_run_counted_as_missed"
+        )
 
     return {
         "schema_version": 1,
@@ -152,8 +162,8 @@ def run_evaluation(manifest: ReplayManifest) -> dict[str, Any]:
             "true_positive_count": true_positives,
             "false_positive_count": false_positives,
             "false_negative_count": false_negatives,
-            "defect_recall": (true_positives / recall_denominator if recall_denominator else None),
-            "defect_recall_status": "known" if recall_denominator else "unknown_no_model_attempts",
+            "defect_recall": recall,
+            "defect_recall_status": recall_status,
             "reported_finding_false_positive_rate": (
                 false_positives / reported_findings if reported_findings else None
             ),
