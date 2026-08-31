@@ -1,5 +1,6 @@
 # Documentation
 
+- `status.md` — current implementation, verification, and external acceptance status.
 - `architecture.md` — services, data flow, ownership, and runtime boundaries.
 - `development.md` — local setup, folder rules, tests, and delivery workflow.
 - `security.md` — trust boundaries, secrets, sandboxing, and approval controls.

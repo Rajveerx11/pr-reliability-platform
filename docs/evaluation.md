@@ -30,7 +30,8 @@ unprotected verifiers. It loads tasks in ID order. `corpus.sha256` freezes all m
 reference-fix, and verifier bytes so accidental changes are visible.
 
 This runner is tamper-resistant evaluation for reviewed fixtures. It is not a security sandbox.
-Untrusted pull request code must use the disposable sandbox planned in issue #9.
+Untrusted pull request code must use the merged disposable sandbox described in
+`security.md`.
 
 ## Proof of Work gate
 
@@ -109,8 +110,9 @@ uv run python -m evals.evaluation_runner \
 The committed replay is explicitly a deterministic harness replay. It contains no model output.
 Provider, model, latency, duration, token usage, and cost remain unknown. See
 `docs/evaluation-report.md` for its complete cohort and blocker report.
-The recorded harness branch is stacked on unmerged PR #25, not `main`; its evaluated commit and
-stack status are disclosed in both replay input and report.
+The harness, observability dependency, and Proof of Work adapter are now merged to `main`. The
+committed replay still describes its historical evaluated commit and contains no model attempt;
+merging the code does not turn that replay into a quality baseline.
 
 Replay manifests record the evaluated commit, corpus fingerprint, run time, provider/model facts,
 limits, every task attempt, adjudicated defect matches, retries, usage, and limitations. Unknown

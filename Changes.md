@@ -5,6 +5,17 @@ them and names the affected files.
 
 ## Unreleased
 
+### Updated merged implementation and acceptance documentation
+
+- Issue: [#34](https://github.com/Rajveerx11/pr-reliability-platform/issues/34)
+- Decision: [DEC-010 — Repository structure](plan/v1.md#dec-010--use-clear-code-plan-and-documentation-boundaries)
+- Reason: Readers need the merged repository state separated from real provider and VM acceptance.
+- Changed files:
+  - `README.md` and `docs/status.md` — current implementation and remaining acceptance work.
+  - `docs/evaluation.md`, `docs/evaluation-report.md`, and `docs/deployment.md` — removed stale
+    stacked-branch wording and kept unmeasured or undeployed outcomes explicit.
+  - `docs/README.md` and `plan/v1.md` — status index and current issue states.
+
 ### Added private single-VM deployment controls
 
 - Issue: [#15](https://github.com/Rajveerx11/pr-reliability-platform/issues/15)
@@ -59,8 +70,7 @@ them and names the affected files.
   - `evals/tests/` and `workers/tests/agents/` — cohort, scoring, unknown measurement, portability,
     and provider-boundary coverage.
   - `docs/evaluation.md`, `docs/evaluation-report.md`, `docs/architecture.md`, and
-    `docs/README.md` — methodology, complete replay cohort, unmerged PR #25 stack, limitations,
-    and exact blockers.
+    `docs/README.md` — methodology, complete replay cohort, limitations, and exact blockers.
 
 ### Added private review operations dashboard
 
