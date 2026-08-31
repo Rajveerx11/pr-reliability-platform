@@ -7,8 +7,8 @@ import importlib
 import os
 from collections.abc import Callable
 
-from pr_reliability_proof_adapter import ProofAdapter
 from pr_reliability_observability import configure_telemetry
+from pr_reliability_proof_adapter import ProofAdapter
 from temporalio.client import Client
 from temporalio.worker import Worker
 

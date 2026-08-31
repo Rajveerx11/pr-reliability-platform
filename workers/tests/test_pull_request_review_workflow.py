@@ -12,8 +12,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pr_reliability_contracts import StartRunCommand
-from pr_reliability_proof_adapter import ProofAdapter, ProofGateResult, ProofRequest
 from pr_reliability_observability import PersistedTraceTracingInterceptor
+from pr_reliability_proof_adapter import ProofAdapter, ProofGateResult, ProofRequest
 from pr_reliability_workers.activities import (
     ActivityOperations,
     ReviewActivities,
