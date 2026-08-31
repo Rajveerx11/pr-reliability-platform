@@ -134,6 +134,14 @@ the selector records a truncated prefix; remaining eligible files are recorded a
 The selector accepts the model adapter's token counter so the final rendered context stays within
 the configured model budget.
 
+## Review-agent boundary
+
+The review agent depends only on a provider-neutral `ModelClient`. It sends context and a strict
+JSON schema, rejects invalid or duplicate structured findings, then attaches trusted run identity.
+Provider failures return no partial result. Provider-reported duration, token usage, coverage, and
+exact cost cross the boundary without estimating unknown values. No concrete hosted provider is
+configured in this repository yet.
+
 ## Persistence boundary
 
 PostgreSQL stores summaries and safe evidence references. It does not store repository source,
