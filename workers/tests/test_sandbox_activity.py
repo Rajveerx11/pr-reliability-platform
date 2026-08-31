@@ -9,10 +9,17 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from pr_reliability_proof_adapter import (
+    ProofAdapter,
+    ProofGateResult,
+    ProofRequest,
+    PublishedProofGate,
+)
 from pr_reliability_workers.activities import (
     ActivityOperations,
     SandboxRunner,
     SandboxVerificationOperation,
+    VerificationEvidence,
 )
 from pr_reliability_workers.sandbox import (
     DockerSandboxRunner,
@@ -30,7 +37,7 @@ from pr_reliability_workers.workflows.types import (
 from temporalio.exceptions import ApplicationError
 
 IMAGE = f"sha256:{'a' * 64}"
-STAGE_REQUEST = StageRequest("owner", "run", "head", "key")
+STAGE_REQUEST = StageRequest("owner", "run", "b" * 40, "key", base_sha="a" * 40)
 
 
 class StaticRunner:
@@ -40,6 +47,22 @@ class StaticRunner:
     async def run(self, request: SandboxRequest) -> SandboxResult:
         del request
         return self.result
+
+
+class StaticProofRunner:
+    def __init__(self, payload: object) -> None:
+        self.payload = payload
+        self.requests: list[ProofRequest] = []
+
+    async def run(self, request: ProofRequest) -> ProofGateResult:
+        self.requests.append(request)
+        return ProofGateResult("0.2.0", self.payload)
+
+
+class ErrorProofRunner:
+    async def run(self, request: ProofRequest) -> ProofGateResult:
+        del request
+        raise RuntimeError("gate crashed")
 
 
 class FakeContainerRuntime:
@@ -55,25 +78,111 @@ class FakeContainerRuntime:
 
 
 def test_failed_result_is_recorded_then_fails_without_retry(tmp_path: Path) -> None:
-    recorded: list[SandboxResult] = []
+    recorded: list[VerificationEvidence] = []
     failed = SandboxResult(exit_code=137, stdout="", stderr="oom", duration_ms=5)
 
     async def prepare(request: StageRequest) -> SandboxRequest:
         del request
         return SandboxRequest(IMAGE, tmp_path, ("true",))
 
-    async def record(request: StageRequest, result: SandboxResult) -> StageResult:
+    async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
         del request
         recorded.append(result)
         return StageResult("evidence-ref")
 
-    operation = SandboxVerificationOperation(prepare, StaticRunner(failed), record)
+    operation = SandboxVerificationOperation(
+        prepare,
+        StaticRunner(failed),
+        record,
+        _proof_adapter(passed=True),
+    )
     with pytest.raises(ApplicationError) as raised:
         asyncio.run(operation(STAGE_REQUEST))
 
-    assert recorded == [failed]
+    assert recorded == [VerificationEvidence(sandbox=failed)]
     assert raised.value.type == "SandboxVerificationFailed"
     assert raised.value.non_retryable
+
+
+def test_proof_rejection_is_recorded_then_blocks_output(tmp_path: Path) -> None:
+    recorded: list[VerificationEvidence] = []
+    passed = SandboxResult(exit_code=0, stdout="ok", stderr="", duration_ms=5)
+
+    async def prepare(request: StageRequest) -> SandboxRequest:
+        del request
+        return SandboxRequest(IMAGE, tmp_path, ("true",))
+
+    async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
+        del request
+        recorded.append(result)
+        return StageResult("must-not-escape")
+
+    operation = SandboxVerificationOperation(
+        prepare,
+        StaticRunner(passed),
+        record,
+        _proof_adapter(passed=False),
+    )
+    with pytest.raises(ApplicationError) as raised:
+        asyncio.run(operation(STAGE_REQUEST))
+
+    assert recorded[0].proof is not None
+    assert not recorded[0].proof.passed
+    assert raised.value.type == "ProofGateRejected"
+    assert raised.value.non_retryable
+
+
+def test_proof_error_is_recorded_then_blocks_output(tmp_path: Path) -> None:
+    recorded: list[VerificationEvidence] = []
+    passed = SandboxResult(exit_code=0, stdout="ok", stderr="", duration_ms=5)
+
+    async def prepare(request: StageRequest) -> SandboxRequest:
+        del request
+        return SandboxRequest(IMAGE, tmp_path, ("true",))
+
+    async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
+        del request
+        recorded.append(result)
+        return StageResult("must-not-escape")
+
+    operation = SandboxVerificationOperation(
+        prepare,
+        StaticRunner(passed),
+        record,
+        ProofAdapter(ErrorProofRunner()),
+    )
+    with pytest.raises(ApplicationError) as raised:
+        asyncio.run(operation(STAGE_REQUEST))
+
+    assert recorded == [VerificationEvidence(sandbox=passed, proof_error="proof gate failed")]
+    assert raised.value.type == "ProofGateFailed"
+    assert raised.value.non_retryable
+
+
+def test_proof_request_binds_stage_head_and_base(tmp_path: Path) -> None:
+    passed = SandboxResult(exit_code=0, stdout="ok", stderr="", duration_ms=5)
+    proof_runner = StaticProofRunner({"passed": True, "reasons": [], "findings": []})
+
+    async def prepare(request: StageRequest) -> SandboxRequest:
+        del request
+        return SandboxRequest(IMAGE, tmp_path, ("true",))
+
+    async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
+        del request, result
+        return StageResult("evidence-ref")
+
+    operation = SandboxVerificationOperation(
+        prepare,
+        StaticRunner(passed),
+        record,
+        ProofAdapter(proof_runner),
+    )
+
+    asyncio.run(operation(STAGE_REQUEST))
+
+    assert proof_runner.requests == [
+        ProofRequest(tmp_path, "b" * 40, base_ref="a" * 40, timeout_seconds=300)
+    ]
 
 
 def test_production_loader_requires_real_docker_runner(
@@ -94,12 +203,27 @@ def test_production_loader_requires_real_docker_runner(
     with pytest.raises(TypeError, match="DockerSandboxRunner"):
         load_activity_operations(f"{provider.__name__}:create")
 
-    expected = _operations(DockerSandboxRunner())
+    provider.create = lambda: _operations(DockerSandboxRunner())  # type: ignore[attr-defined]
+    with pytest.raises(TypeError, match="PublishedProofGate"):
+        load_activity_operations(f"{provider.__name__}:create")
+
+    provider.create = lambda: _operations(  # type: ignore[attr-defined]
+        DockerSandboxRunner(),
+        proof=ProofAdapter(PublishedProofGate((sys.executable, "-c", "print('{}')"))),
+    )
+    with pytest.raises(TypeError, match="PublishedProofGate"):
+        load_activity_operations(f"{provider.__name__}:create")
+
+    expected = _operations(DockerSandboxRunner(), proof=ProofAdapter())
     provider.create = lambda: expected  # type: ignore[attr-defined]
     assert load_activity_operations(f"{provider.__name__}:create") is expected
 
 
-def _operations(runner: SandboxRunner) -> ActivityOperations:
+def _operations(
+    runner: SandboxRunner,
+    *,
+    proof: ProofAdapter | None = None,
+) -> ActivityOperations:
     async def stage(request: StageRequest) -> StageResult:
         del request
         return StageResult("ref")
@@ -108,7 +232,7 @@ def _operations(runner: SandboxRunner) -> ActivityOperations:
         del request
         return SandboxRequest(IMAGE, Path.cwd(), ("true",))
 
-    async def record(request: StageRequest, result: SandboxResult) -> StageResult:
+    async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
         del request, result
         return StageResult("verification-ref")
 
@@ -121,7 +245,24 @@ def _operations(runner: SandboxRunner) -> ActivityOperations:
     return ActivityOperations(
         select_context=stage,
         analyze=stage,
-        verify=SandboxVerificationOperation(prepare, runner, record),
+        verify=SandboxVerificationOperation(
+            prepare,
+            runner,
+            record,
+            proof or _proof_adapter(passed=True),
+        ),
         publish=publish,
         record_terminal=terminal,
+    )
+
+
+def _proof_adapter(*, passed: bool) -> ProofAdapter:
+    return ProofAdapter(
+        StaticProofRunner(
+            {
+                "passed": passed,
+                "reasons": ["ok" if passed else "blocked"],
+                "findings": [] if passed else [{"rule": "blocked"}],
+            }
+        )
     )
