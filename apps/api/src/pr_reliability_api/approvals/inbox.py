@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hmac
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -26,6 +25,7 @@ from pr_reliability_contracts import (
 from psycopg import Connection
 
 from ..identifiers import new_ulid
+from ..reviewer import authorize_reviewer
 
 ConnectionFactory = Callable[[], Connection[Any]]
 IdFactory = Callable[[], str]
@@ -68,7 +68,7 @@ def create_approval_inbox_router(
     def list_approval_inbox(
         authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> list[ApprovalInboxItem]:
-        _authorize(authorization, settings.reviewer_token)
+        authorize_reviewer(authorization, settings.reviewer_token)
         with connection_factory() as connection:
             rows = connection.execute(
                 """
@@ -106,7 +106,7 @@ def create_approval_inbox_router(
         request: ApprovalDecisionRequest,
         authorization: str | None = Header(default=None, alias="Authorization"),
     ) -> ApprovalDecisionReceipt:
-        _authorize(authorization, settings.reviewer_token)
+        authorize_reviewer(authorization, settings.reviewer_token)
         decided_at = now().astimezone(UTC)
         with connection_factory() as connection, connection.transaction():
             row = connection.execute(
@@ -250,22 +250,6 @@ def create_approval_inbox_router(
         )
 
     return router
-
-
-def _authorize(authorization: str | None, expected_token: str) -> None:
-    scheme, separator, token = (authorization or "").partition(" ")
-    valid = (
-        separator == " "
-        and scheme.lower() == "bearer"
-        and bool(token)
-        and hmac.compare_digest(token, expected_token)
-    )
-    if not valid:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            "reviewer authorization required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
 
 
 def _inbox_item(row: tuple[Any, ...]) -> ApprovalInboxItem:
