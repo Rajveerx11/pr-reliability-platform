@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,9 @@ from pr_reliability_workers.activities import VerificationEvidence
 from pr_reliability_workers.agents import ModelRequest, ModelResponse, ReviewAgent
 from pr_reliability_workers.providers.operations import (
     ProductionOperations,
+    _git_bytes,
+    _git_environment,
+    _run_bounded_process,
     _usage_data,
     _usage_from_data,
 )
@@ -51,6 +55,84 @@ def test_usage_receipt_round_trip_preserves_total_tokens() -> None:
     )
 
     assert _usage_from_data(_usage_data(usage)) == usage
+
+
+def test_bounded_process_rejects_combined_output_and_reaps_child(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def run():
+        original = asyncio.create_subprocess_exec
+        started = []
+
+        async def capture(*arguments, **options):
+            process = await original(*arguments, **options)
+            started.append(process)
+            return process
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", capture)
+        script = (
+            "import sys,time;"
+            "sys.stdout.write('PRIVATE_STDOUT_' + 'x' * 32);sys.stdout.flush();"
+            "sys.stderr.write('PRIVATE_STDERR_' + 'x' * 32);sys.stderr.flush();"
+            "time.sleep(60)"
+        )
+        with pytest.raises(RuntimeError, match="Git repository inspection failed") as raised:
+            await _run_bounded_process(
+                sys.executable,
+                ("-c", script),
+                cwd=tmp_path,
+                environment=_git_environment(),
+                timeout_seconds=5,
+                output_limit_bytes=64,
+            )
+        return raised.value, started
+
+    error, started = asyncio.run(run())
+
+    assert len(started) == 1
+    assert started[0].returncode is not None
+    assert "PRIVATE_STDOUT" not in repr(error)
+    assert "PRIVATE_STDERR" not in repr(error)
+
+
+def test_bounded_process_times_out_and_reaps_child_without_leaking_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def run():
+        original = asyncio.create_subprocess_exec
+        started = []
+
+        async def capture(*arguments, **options):
+            process = await original(*arguments, **options)
+            started.append(process)
+            return process
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", capture)
+        script = "import time;print('PRIVATE_TIMEOUT_SENTINEL', flush=True);time.sleep(60)"
+        with pytest.raises(RuntimeError, match="Git repository inspection failed") as raised:
+            await _run_bounded_process(
+                sys.executable,
+                ("-c", script),
+                cwd=tmp_path,
+                environment=_git_environment(),
+                timeout_seconds=0.5,
+                output_limit_bytes=1024,
+            )
+        return raised.value, started
+
+    error, started = asyncio.run(run())
+
+    assert len(started) == 1
+    assert started[0].returncode is not None
+    assert "PRIVATE_TIMEOUT_SENTINEL" not in repr(error)
+
+
+def test_git_inspection_returns_normal_bounded_output(tmp_path: Path) -> None:
+    output = asyncio.run(_git_bytes(tmp_path, "--version"))
+
+    assert output.startswith(b"git version ")
 
 
 @pytest.fixture

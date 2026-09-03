@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+import signal
 import stat
 import subprocess
 from collections.abc import Callable
@@ -620,23 +621,110 @@ async def _git(repository: Path, *arguments: str) -> str:
 
 
 async def _git_bytes(repository: Path, *arguments: str) -> bytes:
-    environment = _git_environment()
+    return await _run_bounded_process(
+        "git",
+        arguments,
+        cwd=repository,
+        environment=_git_environment(),
+        timeout_seconds=30,
+        output_limit_bytes=8 * 1024 * 1024,
+    )
+
+
+async def _run_bounded_process(
+    executable: str,
+    arguments: tuple[str, ...],
+    *,
+    cwd: Path,
+    environment: dict[str, str],
+    timeout_seconds: float,
+    output_limit_bytes: int,
+) -> bytes:
+    if timeout_seconds <= 0 or output_limit_bytes < 1:
+        raise ValueError("process limits must be positive")
+    creation: dict[str, object] = {}
+    if os.name != "nt":
+        creation["start_new_session"] = True
     try:
         process = await asyncio.create_subprocess_exec(
-            "git",
+            executable,
             *arguments,
-            cwd=repository,
+            cwd=cwd,
             env=environment,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            **creation,
         )
-        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=30)
-    except (OSError, TimeoutError) as exc:
-        raise RuntimeError("Git repository inspection failed") from exc
-    if process.returncode != 0 or len(stdout) > 8 * 1024 * 1024:
+    except OSError:
+        raise RuntimeError("Git repository inspection failed") from None
+    try:
+        stdout, overflow = await asyncio.wait_for(
+            _capture_bounded(process, output_limit_bytes),
+            timeout=timeout_seconds,
+        )
+    except TimeoutError:
+        await _kill_and_reap(process)
+        raise RuntimeError("Git repository inspection failed") from None
+    except asyncio.CancelledError:
+        cleanup = asyncio.create_task(_kill_and_reap(process))
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            await cleanup
+        raise
+    except (OSError, RuntimeError):
+        await _kill_and_reap(process)
+        raise RuntimeError("Git repository inspection failed") from None
+    if process.returncode != 0 or overflow:
         raise RuntimeError("Git repository inspection failed")
     return stdout
+
+
+async def _capture_bounded(
+    process: asyncio.subprocess.Process,
+    output_limit_bytes: int,
+) -> tuple[bytes, bool]:
+    total = 0
+    overflow = False
+    kept_stdout = bytearray()
+
+    async def read(stream: asyncio.StreamReader | None, *, retain: bool) -> None:
+        nonlocal total, overflow
+        if stream is None:
+            return
+        while chunk := await stream.read(8192):
+            remaining = max(0, output_limit_bytes - total)
+            if retain and remaining:
+                kept_stdout.extend(chunk[:remaining])
+            total += len(chunk)
+            if total > output_limit_bytes and not overflow:
+                overflow = True
+                _kill_process(process)
+
+    await asyncio.gather(
+        read(process.stdout, retain=True),
+        read(process.stderr, retain=False),
+        process.wait(),
+    )
+    return bytes(kept_stdout), overflow
+
+
+def _kill_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    try:
+        if os.name != "nt":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
+    except ProcessLookupError:
+        pass
+
+
+async def _kill_and_reap(process: asyncio.subprocess.Process) -> None:
+    _kill_process(process)
+    await process.wait()
 
 
 def _git_sync(repository: Path, *arguments: str) -> str:
