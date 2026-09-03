@@ -12,7 +12,8 @@ them and names the affected files.
 - Reason: The Windows time-skipping test server stalled queries while Continue-As-New changed
   workflow runs even though the same workflow behavior passed on Linux and the local dev server.
 - Changed files:
-  - `workers/tests/test_pull_request_review_workflow.py` — platform-safe Temporal test environment.
+  - `workers/tests/test_pull_request_review_workflow.py` — platform-safe Temporal test environment
+    with bounded status polling.
   - `docs/development.md`, `docs/production-readiness.md`, `docs/status.md`, and `plan/v1.md` —
     local test behavior, verification evidence, and resolved issue state.
 

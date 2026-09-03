@@ -279,16 +279,19 @@ async def start_environment(operations: RecordingOperations):
 async def wait_for_status(
     handle, state: str, *, head_sha: str = HEAD_SHA, run_id: str | None = None
 ):
-    for _ in range(100):
-        status = await handle.query(PullRequestReviewWorkflow.status)
-        if (
-            status.state == state
-            and status.head_sha == head_sha
-            and (run_id is None or status.run_id == run_id)
-        ):
-            return status
-        await asyncio.sleep(0.01)
-    raise AssertionError(f"workflow did not reach {state} for {head_sha}")
+    try:
+        async with asyncio.timeout(10):
+            while True:
+                status = await handle.query(PullRequestReviewWorkflow.status)
+                if (
+                    status.state == state
+                    and status.head_sha == head_sha
+                    and (run_id is None or status.run_id == run_id)
+                ):
+                    return status
+                await asyncio.sleep(0.01)
+    except TimeoutError as exc:
+        raise AssertionError(f"workflow did not reach {state} for {head_sha}") from exc
 
 
 def test_retry_uses_stable_keys_and_history_replays() -> None:
