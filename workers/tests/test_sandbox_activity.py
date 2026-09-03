@@ -25,6 +25,7 @@ from pr_reliability_workers.activities import (
     SandboxVerificationOperation,
     VerificationEvidence,
 )
+from pr_reliability_workers.providers import GitHubAppInstallationTokenProvider
 from pr_reliability_workers.sandbox import (
     DockerSandboxRunner,
     RuntimeResult,
@@ -79,6 +80,11 @@ class FakeContainerRuntime:
     ) -> RuntimeResult:
         del arguments, timeout_seconds, output_limit_bytes
         return RuntimeResult(0, b"", b"")
+
+
+class FakeInstallationTokenProvider(GitHubAppInstallationTokenProvider):
+    def __init__(self) -> None:
+        pass
 
 
 class FakeGitHubReviewClient:
@@ -261,6 +267,17 @@ def test_production_loader_requires_real_docker_runner(
     with pytest.raises(TypeError, match="GitHubRestReviewClient"):
         load_activity_operations(f"{provider.__name__}:create")
 
+    provider.create = lambda: replace(
+        expected,
+        publish=GitHubReviewPublishOperation(
+            lambda: None,  # type: ignore[arg-type,return-value]
+            GitHubRestReviewClient("installation-token", 1),
+            lambda: "01J00000000000000000000001",
+        ),
+    )
+    with pytest.raises(TypeError, match="installation token provider"):
+        load_activity_operations(f"{provider.__name__}:create")
+
     provider.create = lambda: expected  # type: ignore[attr-defined]
     assert load_activity_operations(f"{provider.__name__}:create") is expected
 
@@ -296,7 +313,11 @@ def _operations(
         ),
         publish=GitHubReviewPublishOperation(
             lambda: None,  # type: ignore[arg-type,return-value]
-            GitHubRestReviewClient("installation-token", 1),
+            GitHubRestReviewClient(
+                FakeInstallationTokenProvider(),
+                1,
+                repository_id_resolver=lambda repository: 1,
+            ),
             lambda: "01J00000000000000000000001",
         ),
         record_terminal=terminal,
