@@ -27,9 +27,9 @@ It is not a general CI/CD system and does not replace GitHub Actions deployment 
 ## Production backlog
 
 [Issue #46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46) is the production
-tracking issue. Its work includes #36 through #45 and #47: production providers, repository sync
-and policy, dashboard history, analytics, Check Runs, review checks, bounded evidence, runner
-operations, GitHub login, signed images, and Windows test stability.
+tracking issue. Its work includes #36 through #45: production providers, repository sync and
+policy, dashboard history, analytics, Check Runs, review checks, bounded evidence, runner
+operations, GitHub login, and signed images.
 
 Existing acceptance issues #12, #14, and #15 also remain open. See
 [production readiness](production-readiness.md) for the order and release gate.
@@ -38,10 +38,9 @@ Existing acceptance issues #12, #14, and #15 also remain open. See
 
 - Latest remote Linux GitHub checks on `main`: passing.
 - Local Python 3.12 lint and format checks: passing.
-- Local test run: 214 passed, 72 skipped, and 3 Windows Temporal continue-as-new timeouts.
-- The Windows-only failures are tracked in
-  [issue #47](https://github.com/Rajveerx11/pr-reliability-platform/issues/47). Do not weaken the
-  Linux workflow tests to hide them.
+- Local Windows Python 3.12 test run: 218 passed and 72 skipped.
+- Windows Temporal tests use the local dev server; Linux CI keeps time-skipping coverage.
+- No production timeout was increased.
 
 Do not describe the service as deployed or model quality as measured until the production exit
 records exist.

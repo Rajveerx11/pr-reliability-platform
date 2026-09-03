@@ -105,8 +105,9 @@ pytest
 Integration tests must use isolated databases and queues. End-to-end tests must use a test
 GitHub App or recorded fixture, never a production repository.
 
-Temporal workflow tests start the SDK's time-skipping test server. They exercise activity retries,
-approval timeout, cancellation, signal-with-start supersession, continue-as-new, and history replay:
+Temporal workflow tests use the SDK's time-skipping server on Linux. On Windows, they use the local
+dev server because the Windows time-skipping server can stall a query while Continue-As-New changes
+runs. Both paths exercise retries, approval timeout, cancellation, supersession, and history replay:
 
 ```text
 uv run pytest workers/tests -q
@@ -114,9 +115,8 @@ uv run pytest workers/tests -q
 
 CI runs these tests in the dedicated `temporal-workflow` job.
 
-On Windows, three Temporal continue-as-new tests may time out while the same Linux CI job passes.
-This is tracked in issue #47. Do not skip or weaken the Linux workflow tests; use Linux as the
-production target and fix the Windows harness separately.
+This platform-specific test harness keeps production timeouts unchanged and preserves the Linux
+time-skipping coverage. The Windows behavior is tracked in issue #47.
 
 Sandbox unit tests use an injected fake Docker boundary and run with the normal worker suite. Real
 isolation tests require a reachable Linux Docker engine and an immutable local image ID:
