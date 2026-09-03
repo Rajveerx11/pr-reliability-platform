@@ -19,7 +19,11 @@ from pr_reliability_contracts import UsageCoverage
 from pr_reliability_proof_adapter import ProofVerdict
 from pr_reliability_workers.activities import VerificationEvidence
 from pr_reliability_workers.agents import ModelRequest, ModelResponse, ReviewAgent
-from pr_reliability_workers.providers.operations import ProductionOperations
+from pr_reliability_workers.providers.operations import (
+    ProductionOperations,
+    _usage_data,
+    _usage_from_data,
+)
 from pr_reliability_workers.sandbox import SandboxResult
 from pr_reliability_workers.workflows.types import (
     ModelUsage,
@@ -36,6 +40,17 @@ RUN_ID = "01J00000000000000000000004"
 BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
 SANDBOX_IMAGE = f"sha256:{'c' * 64}"
+
+
+def test_usage_receipt_round_trip_preserves_total_tokens() -> None:
+    usage = ModelUsage(
+        input_tokens=12,
+        output_tokens=5,
+        cost_usd_micros=None,
+        total_tokens=17,
+    )
+
+    assert _usage_from_data(_usage_data(usage)) == usage
 
 
 @pytest.fixture
@@ -250,7 +265,7 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
 
         assert analysis == replay
         assert model.calls == 1
-        assert analysis.usage == ModelUsage(input_tokens=12, output_tokens=5)
+        assert analysis.usage == ModelUsage(input_tokens=12, output_tokens=5, total_tokens=17)
         await operations.prepare_verification(
             _request("verify", base_sha=actual_base, input_ref=analysis.output_ref)
         )
@@ -309,6 +324,7 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
         assert "private proof reason" not in persisted
         assert "user supplied secret" not in persisted
         assert '"reason_code": "cancelled"' in persisted
+        assert '"total_tokens": 17' in persisted
         assert not any(staging.iterdir())
 
     asyncio.run(run())

@@ -17,7 +17,7 @@ from .github_app import CHECKOUT_PERMISSIONS, GitHubAppInstallationTokenProvider
 
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
-_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_CHECKOUT_NAME = re.compile(r"^pr-review-checkout-[0-9a-f]{64}(?:\.tmp-[A-Za-z0-9_-]+)?$")
 _MAX_GIT_OUTPUT_BYTES = 64 * 1024
 _ALLOWED_ENVIRONMENT = (
     "COMSPEC",
@@ -116,8 +116,9 @@ class ExactHeadCheckout:
             f"{repository_id}:{head_sha}:{idempotency_key}".encode()
         ).hexdigest()
         reference = f"checkout:{digest}"
-        target = self._root / digest
-        lock = self._root / f".{digest}.lock"
+        prefix = f"pr-review-checkout-{digest}"
+        target = self._root / prefix
+        lock = self._root / f"{prefix}.lock"
         deadline = time.monotonic() + self._timeout_seconds
         await self._acquire_lock(lock, deadline)
         try:
@@ -127,7 +128,7 @@ class ExactHeadCheckout:
                 _remove_confined(self._root, target)
 
             token = await self._token_provider.issue(repository_id, CHECKOUT_PERMISSIONS)
-            temporary = Path(tempfile.mkdtemp(prefix=f".{digest}.", dir=self._root))
+            temporary = Path(tempfile.mkdtemp(prefix=f"{prefix}.tmp-", dir=self._root))
             try:
                 try:
                     temporary.chmod(0o700)
@@ -386,11 +387,7 @@ def _workspace_within_limit(workspace: Path, maximum_bytes: int) -> bool:
 def _remove_confined(root: Path, path: Path) -> None:
     if path.parent.resolve(strict=True) != root:
         raise GitHubCheckoutError("GitHub checkout cleanup target is invalid")
-    name = path.name
-    digest = (
-        name if _DIGEST.fullmatch(name) else name.split(".", 2)[1] if name.startswith(".") else ""
-    )
-    if _DIGEST.fullmatch(digest) is None:
+    if _CHECKOUT_NAME.fullmatch(path.name) is None:
         raise GitHubCheckoutError("GitHub checkout cleanup target is invalid")
     if path.is_symlink() or path.is_file():
         path.unlink(missing_ok=True)

@@ -226,7 +226,10 @@ def test_rootless_runtime_requires_owned_socket_and_staging_directory(tmp_path: 
 
 
 def test_vm_compose_exposes_only_private_tls_and_loopback_monitoring() -> None:
-    compose = (Path(__file__).parents[1] / "compose.vm.yaml").read_text(encoding="utf-8")
+    deployment = Path(__file__).parents[1]
+    compose = (deployment / "compose.vm.yaml").read_text(encoding="utf-8")
+    activity_worker = compose.split("  activity-worker:", 1)[1].split("\n  otel-collector:", 1)[0]
+    entrypoint = (deployment / "activity-entrypoint.sh").read_text(encoding="utf-8")
 
     assert compose.count("    ports:\n") == 2
     assert "      - 127.0.0.1:9090:9090" in compose
@@ -237,6 +240,11 @@ def test_vm_compose_exposes_only_private_tls_and_loopback_monitoring() -> None:
         in compose
     )
     assert compose.count("${SANDBOX_STAGING_DIRECTORY:?SANDBOX_STAGING_DIRECTORY is required}") >= 3
+    assert "OWNER_ID: ${OWNER_ID:?OWNER_ID is required}" in activity_worker
+    assert "-mindepth 1 -maxdepth 1 -type d" in entrypoint
+    assert "-name 'pr-review-checkout-*'" in entrypoint
+    assert "-mindepth 1 -maxdepth 1 -type f" in entrypoint
+    assert "-name 'pr-review-checkout-*.lock'" in entrypoint
     assert "APPROVAL_ACTOR_ID: ${APPROVAL_ACTOR_ID:?APPROVAL_ACTOR_ID is required}" in compose
     assert (
         "APPROVAL_REVIEWER_TOKEN: "

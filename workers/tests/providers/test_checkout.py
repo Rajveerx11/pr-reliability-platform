@@ -104,6 +104,8 @@ def test_checkout_is_exact_detached_clean_idempotent_and_token_free(
     assert TOKEN not in (first.workspace / ".git" / "config").read_text(encoding="utf-8")
     assert provider.requests == [(REPOSITORY_ID, CHECKOUT_PERMISSIONS)]
     assert first.reference.startswith("checkout:")
+    assert first.workspace.name.startswith("pr-review-checkout-")
+    assert not list(first.workspace.parent.glob("pr-review-checkout-*.lock"))
 
 
 def test_dirty_retry_rebuilds_verified_checkout(
@@ -193,6 +195,30 @@ def test_cleanup_rejects_path_outside_staging_root(tmp_path: Path) -> None:
         _remove_confined(root.resolve(), outside)
 
     assert outside.exists()
+
+
+@pytest.mark.parametrize("suffix", ["", ".tmp-test"])
+def test_cleanup_accepts_prefixed_checkout_directories(tmp_path: Path, suffix: str) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    checkout = root / f"pr-review-checkout-{'a' * 64}{suffix}"
+    checkout.mkdir()
+
+    _remove_confined(root.resolve(), checkout)
+
+    assert not checkout.exists()
+
+
+def test_cleanup_rejects_unprefixed_name_inside_staging_root(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    checkout = root / ("a" * 64)
+    checkout.mkdir()
+
+    with pytest.raises(GitHubCheckoutError, match="cleanup target is invalid"):
+        _remove_confined(root.resolve(), checkout)
+
+    assert checkout.exists()
 
 
 def test_process_failure_does_not_expose_executable_or_repository_output(tmp_path: Path) -> None:

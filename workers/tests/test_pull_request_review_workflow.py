@@ -404,7 +404,12 @@ def test_cancel_and_timeout_are_explicit() -> None:
 
 def test_provider_usage_reaches_terminal_metrics_without_estimation() -> None:
     async def run() -> None:
-        usage = ModelUsage(input_tokens=120, output_tokens=30, cost_usd_micros=55)
+        usage = ModelUsage(
+            input_tokens=120,
+            output_tokens=30,
+            cost_usd_micros=55,
+            total_tokens=150,
+        )
         operations = RecordingOperations(usage=usage)
         environment, worker = await start_environment(operations)
         async with environment, worker:
@@ -429,6 +434,16 @@ def test_provider_usage_reaches_terminal_metrics_without_estimation() -> None:
 def test_negative_provider_usage_is_rejected() -> None:
     with pytest.raises(ValueError, match="cannot be negative"):
         ModelUsage(input_tokens=-1)
+
+
+def test_non_integer_provider_usage_is_rejected() -> None:
+    with pytest.raises(ValueError, match="must be an integer"):
+        ModelUsage(total_tokens=True)
+
+
+def test_inconsistent_provider_total_is_rejected() -> None:
+    with pytest.raises(ValueError, match="must equal input plus output"):
+        ModelUsage(input_tokens=120, output_tokens=30, total_tokens=149)
 
 
 def test_cancel_interrupts_obsolete_activity() -> None:

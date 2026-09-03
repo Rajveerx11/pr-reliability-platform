@@ -82,11 +82,33 @@ class ModelUsage:
     input_tokens: int | None = None
     output_tokens: int | None = None
     cost_usd_micros: int | None = None
+    total_tokens: int | None = None
 
     def __post_init__(self) -> None:
-        values = (self.input_tokens, self.output_tokens, self.cost_usd_micros)
+        values = (
+            self.input_tokens,
+            self.output_tokens,
+            self.cost_usd_micros,
+            self.total_tokens,
+        )
+        if any(
+            value is not None and (isinstance(value, bool) or not isinstance(value, int))
+            for value in values
+        ):
+            raise ValueError("reported usage must be an integer")
         if any(value is not None and value < 0 for value in values):
             raise ValueError("reported usage cannot be negative")
+        if self.total_tokens is not None:
+            for component in (self.input_tokens, self.output_tokens):
+                if component is not None and self.total_tokens < component:
+                    raise ValueError("total_tokens cannot be below a known component")
+        if (
+            self.input_tokens is not None
+            and self.output_tokens is not None
+            and self.total_tokens is not None
+            and self.total_tokens != self.input_tokens + self.output_tokens
+        ):
+            raise ValueError("total_tokens must equal input plus output tokens")
 
 
 @dataclass(frozen=True)

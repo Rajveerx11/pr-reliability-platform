@@ -119,6 +119,7 @@ class ProductionOperations:
             input_tokens=result.usage.prompt_tokens,
             output_tokens=result.usage.completion_tokens,
             cost_usd_micros=result.usage.reported_cost_usd_micros,
+            total_tokens=result.usage.total_tokens,
         )
         data = {
             "output_ref": expected_ref,
@@ -553,6 +554,7 @@ def _usage_data(usage: ModelUsage | None) -> dict[str, int | None] | None:
         "input_tokens": usage.input_tokens,
         "output_tokens": usage.output_tokens,
         "cost_usd_micros": usage.cost_usd_micros,
+        "total_tokens": usage.total_tokens,
     }
 
 
@@ -565,6 +567,7 @@ def _usage_from_data(value: object) -> ModelUsage | None:
         input_tokens=value.get("input_tokens"),
         output_tokens=value.get("output_tokens"),
         cost_usd_micros=value.get("cost_usd_micros"),
+        total_tokens=value.get("total_tokens"),
     )
 
 
