@@ -57,6 +57,41 @@ to the configured owner. A decision transaction locks the pull request row, so a
 update cannot race a stale approval into storage. The approval endpoint records audit and durable
 workflow-signal events but performs no external write.
 
+## GitHub review publishing
+
+- The activity accepts only the stable `{run_id}:{head_sha}:publish` idempotency key.
+- A publish request must contain a non-empty, one-to-one finding and approval set; malformed
+  run-bound requests fail before GitHub access and record only a bounded reason code.
+- Every selected finding needs one matching `approved` decision for the same owner, run, and head.
+- The dispatcher waits until every finding has an immutable decision. It sends one ordered
+  approval set: mixed decisions publish only approved findings, while an all-rejected set
+  terminates without a GitHub write.
+- The REST client sends its bearer token only to `https://api.github.com`. Custom API origins are
+  rejected before any request.
+- Both the stored pull request head and GitHub's current head must match before review staging.
+- The client stages an unsubmitted `PENDING` review with the approved SHA as `commit_id`, rechecks
+  the head, and deletes the draft and fails closed on drift. Only a match allows event `COMMENT`
+  submission, so a change during the original precheck-to-create window exposes no public review.
+- GitHub offers no conditional review mutation, so the final head read and submit call cannot be
+  atomic. If the head changes in that provider window, immutable `commit_id` still prevents the
+  review from attaching to the newer commit.
+- The review summary contains only reviewer-approved finding claims plus a hashed retry marker.
+- A retry searches only the authenticated GitHub App identity's reviews and reuses the existing
+  remote ID only when the commit SHA, terminal marker, and complete body match the approved
+  rendering. Marker substrings, edited bodies, and reviews on other commits are rejected. The
+  marker is not an authorization secret. Exact pending reviews are rechecked and submitted or
+  deleted, never treated as published receipts.
+- One database-backed session claim serializes lookup, create, and receipt recording for the
+  stable publish key. A crashed worker releases the claim so marker recovery can continue safely.
+- The action stores a canonical payload fingerprint. Reusing its key with different findings,
+  approvals, body reference, or rendered review body fails before any remote lookup or write.
+- Audit events store bounded IDs, commit SHA, and result codes. They never store the review body,
+  GitHub token, response body, or exception text. Provider exceptions are removed before Temporal
+  records an activity failure.
+- Authorization, wrong-state, and stale-head blocks append `github.review_publish_blocked` with
+  one bounded reason code only. Provider failures append a fixed failure code; neither event stores
+  body, token, response, or exception text.
+
 Not allowed:
 
 - GitHub App private keys

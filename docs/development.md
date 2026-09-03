@@ -87,6 +87,19 @@ seconds.
 package. `REVIEW_ACTIVITY_OPERATIONS_FACTORY` must use `module:factory` and return one complete
 `ActivityOperations` value containing context, model, verification, publish, and terminal
 operations. Registering partial activity sets on the same queue is not supported.
+The publish operation must use `GitHubReviewPublishOperation` with `GitHubRestReviewClient`.
+Configure that client with a short-lived repository installation token and the numeric user ID of
+the authenticated GitHub App bot. It first creates an unsubmitted `PENDING` pull request review
+with the approved head SHA as `commit_id`. It rechecks the head, deletes the draft on drift, and
+submits event `COMMENT` only after a match. It pages through every review and accepts a retry marker
+only from that author when the commit, state, terminal marker, and full body match. An exact pending
+draft is resumed or deleted after the same head check. It never trusts another author's marker, a
+marker inside claim text, edited content, or a review bound to another commit, and never includes
+tokens, review bodies, GitHub response bodies, or provider exception text in activity failures.
+
+The client accepts only the standard `https://api.github.com` origin, preventing an installation
+token from being sent to a caller-selected host. Enterprise GitHub support requires a future
+explicit trusted-origin design.
 
 Private version-one deployment uses `infra/deployment/compose.vm.yaml`, immutable image digests,
 external secret files, private-IP TLS termination, local Prometheus, and a dedicated rootless

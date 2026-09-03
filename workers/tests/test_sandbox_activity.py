@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 
@@ -17,6 +18,9 @@ from pr_reliability_proof_adapter import (
 )
 from pr_reliability_workers.activities import (
     ActivityOperations,
+    GitHubRestReviewClient,
+    GitHubReview,
+    GitHubReviewPublishOperation,
     SandboxRunner,
     SandboxVerificationOperation,
     VerificationEvidence,
@@ -75,6 +79,29 @@ class FakeContainerRuntime:
     ) -> RuntimeResult:
         del arguments, timeout_seconds, output_limit_bytes
         return RuntimeResult(0, b"", b"")
+
+
+class FakeGitHubReviewClient:
+    async def current_head_sha(self, repository: str, pull_request_number: int) -> str:
+        del repository, pull_request_number
+        return "a" * 40
+
+    async def find_review(
+        self,
+        repository: str,
+        pull_request_number: int,
+        expected_head_sha: str,
+        marker: str,
+        expected_body: str,
+    ) -> GitHubReview | None:
+        del repository, pull_request_number, expected_head_sha, marker, expected_body
+        return None
+
+    async def create_review(
+        self, repository: str, pull_request_number: int, expected_head_sha: str, body: str
+    ) -> GitHubReview:
+        del repository, pull_request_number, body
+        return GitHubReview("1", expected_head_sha)
 
 
 def test_failed_result_is_recorded_then_fails_without_retry(tmp_path: Path) -> None:
@@ -215,6 +242,25 @@ def test_production_loader_requires_real_docker_runner(
         load_activity_operations(f"{provider.__name__}:create")
 
     expected = _operations(DockerSandboxRunner(), proof=ProofAdapter())
+
+    async def unsafe_publish(request: PublishRequest) -> None:
+        del request
+
+    provider.create = lambda: replace(expected, publish=unsafe_publish)
+    with pytest.raises(TypeError, match="GitHubReviewPublishOperation"):
+        load_activity_operations(f"{provider.__name__}:create")
+
+    provider.create = lambda: replace(
+        expected,
+        publish=GitHubReviewPublishOperation(
+            lambda: None,  # type: ignore[arg-type,return-value]
+            FakeGitHubReviewClient(),
+            lambda: "01J00000000000000000000001",
+        ),
+    )
+    with pytest.raises(TypeError, match="GitHubRestReviewClient"):
+        load_activity_operations(f"{provider.__name__}:create")
+
     provider.create = lambda: expected  # type: ignore[attr-defined]
     assert load_activity_operations(f"{provider.__name__}:create") is expected
 
@@ -236,9 +282,6 @@ def _operations(
         del request, result
         return StageResult("verification-ref")
 
-    async def publish(request: PublishRequest) -> None:
-        del request
-
     async def terminal(request: TerminalRequest) -> None:
         del request
 
@@ -251,7 +294,11 @@ def _operations(
             record,
             proof or _proof_adapter(passed=True),
         ),
-        publish=publish,
+        publish=GitHubReviewPublishOperation(
+            lambda: None,  # type: ignore[arg-type,return-value]
+            GitHubRestReviewClient("installation-token", 1),
+            lambda: "01J00000000000000000000001",
+        ),
         record_terminal=terminal,
     )
 

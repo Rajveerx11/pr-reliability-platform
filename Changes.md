@@ -5,6 +5,27 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added approval-bound idempotent GitHub review publishing
+
+- Issue: [#12](https://github.com/Rajveerx11/pr-reliability-platform/issues/12)
+- Decision: [DEC-009 — Human approval](plan/v1.md#dec-009--require-human-approval-before-every-external-write)
+- Reason: Approved findings need one retry-safe, commit-bound GitHub review summary that rejects
+  stale or incomplete approval state and leaves a safe audit trail.
+- Changed files:
+  - `packages/contracts/src/pr_reliability_contracts/approvals.py` — stable publish identity and
+    non-empty, one-to-one finding/approval validation.
+  - `workers/src/pr_reliability_workers/activities/` — approval validation, payload-bound
+    idempotency, exact recovery, fixed-origin GitHub access, commit binding, and safe audits.
+  - `workers/src/pr_reliability_workers/dispatch.py` and `worker.py` — complete decision-set
+    aggregation, one stable workflow signal, and production publish-adapter enforcement.
+  - `migrations/0004_bind_external_action_payload.sql` — required canonical payload fingerprint.
+  - API, contract, dispatcher, workflow, GitHub client, publish activity, and worker-loader tests —
+    approval, aggregation, retry, stale-head, audit, schema, and wiring coverage.
+  - `pyproject.toml` and `uv.lock` — production HTTP client dependency.
+  - `docs/architecture.md`, `docs/security.md`, `docs/development.md`, status, and
+    readiness docs — publish flow, safety boundary, acceptance state, and remaining live proof.
+  - `plan/v1.md` — closed issue state and commit-bound review output.
+
 ### Stabilized Windows Temporal supersession tests
 
 - Issue: [#47](https://github.com/Rajveerx11/pr-reliability-platform/issues/47)

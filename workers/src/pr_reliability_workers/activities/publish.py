@@ -1,0 +1,683 @@
+"""Approval-bound, idempotent GitHub pull request review publishing."""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any, Protocol
+
+from psycopg import Connection
+from temporalio.exceptions import ApplicationError
+
+from ..workflows.types import PublishRequest
+
+ConnectionFactory = Callable[[], Connection[Any]]
+_BLOCK_REASON_CODES = {
+    "publish requires at least one finding and approval": "empty_approval_set",
+    "finding IDs must be unique": "duplicate_finding_id",
+    "approval IDs must be unique": "duplicate_approval_id",
+    "each finding needs one approval": "approval_count_mismatch",
+    "publish idempotency key is invalid": "idempotency_key_invalid",
+    "publish target does not match the run": "target_mismatch",
+    "idempotency key targets another commit": "idempotency_commit_mismatch",
+    "idempotency key targets another action": "idempotency_action_mismatch",
+    "run is not awaiting approval": "run_not_awaiting_approval",
+    "pull request head is stale": "stale_head",
+    "every finding needs its matching approval": "approval_missing",
+    "rejected findings cannot publish": "approval_rejected",
+    "approval targets another commit": "approval_commit_mismatch",
+    "approval set does not match finding set": "approval_set_mismatch",
+    "idempotency key targets another publish payload": "payload_mismatch",
+    "published action has no remote identity": "missing_remote_identity",
+    "approved review exceeds the publish limit": "body_limit",
+}
+
+
+IdFactory = Callable[[], str]
+Now = Callable[[], datetime]
+_MAX_REVIEW_BODY_CHARACTERS = 60_000
+
+
+@dataclass(frozen=True)
+class GitHubReview:
+    """Commit-bound remote review identity needed for retry recovery."""
+
+    remote_id: str
+    commit_sha: str
+
+    def __post_init__(self) -> None:
+        if not self.remote_id or len(self.remote_id) > 128 or not self.remote_id.isascii():
+            raise ValueError("GitHub review ID must be bounded ASCII text")
+        if len(self.commit_sha) != 40 or any(
+            value not in "0123456789abcdef" for value in self.commit_sha
+        ):
+            raise ValueError("GitHub review commit must be a lowercase SHA")
+
+
+class GitHubReviewClient(Protocol):
+    """Repository-scoped GitHub operations supplied by the provider worker.
+
+    ``find_review`` must return only a submitted exact expected-body and commit
+    match authored by the authenticated GitHub App identity with a terminal
+    marker. It must recheck the head before resuming an exact pending review.
+    ``create_review`` must stage an unsubmitted review and recheck the head
+    before submission. The marker is an idempotency aid, not an authorization
+    secret.
+    """
+
+    async def current_head_sha(self, repository: str, pull_request_number: int) -> str: ...
+
+    async def find_review(
+        self,
+        repository: str,
+        pull_request_number: int,
+        expected_head_sha: str,
+        marker: str,
+        expected_body: str,
+    ) -> GitHubReview | None: ...
+
+    async def create_review(
+        self,
+        repository: str,
+        pull_request_number: int,
+        expected_head_sha: str,
+        body: str,
+    ) -> GitHubReview: ...
+
+
+class PublishBlockedError(RuntimeError):
+    """Requested external write is not authorized by current database state."""
+
+    @property
+    def reason_code(self) -> str:
+        return _BLOCK_REASON_CODES.get(str(self), "invalid_request")
+
+
+class GitHubReviewPayloadMismatch(RuntimeError):
+    """An App-authored review has an unexpected body or commit binding."""
+
+
+class GitHubReviewStaleHead(RuntimeError):
+    """GitHub head changed while an unsubmitted review was staged."""
+
+
+@dataclass(frozen=True)
+class _PreparedPublish:
+    action_id: str
+    repository: str
+    pull_request_number: int
+    head_sha: str
+    marker: str
+    body: str
+    payload_fingerprint: str
+    remote_id: str | None = None
+    create_block_code: str | None = None
+
+
+@dataclass(frozen=True)
+class GitHubReviewPublishOperation:
+    """Publish approved findings once and record only bounded audit facts."""
+
+    connection_factory: ConnectionFactory
+    client: GitHubReviewClient
+    id_factory: IdFactory
+    now: Now = lambda: datetime.now(UTC)
+
+    async def __call__(self, request: PublishRequest) -> None:
+        try:
+            _validate_request_shape(request)
+        except PublishBlockedError as exc:
+            await asyncio.to_thread(
+                self._record_request_blocked,
+                request,
+                exc.reason_code,
+            )
+            raise _blocked_application_error(exc) from None
+        claim_connection = await asyncio.to_thread(self.connection_factory)
+        try:
+            await _acquire_publish_claim(
+                claim_connection,
+                request.owner_id,
+                request.idempotency_key,
+            )
+            try:
+                prepared = await asyncio.to_thread(self._prepare, request)
+            except PublishBlockedError as exc:
+                await asyncio.to_thread(
+                    self._record_request_blocked,
+                    request,
+                    exc.reason_code,
+                )
+                raise _blocked_application_error(exc) from None
+            if prepared.remote_id is not None:
+                return
+
+            try:
+                review = await self.client.find_review(
+                    prepared.repository,
+                    prepared.pull_request_number,
+                    prepared.head_sha,
+                    prepared.marker,
+                    prepared.body,
+                )
+                if review is None:
+                    if prepared.create_block_code is not None:
+                        await asyncio.to_thread(
+                            self._record_action_blocked,
+                            request,
+                            prepared.action_id,
+                            prepared.create_block_code,
+                        )
+                        raise ApplicationError(
+                            "publish authorization is no longer current",
+                            type="PublishBlocked",
+                            non_retryable=True,
+                        )
+                    remote_head = await self.client.current_head_sha(
+                        prepared.repository,
+                        prepared.pull_request_number,
+                    )
+                    if remote_head != prepared.head_sha:
+                        await asyncio.to_thread(
+                            self._record_action_blocked,
+                            request,
+                            prepared.action_id,
+                            "stale_head",
+                        )
+                        raise ApplicationError(
+                            "pull request head is stale",
+                            type="PublishBlocked",
+                            non_retryable=True,
+                        )
+                    review = await self.client.create_review(
+                        prepared.repository,
+                        prepared.pull_request_number,
+                        prepared.head_sha,
+                        prepared.body,
+                    )
+                if review.commit_sha != prepared.head_sha:
+                    raise GitHubReviewPayloadMismatch
+                await asyncio.to_thread(self._record_success, request, prepared, review)
+            except GitHubReviewPayloadMismatch:
+                await asyncio.to_thread(
+                    self._record_action_blocked,
+                    request,
+                    prepared.action_id,
+                    "review_payload_mismatch",
+                )
+                raise ApplicationError(
+                    "GitHub recovery review does not match the approved commit and payload",
+                    type="PublishBlocked",
+                    non_retryable=True,
+                ) from None
+            except GitHubReviewStaleHead:
+                await asyncio.to_thread(
+                    self._record_action_blocked,
+                    request,
+                    prepared.action_id,
+                    "stale_head",
+                )
+                raise ApplicationError(
+                    "pull request head changed before review submission",
+                    type="PublishBlocked",
+                    non_retryable=True,
+                ) from None
+            except ApplicationError:
+                raise
+            # This is the trust boundary for provider clients, whose exception types vary.
+            except Exception:  # noqa: BLE001
+                try:
+                    await asyncio.to_thread(
+                        self._record_failure,
+                        request,
+                        prepared.action_id,
+                        "github_error",
+                    )
+                except Exception:  # noqa: BLE001
+                    raise RuntimeError("GitHub publish failure audit failed") from None
+                raise RuntimeError("GitHub review publish failed") from None
+        finally:
+            await _close_claim_connection(claim_connection)
+
+    def _prepare(self, request: PublishRequest) -> _PreparedPublish:
+        _validate_request_shape(request)
+        with self.connection_factory() as connection, connection.transaction():
+            run = connection.execute(
+                """
+                SELECT run.id, run.state, pull_request.head_sha, repository.full_name
+                FROM runs AS run
+                JOIN pull_requests AS pull_request
+                  ON pull_request.id = run.pull_request_id
+                 AND pull_request.owner_id = run.owner_id
+                JOIN repositories AS repository
+                  ON repository.id = pull_request.repository_id
+                 AND repository.owner_id = run.owner_id
+                WHERE run.owner_id = %s
+                  AND run.public_id = %s
+                  AND repository.public_id = %s
+                  AND pull_request.github_number = %s
+                FOR UPDATE OF run, pull_request
+                """,
+                (
+                    request.owner_id,
+                    request.run_id,
+                    request.repository_id,
+                    request.pull_request_number,
+                ),
+            ).fetchone()
+            if run is None:
+                raise PublishBlockedError("publish target does not match the run")
+            internal_run_id, run_state, current_head_sha, repository = run
+
+            existing = connection.execute(
+                """
+                SELECT public_id, status, remote_id, target_sha, run_id, action_type,
+                       payload_fingerprint
+                FROM external_actions
+                WHERE owner_id = %s AND idempotency_key = %s
+                FOR UPDATE
+                """,
+                (request.owner_id, request.idempotency_key),
+            ).fetchone()
+            if existing is not None:
+                (
+                    action_id,
+                    action_status,
+                    remote_id,
+                    target_sha,
+                    action_run_id,
+                    action_type,
+                    stored_payload_fingerprint,
+                ) = existing
+                if target_sha != request.head_sha:
+                    raise PublishBlockedError("idempotency key targets another commit")
+                if action_run_id != internal_run_id or action_type != "github.pull_request_review":
+                    raise PublishBlockedError("idempotency key targets another action")
+
+            create_block_code = None
+            if run_state != "awaiting_approval":
+                create_block_code = "authorization_changed"
+            elif current_head_sha != request.head_sha:
+                create_block_code = "stale_head"
+            if existing is None and create_block_code == "authorization_changed":
+                raise PublishBlockedError("run is not awaiting approval")
+            if existing is None and create_block_code == "stale_head":
+                raise PublishBlockedError("pull request head is stale")
+
+            findings = connection.execute(
+                """
+                SELECT finding.public_id, finding.severity, finding.claim,
+                       approval.public_id, approval.decision, approval.head_sha
+                FROM findings AS finding
+                JOIN approvals AS approval
+                  ON approval.finding_id = finding.id
+                 AND approval.run_id = finding.run_id
+                 AND approval.owner_id = finding.owner_id
+                WHERE finding.owner_id = %s
+                  AND finding.run_id = %s
+                  AND finding.public_id = ANY(%s)
+                  AND approval.public_id = ANY(%s)
+                ORDER BY finding.id
+                """,
+                (
+                    request.owner_id,
+                    internal_run_id,
+                    list(request.finding_ids),
+                    list(request.approval_ids),
+                ),
+            ).fetchall()
+            if len(findings) != len(request.finding_ids):
+                raise PublishBlockedError("every finding needs its matching approval")
+            if any(decision != "approved" for *_, decision, _ in findings):
+                raise PublishBlockedError("rejected findings cannot publish")
+            if any(head_sha != request.head_sha for *_, head_sha in findings):
+                raise PublishBlockedError("approval targets another commit")
+            returned_approvals = {row[3] for row in findings}
+            if returned_approvals != set(request.approval_ids):
+                raise PublishBlockedError("approval set does not match finding set")
+
+            marker = _review_marker(request.idempotency_key)
+            body = _render_review_body(findings, marker)
+            payload_fingerprint = _payload_fingerprint(request, findings, body)
+            if existing is None:
+                action_id = self.id_factory()
+                connection.execute(
+                    """
+                    INSERT INTO external_actions (
+                        public_id, owner_id, run_id, action_type, target_sha,
+                        idempotency_key, payload_fingerprint, status
+                    ) VALUES (
+                        %s, %s, %s, 'github.pull_request_review', %s, %s, %s, 'publishing'
+                    )
+                    """,
+                    (
+                        action_id,
+                        request.owner_id,
+                        internal_run_id,
+                        request.head_sha,
+                        request.idempotency_key,
+                        payload_fingerprint,
+                    ),
+                )
+            else:
+                if stored_payload_fingerprint != payload_fingerprint:
+                    raise PublishBlockedError("idempotency key targets another publish payload")
+                if action_status == "published":
+                    if remote_id is None:
+                        raise PublishBlockedError("published action has no remote identity")
+                    return _PreparedPublish(
+                        action_id=action_id,
+                        repository=repository,
+                        pull_request_number=request.pull_request_number,
+                        head_sha=request.head_sha,
+                        marker=marker,
+                        body="",
+                        payload_fingerprint=payload_fingerprint,
+                        remote_id=remote_id,
+                    )
+                if create_block_code is not None:
+                    return _PreparedPublish(
+                        action_id=action_id,
+                        repository=repository,
+                        pull_request_number=request.pull_request_number,
+                        head_sha=request.head_sha,
+                        marker=marker,
+                        body=body,
+                        payload_fingerprint=payload_fingerprint,
+                        create_block_code=create_block_code,
+                    )
+                connection.execute(
+                    """
+                    UPDATE external_actions
+                    SET status = 'publishing', updated_at = now()
+                    WHERE owner_id = %s AND public_id = %s
+                    """,
+                    (request.owner_id, action_id),
+                )
+        return _PreparedPublish(
+            action_id=action_id,
+            repository=repository,
+            pull_request_number=request.pull_request_number,
+            head_sha=request.head_sha,
+            marker=marker,
+            body=body,
+            payload_fingerprint=payload_fingerprint,
+        )
+
+    def _record_success(
+        self,
+        request: PublishRequest,
+        prepared: _PreparedPublish,
+        review: GitHubReview,
+    ) -> None:
+        occurred_at = self.now().astimezone(UTC)
+        with self.connection_factory() as connection, connection.transaction():
+            action = connection.execute(
+                """
+                UPDATE external_actions AS action
+                SET status = 'published', remote_id = %s, updated_at = now()
+                FROM runs AS run
+                WHERE action.run_id = run.id
+                  AND action.owner_id = run.owner_id
+                  AND action.owner_id = %s
+                  AND action.public_id = %s
+                  AND run.public_id = %s
+                  AND action.target_sha = %s
+                  AND action.payload_fingerprint = %s
+                RETURNING action.run_id
+                """,
+                (
+                    review.remote_id,
+                    request.owner_id,
+                    prepared.action_id,
+                    request.run_id,
+                    request.head_sha,
+                    prepared.payload_fingerprint,
+                ),
+            ).fetchone()
+            if action is None:
+                raise RuntimeError("publish action disappeared before audit")
+            connection.execute(
+                """
+                INSERT INTO run_events (
+                    public_id, owner_id, run_id, event_key, event_type,
+                    event_data, occurred_at
+                ) VALUES (%s, %s, %s, %s, 'github.review_published', %s::jsonb, %s)
+                ON CONFLICT (run_id, event_key) DO NOTHING
+                """,
+                (
+                    self.id_factory(),
+                    request.owner_id,
+                    action[0],
+                    f"publish:{prepared.action_id}:published",
+                    json.dumps(
+                        {
+                            "action_id": prepared.action_id,
+                            "remote_review_id": review.remote_id,
+                            "head_sha": request.head_sha,
+                            "finding_ids": list(request.finding_ids),
+                            "approval_ids": list(request.approval_ids),
+                            "payload_fingerprint": prepared.payload_fingerprint,
+                        }
+                    ),
+                    occurred_at,
+                ),
+            )
+
+    def _record_request_blocked(
+        self,
+        request: PublishRequest,
+        reason_code: str,
+    ) -> None:
+        occurred_at = self.now().astimezone(UTC)
+        event_digest = hashlib.sha256(
+            f"{request.idempotency_key}:{reason_code}".encode()
+        ).hexdigest()[:16]
+        with self.connection_factory() as connection, connection.transaction():
+            run = connection.execute(
+                """
+                SELECT id
+                FROM runs
+                WHERE owner_id = %s AND public_id = %s
+                """,
+                (request.owner_id, request.run_id),
+            ).fetchone()
+            if run is None:
+                return
+            connection.execute(
+                """
+                INSERT INTO run_events (
+                    public_id, owner_id, run_id, event_key, event_type,
+                    event_data, occurred_at
+                ) VALUES (%s, %s, %s, %s, 'github.review_publish_blocked', %s::jsonb, %s)
+                ON CONFLICT (run_id, event_key) DO NOTHING
+                """,
+                (
+                    self.id_factory(),
+                    request.owner_id,
+                    run[0],
+                    f"publish:blocked:{event_digest}",
+                    json.dumps({"reason_code": reason_code}),
+                    occurred_at,
+                ),
+            )
+
+    def _record_action_blocked(
+        self,
+        request: PublishRequest,
+        action_id: str,
+        reason_code: str,
+    ) -> None:
+        occurred_at = self.now().astimezone(UTC)
+        with self.connection_factory() as connection, connection.transaction():
+            action = connection.execute(
+                """
+                UPDATE external_actions AS action
+                SET status = 'failed', updated_at = now()
+                FROM runs AS run
+                WHERE action.run_id = run.id
+                  AND action.owner_id = run.owner_id
+                  AND action.owner_id = %s
+                  AND action.public_id = %s
+                  AND run.public_id = %s
+                RETURNING action.run_id
+                """,
+                (request.owner_id, action_id, request.run_id),
+            ).fetchone()
+            if action is None:
+                raise RuntimeError("publish action disappeared before blocked audit")
+            connection.execute(
+                """
+                INSERT INTO run_events (
+                    public_id, owner_id, run_id, event_key, event_type,
+                    event_data, occurred_at
+                ) VALUES (%s, %s, %s, %s, 'github.review_publish_blocked', %s::jsonb, %s)
+                ON CONFLICT (run_id, event_key) DO NOTHING
+                """,
+                (
+                    self.id_factory(),
+                    request.owner_id,
+                    action[0],
+                    f"publish:{action_id}:blocked:{reason_code}",
+                    json.dumps({"reason_code": reason_code}),
+                    occurred_at,
+                ),
+            )
+
+    def _record_failure(
+        self,
+        request: PublishRequest,
+        action_id: str,
+        failure_code: str,
+    ) -> None:
+        occurred_at = self.now().astimezone(UTC)
+        with self.connection_factory() as connection, connection.transaction():
+            action = connection.execute(
+                """
+                UPDATE external_actions AS action
+                SET status = 'failed', updated_at = now()
+                FROM runs AS run
+                WHERE action.run_id = run.id
+                  AND action.owner_id = run.owner_id
+                  AND action.owner_id = %s
+                  AND action.public_id = %s
+                  AND run.public_id = %s
+                RETURNING action.run_id
+                """,
+                (request.owner_id, action_id, request.run_id),
+            ).fetchone()
+            if action is None:
+                raise RuntimeError("publish action disappeared before failure audit")
+            connection.execute(
+                """
+                INSERT INTO run_events (
+                    public_id, owner_id, run_id, event_key, event_type,
+                    event_data, occurred_at
+                ) VALUES (%s, %s, %s, %s, 'github.review_publish_failed', %s::jsonb, %s)
+                ON CONFLICT (run_id, event_key) DO NOTHING
+                """,
+                (
+                    self.id_factory(),
+                    request.owner_id,
+                    action[0],
+                    f"publish:{action_id}:failed:{failure_code}",
+                    json.dumps(
+                        {
+                            "action_id": action_id,
+                            "head_sha": request.head_sha,
+                            "failure_code": failure_code,
+                        }
+                    ),
+                    occurred_at,
+                ),
+            )
+
+
+def _validate_request_shape(request: PublishRequest) -> None:
+    if not request.finding_ids or not request.approval_ids:
+        raise PublishBlockedError("publish requires at least one finding and approval")
+    if len(set(request.finding_ids)) != len(request.finding_ids):
+        raise PublishBlockedError("finding IDs must be unique")
+    if len(set(request.approval_ids)) != len(request.approval_ids):
+        raise PublishBlockedError("approval IDs must be unique")
+    if len(request.finding_ids) != len(request.approval_ids):
+        raise PublishBlockedError("each finding needs one approval")
+    expected_key = f"{request.run_id}:{request.head_sha}:publish"
+    if request.idempotency_key != expected_key:
+        raise PublishBlockedError("publish idempotency key is invalid")
+
+
+def _review_marker(idempotency_key: str) -> str:
+    digest = hashlib.sha256(idempotency_key.encode()).hexdigest()
+    return f"<!-- pr-reliability:{digest} -->"
+
+
+def _payload_fingerprint(
+    request: PublishRequest,
+    findings: list[tuple[Any, ...]],
+    body: str,
+) -> str:
+    approval_pairs = sorted((str(row[0]), str(row[3])) for row in findings)
+    canonical = json.dumps(
+        {
+            "schema_version": 1,
+            "approval_pairs": approval_pairs,
+            "comment_body_ref": request.comment_body_ref,
+            "rendered_body": body,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _render_review_body(findings: list[tuple[Any, ...]], marker: str) -> str:
+    sections = ["## PR Reliability review"]
+    for _, severity, claim, *_ in findings:
+        sections.append(f"### {severity.title()} finding\n\n{claim}")
+    sections.append(marker)
+    body = "\n\n".join(sections)
+    if len(body) > _MAX_REVIEW_BODY_CHARACTERS:
+        raise PublishBlockedError("approved review exceeds the publish limit")
+    return body
+
+
+def _blocked_application_error(error: PublishBlockedError) -> ApplicationError:
+    return ApplicationError(str(error), type="PublishBlocked", non_retryable=True)
+
+
+async def _acquire_publish_claim(
+    connection: Connection[Any],
+    owner_id: str,
+    idempotency_key: str,
+) -> None:
+    lock_key = f"{owner_id}:{idempotency_key}"
+    while not await asyncio.to_thread(_try_publish_claim, connection, lock_key):
+        await asyncio.sleep(0.05)
+
+
+def _try_publish_claim(connection: Connection[Any], lock_key: str) -> bool:
+    try:
+        acquired = connection.execute(
+            "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))",
+            (lock_key,),
+        ).fetchone()[0]
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    return bool(acquired)
+
+
+async def _close_claim_connection(connection: Connection[Any]) -> None:
+    close_task = asyncio.create_task(asyncio.to_thread(connection.close))
+    try:
+        await asyncio.shield(close_task)
+    except asyncio.CancelledError:
+        await close_task
+        raise

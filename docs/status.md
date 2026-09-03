@@ -31,7 +31,7 @@ tracking issue. Its work includes #36 through #45: production providers, reposit
 policy, dashboard history, analytics, Check Runs, review checks, bounded evidence, runner
 operations, GitHub login, and signed images.
 
-Existing acceptance issues #12, #14, and #15 also remain open. See
+Existing acceptance issues #14 and #15 remain open. See
 [production readiness](production-readiness.md) for the order and release gate.
 
 ## Verification snapshot
@@ -42,6 +42,7 @@ Existing acceptance issues #12, #14, and #15 also remain open. See
 - Linux CI runs the full Temporal worker suite with time skipping. Windows CI runs the focused
   workflow regression module against the local dev server.
 - Issue #47 is closed.
+- Issue #12 is closed by approval-bound, stale-safe, exactly-once review publication acceptance.
 - No production timeout was increased.
 
 Do not describe the service as deployed or model quality as measured until the production exit

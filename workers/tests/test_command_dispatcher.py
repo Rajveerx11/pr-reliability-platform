@@ -244,6 +244,96 @@ def seed_approval_signal(
     return approval
 
 
+def add_finding(
+    connection_factory: Callable[[], Connection[object]],
+    sequence: int,
+) -> str:
+    finding_id = public_id(sequence)
+    with connection_factory() as connection, connection.transaction():
+        run_id = connection.execute(
+            "SELECT id FROM runs WHERE public_id = %s",
+            (public_id(3),),
+        ).fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO findings (
+                public_id, owner_id, run_id, finding_key, category, severity,
+                claim, confidence, evidence
+            ) VALUES (%s, %s, %s, %s, 'correctness', 'medium',
+                      'Second unsafe access', 0.8,
+                      '[{"schema_version":"1","kind":"source_location","summary":"unsafe","file_path":"b.py"}]'::jsonb)
+            """,
+            (finding_id, OWNER_ID, run_id, f"finding-{sequence}"),
+        )
+    return finding_id
+
+
+def add_finding_decision(
+    connection_factory: Callable[[], Connection[object]],
+    finding_id: str,
+    sequence: int,
+    decision: ApprovalDecision,
+) -> ApprovalCommand:
+    approval = ApprovalCommand(
+        schema_version="1",
+        public_id=public_id(sequence),
+        owner_id=OWNER_ID,
+        run_id=public_id(3),
+        head_sha=HEAD_SHA,
+        finding_id=finding_id,
+        actor_id=public_id(9),
+        decision=decision,
+        reason="Evidence is sufficient",
+        decided_at=datetime(2026, 8, 16, 8, 1, tzinfo=UTC),
+    )
+    with connection_factory() as connection, connection.transaction():
+        internal_run_id, internal_finding_id = connection.execute(
+            """
+            SELECT run.id, finding.id
+            FROM runs AS run
+            JOIN findings AS finding
+              ON finding.run_id = run.id
+             AND finding.owner_id = run.owner_id
+            WHERE run.public_id = %s AND finding.public_id = %s
+            """,
+            (approval.run_id, finding_id),
+        ).fetchone()
+        connection.execute(
+            """
+            INSERT INTO approvals (
+                public_id, owner_id, run_id, finding_id, actor_id,
+                decision, reason, head_sha, decided_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                approval.public_id,
+                OWNER_ID,
+                internal_run_id,
+                internal_finding_id,
+                approval.actor_id,
+                approval.decision.value,
+                approval.reason,
+                HEAD_SHA,
+                approval.decided_at,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO run_events (
+                public_id, owner_id, run_id, event_key, event_type, event_data, occurred_at
+            ) VALUES (%s, %s, %s, %s, 'approval.signal_created', %s::jsonb, now())
+            """,
+            (
+                public_id(sequence + 1),
+                OWNER_ID,
+                internal_run_id,
+                f"approval:{approval.public_id}:signal",
+                approval.model_dump_json(),
+            ),
+        )
+    return approval
+
+
 def test_approval_signal_is_dispatched_once_and_receipted(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
@@ -267,13 +357,145 @@ def test_approval_signal_is_dispatched_once_and_receipted(
     assert signal.head_sha == approval.head_sha
     assert signal.finding_ids == (approval.finding_id,)
     assert signal.approval_ids == (approval.public_id,)
-    assert signal.comment_body_ref == f"approval:{approval.public_id}"
+    assert signal.comment_body_ref is not None
+    assert signal.comment_body_ref.startswith("approval-set:")
     assert options["rpc_timeout"].total_seconds() == 10
     with connection_factory() as connection:
         receipt = connection.execute(
             "SELECT event_data FROM run_events WHERE event_type = 'approval.signal_dispatched'"
         ).fetchone()[0]
-    assert receipt == {"approval_id": approval.public_id, "status": "accepted"}
+    assert receipt == {
+        "run_id": approval.run_id,
+        "head_sha": approval.head_sha,
+        "status": "accepted",
+        "approved_count": 1,
+        "rejected_count": 0,
+    }
+
+
+def test_approval_signal_waits_for_every_finding_then_dispatches_once(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    first = seed_approval_signal(connection_factory)
+    second_finding_id = add_finding(connection_factory, 20)
+    client = RecordingTemporalClient()
+
+    assert (
+        asyncio.run(
+            dispatch_next_approval(
+                connection_factory,
+                client,
+                id_factory=lambda: public_id(50),
+            )
+        )
+        is True
+    )
+    assert client.calls == []
+
+    second = add_finding_decision(
+        connection_factory,
+        second_finding_id,
+        21,
+        ApprovalDecision.APPROVED,
+    )
+    assert (
+        asyncio.run(
+            dispatch_next_approval(
+                connection_factory,
+                client,
+                id_factory=lambda: public_id(51),
+            )
+        )
+        is True
+    )
+    assert asyncio.run(dispatch_next_approval(connection_factory, client)) is False
+
+    (_, _, signal), _ = client.calls[0]
+    assert signal.approved is True
+    assert signal.finding_ids == (first.finding_id, second.finding_id)
+    assert signal.approval_ids == (first.public_id, second.public_id)
+    assert signal.comment_body_ref is not None
+    assert signal.comment_body_ref.startswith("approval-set:")
+    with connection_factory() as connection:
+        receipts = connection.execute(
+            """
+            SELECT event_data
+            FROM run_events
+            WHERE event_type = 'approval.signal_dispatched'
+            ORDER BY id
+            """
+        ).fetchall()
+    assert receipts[0][0]["status"] == "deferred"
+    assert receipts[1][0] == {
+        "run_id": first.run_id,
+        "head_sha": HEAD_SHA,
+        "status": "accepted",
+        "approved_count": 2,
+        "rejected_count": 0,
+    }
+
+
+def test_mixed_decisions_publish_only_approved_findings(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    approved = seed_approval_signal(connection_factory)
+    rejected_finding_id = add_finding(connection_factory, 20)
+    add_finding_decision(
+        connection_factory,
+        rejected_finding_id,
+        21,
+        ApprovalDecision.REJECTED,
+    )
+    client = RecordingTemporalClient()
+
+    assert asyncio.run(dispatch_next_approval(connection_factory, client)) is True
+    assert asyncio.run(dispatch_next_approval(connection_factory, client)) is False
+
+    (_, _, signal), _ = client.calls[0]
+    assert signal.approved is True
+    assert signal.finding_ids == (approved.finding_id,)
+    assert signal.approval_ids == (approved.public_id,)
+    with connection_factory() as connection:
+        receipt = connection.execute(
+            """
+            SELECT event_data FROM run_events
+            WHERE event_type = 'approval.signal_dispatched'
+            """
+        ).fetchone()[0]
+    assert receipt["approved_count"] == 1
+    assert receipt["rejected_count"] == 1
+
+
+def test_all_rejected_findings_send_one_terminal_rejection(
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    seed_approval_signal(connection_factory, decision=ApprovalDecision.REJECTED)
+    second_finding_id = add_finding(connection_factory, 20)
+    add_finding_decision(
+        connection_factory,
+        second_finding_id,
+        21,
+        ApprovalDecision.REJECTED,
+    )
+    client = RecordingTemporalClient()
+
+    assert asyncio.run(dispatch_next_approval(connection_factory, client)) is True
+    assert asyncio.run(dispatch_next_approval(connection_factory, client)) is False
+
+    (_, _, signal), _ = client.calls[0]
+    assert signal.approved is False
+    assert signal.finding_ids == ()
+    assert signal.approval_ids == ()
+    assert signal.comment_body_ref is None
+    with connection_factory() as connection:
+        receipt = connection.execute(
+            """
+            SELECT event_data FROM run_events
+            WHERE event_type = 'approval.signal_dispatched'
+            """
+        ).fetchone()[0]
+    assert receipt["approved_count"] == 0
+    assert receipt["rejected_count"] == 2
 
 
 def test_failed_approval_signal_stays_pending(
@@ -291,6 +513,11 @@ def test_failed_approval_signal_stays_pending(
             "SELECT count(*) FROM run_events WHERE event_type = 'approval.signal_dispatched'"
         ).fetchone()[0]
     assert receipt_count == 0
+    first_signal = client.calls[0][0][2]
+    assert asyncio.run(dispatch_next_approval(connection_factory, client)) is True
+    second_signal = client.calls[1][0][2]
+    assert second_signal == first_signal
+    assert asyncio.run(dispatch_next_approval(connection_factory, client)) is False
 
 
 def test_rejected_approval_sends_rejection_without_publish_fields(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -270,6 +271,15 @@ async def dispatch_next_approval(
                   WHERE receipt.run_id = command.run_id
                     AND receipt.event_key = command.event_key || ':dispatched'
               )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM run_events AS aggregate_receipt
+                  WHERE aggregate_receipt.run_id = command.run_id
+                    AND aggregate_receipt.event_type = 'approval.signal_dispatched'
+                    AND aggregate_receipt.event_data->>'run_id' = run.public_id
+                    AND aggregate_receipt.event_data->>'head_sha' = run.head_sha
+                    AND aggregate_receipt.event_data->>'status' = 'accepted'
+              )
             ORDER BY command.id
             FOR UPDATE OF command, run, pull_request, approval SKIP LOCKED
             LIMIT 1
@@ -335,14 +345,49 @@ async def dispatch_next_approval(
             )
             return True
 
-        approved = command.decision is ApprovalDecision.APPROVED
+        decisions = connection.execute(
+            """
+            SELECT finding.public_id, approval.public_id, approval.decision
+            FROM findings AS finding
+            LEFT JOIN approvals AS approval
+              ON approval.finding_id = finding.id
+             AND approval.run_id = finding.run_id
+             AND approval.owner_id = finding.owner_id
+            WHERE finding.owner_id = %s AND finding.run_id = %s
+            ORDER BY finding.id
+            """,
+            (owner_id, internal_run_id),
+        ).fetchall()
+        if not decisions or any(approval_id is None for _, approval_id, _ in decisions):
+            _insert_approval_receipt(
+                connection,
+                command,
+                internal_run_id,
+                event_key,
+                id_factory,
+                status="deferred",
+                reason="run still awaits finding decisions",
+            )
+            return True
+
+        approved_pairs = tuple(
+            (finding_id, approval_id)
+            for finding_id, approval_id, stored_decision in decisions
+            if stored_decision == ApprovalDecision.APPROVED.value
+        )
+        rejected_count = len(decisions) - len(approved_pairs)
+        canonical_pairs = json.dumps(approved_pairs, separators=(",", ":"))
+        approval_set_digest = hashlib.sha256(
+            f"{run_public_id}:{run_head_sha}:{canonical_pairs}".encode()
+        ).hexdigest()
+        approved = bool(approved_pairs)
         signal = ApprovalSignal(
             run_id=command.run_id,
             head_sha=command.head_sha,
             approved=approved,
-            finding_ids=(command.finding_id,) if approved else (),
-            approval_ids=(command.public_id,) if approved else (),
-            comment_body_ref=f"approval:{command.public_id}" if approved else None,
+            finding_ids=tuple(pair[0] for pair in approved_pairs),
+            approval_ids=tuple(pair[1] for pair in approved_pairs),
+            comment_body_ref=f"approval-set:{approval_set_digest}" if approved else None,
         )
         handle = client.get_workflow_handle(_workflow_id(command.owner_id, pull_request_public_id))
         async with asyncio.timeout(dispatch_timeout_seconds):
@@ -351,13 +396,14 @@ async def dispatch_next_approval(
                 signal,
                 rpc_timeout=_TEMPORAL_RPC_TIMEOUT,
             )
-        _insert_approval_receipt(
+        _insert_aggregate_approval_receipt(
             connection,
             command,
             internal_run_id,
-            event_key,
+            approval_set_digest,
             id_factory,
-            status="accepted",
+            approved_count=len(approved_pairs),
+            rejected_count=rejected_count,
         )
         return True
 
@@ -487,6 +533,41 @@ def _insert_approval_receipt(
             command.owner_id,
             internal_run_id,
             f"{event_key}:dispatched",
+            json.dumps(event_data),
+        ),
+    )
+
+
+def _insert_aggregate_approval_receipt(
+    connection: Connection[Any],
+    command: ApprovalCommand,
+    internal_run_id: int,
+    approval_set_digest: str,
+    id_factory: Callable[[], str],
+    *,
+    approved_count: int,
+    rejected_count: int,
+) -> None:
+    event_data = {
+        "run_id": command.run_id,
+        "head_sha": command.head_sha,
+        "status": "accepted",
+        "approved_count": approved_count,
+        "rejected_count": rejected_count,
+    }
+    connection.execute(
+        """
+        INSERT INTO run_events (
+            public_id, owner_id, run_id, event_key, event_type, event_data, occurred_at
+        )
+        VALUES (%s, %s, %s, %s, 'approval.signal_dispatched', %s::jsonb, now())
+        ON CONFLICT (run_id, event_key) DO NOTHING
+        """,
+        (
+            id_factory(),
+            command.owner_id,
+            internal_run_id,
+            f"approval-set:{approval_set_digest}:dispatched",
             json.dumps(event_data),
         ),
     )
