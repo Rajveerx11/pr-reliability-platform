@@ -105,6 +105,7 @@ class RecordingOperations:
         self.release_terminal = asyncio.Event()
         self.terminal_requests: list[TerminalRequest] = []
         self.activity_trace_ids: list[tuple[str, str, int]] = []
+        self.publish_requests: list[PublishRequest] = []
 
     async def select_context(self, request: StageRequest) -> StageResult:
         return self._complete("select_context", request, "context-ref")
@@ -141,6 +142,7 @@ class RecordingOperations:
         return await self.verify(request)
 
     async def publish(self, request: PublishRequest) -> None:
+        self.publish_requests.append(request)
         self._record_trace("publish", request.idempotency_key)
         self.calls.append(("publish", request.idempotency_key))
         if self.fail_publish:
@@ -312,8 +314,8 @@ def test_retry_uses_stable_keys_and_history_replays() -> None:
                     run_id=RUN_ID,
                     head_sha=HEAD_SHA,
                     approved=True,
-                    finding_ids=("01J00000000000000000000010",),
-                    approval_ids=("01J00000000000000000000011",),
+                    finding_ids=("01J00000000000000000000010", "01J00000000000000000000012"),
+                    approval_ids=("01J00000000000000000000011", "01J00000000000000000000013"),
                     comment_body_ref="comment-ref",
                 ),
             )
@@ -321,6 +323,14 @@ def test_retry_uses_stable_keys_and_history_replays() -> None:
             history = await handle.fetch_history()
 
         assert result.outcome is WorkflowOutcome.PUBLISHED
+        assert operations.publish_requests[0].finding_ids == (
+            "01J00000000000000000000010",
+            "01J00000000000000000000012",
+        )
+        assert operations.publish_requests[0].approval_ids == (
+            "01J00000000000000000000011",
+            "01J00000000000000000000013",
+        )
         assert operations.analyze_attempts == 2
         analyze_keys = [key for name, key in operations.calls if name == "analyze"]
         assert len(analyze_keys) == 2

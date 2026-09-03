@@ -22,7 +22,8 @@ review evidence. It is not a general CI/CD platform or deployment system.
 
 ## Required work
 
-- Runtime: production provider and GitHub operations (#36) and live publishing acceptance (#12).
+- Runtime: production provider and GitHub operations (#36), including live test-repository
+  publishing acceptance.
 - Repository experience: installation sync and policy (#37), repository and PR history (#38),
   Check Runs (#40), and GitHub login (#44).
 - Evidence and operations: persisted analytics (#39), repository-defined checks (#41), bounded

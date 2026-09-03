@@ -234,5 +234,10 @@ Each decision names one finding and repeats the shown head SHA. The API locks th
 pull request, checks the current head and workflow state, then stores one immutable approval plus
 append-only audit and signal-outbox events. Identical retries return the original receipt.
 Conflicting decisions or stale commits fail. The dispatcher delivers the safe approval command to
-the waiting Temporal workflow with a stable receipt, so a crash can retry delivery. This endpoint
-never creates an external action or calls GitHub; publishing is a later worker boundary.
+the waiting Temporal workflow with a stable receipt, so a crash can retry delivery.
+
+The dispatcher defers early decisions until every finding for the run and head has an immutable
+decision. It then sends one deterministic ordered approval set. Mixed sets publish only approved
+findings; all-rejected sets terminate without a publish request. A run-level dispatch receipt
+suppresses sibling decision events and keeps retries stable. The approval endpoint never creates
+an external action or calls GitHub; publishing is a later worker boundary.

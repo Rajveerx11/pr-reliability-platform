@@ -12,7 +12,12 @@ from pr_reliability_proof_adapter import ProofAdapter
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from .activities import ActivityOperations, ReviewActivities
+from .activities import (
+    ActivityOperations,
+    GitHubRestReviewClient,
+    GitHubReviewPublishOperation,
+    ReviewActivities,
+)
 from .sandbox import DockerSandboxRunner
 from .workflows import PullRequestReviewWorkflow
 
@@ -112,6 +117,10 @@ def load_activity_operations(factory_path: str) -> ActivityOperations:
     proof = operations.verify.proof
     if type(proof) is not ProofAdapter or not proof.production_gate_enabled:
         raise TypeError("production verification must use PublishedProofGate")
+    if not isinstance(operations.publish, GitHubReviewPublishOperation):
+        raise TypeError("production publishing must use GitHubReviewPublishOperation")
+    if type(operations.publish.client) is not GitHubRestReviewClient:
+        raise TypeError("production publishing must use GitHubRestReviewClient")
     return operations
 
 
