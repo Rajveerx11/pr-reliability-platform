@@ -1,36 +1,47 @@
 # Current status
 
-Status date: 2026-09-01
+Status date: 2026-09-03
 
-The version-one repository implementation is merged to `main`. Required GitHub Actions checks
-passed on the merge commit. The repository now contains signed webhook intake, durable Temporal
-workflows, bounded context selection, a provider-neutral review agent, disposable verification,
-the Proof of Work adapter, human approval, idempotent publishing, observability, the operations
-dashboard, the evaluation harness, and the private single-VM deployment kit.
+The version-one core is merged to `main`. The service is not production ready. Production
+provider wiring, repository onboarding, GitHub login, complete dashboard history, signed release
+artifacts, real-provider evaluation, and private Linux VM acceptance remain open.
 
-Repository implementation is not the same as production acceptance.
+## Product boundary
 
-## Implemented and verified in the repository
+This is an approval-first AI pull request reviewer. It uses selected CI-style checks as evidence.
+It is not a general CI/CD system and does not replace GitHub Actions deployment pipelines. See
+[review checks and CI boundary](review-checks.md).
+
+## Implemented in the repository
 
 - Versioned contracts, PostgreSQL migrations, and owner-scoped records.
 - Signed and deduplicated GitHub webhook intake.
-- Durable workflow, sandbox, Proof of Work, approval, and publish boundaries.
-- Traces, metrics, health checks, approval inbox, and operations dashboard.
-- Frozen ten-task evaluation corpus and deterministic full-cohort replay.
-- Private-IP TLS deployment configuration, external secrets, monitoring, backup, restore, and
-  rollback tooling.
+- Durable Temporal workflow with retries, cancellation, and supersession.
+- Deterministic context selection and provider-neutral structured findings.
+- Disposable Docker sandbox and Proof of Work evidence gate.
+- Human approval and idempotent publishing boundaries.
+- Traces, metrics, health checks, approval inbox, and private operations dashboard.
+- Frozen ten-task evaluation corpus and deterministic harness replay.
+- Private-IP TLS deployment configuration, backup, restore, and rollback tools.
 
-## Open acceptance work
+## Production backlog
 
-- [Issue #12](https://github.com/Rajveerx11/pr-reliability-platform/issues/12) remains open for
-  final acceptance of exactly-once approved GitHub publishing, although its implementation PR is
-  merged.
-- [Issue #14](https://github.com/Rajveerx11/pr-reliability-platform/issues/14) needs a real
-  provider/model run across the frozen cohort. Current quality, latency, usage, and cost results
-  remain unknown where no model attempt ran.
-- [Issue #15](https://github.com/Rajveerx11/pr-reliability-platform/issues/15) needs operator-owned
-  Linux VM access, private DNS and TLS, immutable production images, provider and GitHub App
-  credentials, a test repository, a backup/restore drill, and an end-to-end review.
+[Issue #46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46) is the production
+tracking issue. Its work includes #36 through #45 and #47: production providers, repository sync
+and policy, dashboard history, analytics, Check Runs, review checks, bounded evidence, runner
+operations, GitHub login, signed images, and Windows test stability.
 
-Do not describe version one as deployed or its model quality as measured until those acceptance
+Existing acceptance issues #12, #14, and #15 also remain open. See
+[production readiness](production-readiness.md) for the order and release gate.
+
+## Verification snapshot
+
+- Latest remote Linux GitHub checks on `main`: passing.
+- Local Python 3.12 lint and format checks: passing.
+- Local test run: 214 passed, 72 skipped, and 3 Windows Temporal continue-as-new timeouts.
+- The Windows-only failures are tracked in
+  [issue #47](https://github.com/Rajveerx11/pr-reliability-platform/issues/47). Do not weaken the
+  Linux workflow tests to hide them.
+
+Do not describe the service as deployed or model quality as measured until the production exit
 records exist.

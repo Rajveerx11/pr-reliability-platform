@@ -4,6 +4,9 @@
 
 Measure whether the platform finds real pull request defects without producing too many false
 alarms. Multi-agent work must beat the single-agent baseline on the same frozen tasks.
+A real provider baseline still depends on production provider operations (#36) and evaluation
+acceptance (#14). Until then, no claim about model recall, false positives, latency, or cost is
+supported.
 
 ## Golden task shape
 
@@ -119,6 +122,12 @@ limits, every task attempt, adjudicated defect matches, retries, usage, and limi
 measurements use `null`; they are never converted to zero. A manifest with missing or extra tasks,
 the wrong corpus fingerprint, duplicate task IDs, or an invalid defect match fails closed.
 
+## Review-check evidence
+
+Repository-defined checks may support a finding, but passing checks do not equal defect recall.
+Evaluation manifests must freeze check config, sandbox image digest, resource limits, timeouts,
+and path filters. Compare agent quality only when those inputs match.
+
 ## Comparison rules
 
 - Freeze corpus before comparison.
@@ -133,4 +142,3 @@ the wrong corpus fingerprint, duplicate task IDs, or an invalid defect match fai
 
 Specialist agents may ship only when they improve the agreed primary quality metric without
 breaking cost and latency caps. Until then, the single-agent path remains default.
-

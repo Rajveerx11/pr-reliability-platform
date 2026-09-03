@@ -6,6 +6,12 @@ This runbook implements the repository-controlled part of issue
 observability, evaluation-harness, and dashboard code is merged to `main`. This runbook does not
 claim that a VM, certificate, backup restore, or test-repository review exists.
 
+## Production gate
+
+Do not use this stack for production repositories yet. Complete provider operations (#36), GitHub
+login (#44), signed release artifacts (#45), a real evaluation (#14), and test-repository
+acceptance (#15). See [production readiness](production-readiness.md).
+
 ## Boundary
 
 One Linux VM runs PostgreSQL, Temporal, the API, workers, OpenTelemetry Collector, Prometheus, and
@@ -27,6 +33,13 @@ preflight until every example registry and repeated placeholder digest is replac
 rejects tags, public bind addresses, application database credentials that differ from their
 external password file, reused database-role passwords, tracked secret files, symlinks, missing
 files, broad secret permissions, and non-rootless sandbox paths.
+
+## Release artifacts
+
+Issue #45 must produce immutable application and sandbox image digests, signatures, scan results,
+software bills of materials, source commit, migration set, configuration version, and rollback
+digests. Store them in one release manifest. Preflight must verify that deployed digests match the
+approved manifest.
 
 ## Provision secrets outside source
 
@@ -163,4 +176,6 @@ affected GitHub credentials, and follow the incident rule in [security.md](secur
 - Backup and restore tooling: implemented and unit-tested with fake commands; real VM drill blocked.
 - Health and local monitoring: implemented; real VM observation blocked.
 - End-to-end test-repository review: blocked by missing VM and external test authority.
+- Production provider operations and GitHub login: planned in #36 and #44.
+- Signed immutable release images and manifest: planned in #45.
 - Rollback: documented; real rollback drill blocked.

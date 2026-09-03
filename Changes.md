@@ -5,6 +5,21 @@ them and names the affected files.
 
 ## Unreleased
 
+### Updated production-readiness documentation
+
+- Issue: [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46)
+- Decisions: [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence) and
+  [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout)
+- Reason: Separate the merged AI-review core from remaining production work, and define the
+  limited CI-style evidence scope without turning the product into a general CI/CD system.
+- Changed files:
+  - `README.md`, `docs/README.md`, `docs/status.md`, `docs/production-readiness.md`, and
+    `docs/review-checks.md` — current state, production gate, and scope.
+  - `docs/architecture.md`, `docs/dashboard.md`, `docs/development.md`, `docs/security.md`,
+    `docs/deployment.md`, and `docs/observability.md` — production design and operations.
+  - `docs/evaluation.md` and `docs/evaluation-report.md` — baseline and evidence rules.
+  - `plan/README.md`, `plan/v1.md`, and `plan/interactive.html` — roadmap and issue map.
+
 ### Updated merged implementation and acceptance documentation
 
 - Issue: [#34](https://github.com/Rajveerx11/pr-reliability-platform/issues/34)

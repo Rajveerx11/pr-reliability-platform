@@ -1,41 +1,68 @@
 # Review operations dashboard
 
-The dashboard gives one private, read-only view of review runs, approval pressure, latency,
-dependency health, and persisted evidence. Open `/dashboard` on the API service.
+Open `/dashboard` on the API service. The current dashboard is private and read-only. Planned
+production pages are listed separately below.
 
-## Access
+## Current access
 
-Enter the same `APPROVAL_REVIEWER_TOKEN` used by the approval inbox. The token stays in memory for
-the current browser tab. The dashboard does not write it to cookies, local storage, or session
-storage. The browser sends it as a bearer token only to same-origin dashboard APIs.
+Enter the same `APPROVAL_REVIEWER_TOKEN` used by the approval inbox. The token stays in memory
+for the browser tab and is sent only to same-origin APIs. It is not stored in cookies, local
+storage, or session storage.
 
-Serve the dashboard only behind HTTPS. Keep the API private or behind an authenticated network
-boundary. Rotate the reviewer token if it may have been exposed.
+This shared token is temporary. Production access must use GitHub login and owner-scoped sessions
+from [issue #44](https://github.com/Rajveerx11/pr-reliability-platform/issues/44).
 
-## What the dashboard shows
+## Current dashboard
 
-- owner-scoped run totals and current states;
-- findings awaiting human approval;
-- p50 and p95 duration for terminal runs;
-- activity retry visibility, shown as `Unknown` until retry facts are persisted per run;
-- recent runs with exact repository and status filters plus bounded pagination;
-- a run detail timeline, persisted stage progress, trace ID, findings, and evidence;
-- database and workflow readiness; and
-- honest usage coverage and known cost.
+- Owner-scoped run totals and states.
+- Findings awaiting approval.
+- p50 and p95 duration for terminal runs.
+- Recent runs with repository and status filters.
+- Run timeline, trace ID, findings, and safe evidence.
+- PostgreSQL and Temporal readiness.
+- Honest usage coverage and known cost.
 
-Retries, usage, and cost remain `Unknown` until the current persistence model records those facts
-per run. The dashboard does not infer missing values or treat budgets as spend.
+Retries, usage, and cost show `Unknown` when no persisted fact exists. The API never estimates
+missing values. Safe timeline summaries exclude source, prompts, raw model output, and secrets.
 
-The detail timeline exposes a fixed safe summary for known event types. It does not return raw
-event payloads, prompts, source files, provider output, or secrets.
+## Planned production pages
+
+### Overview
+
+Review volume, success rate, approval backlog, p50/p95 duration, usage coverage, known cost, queue
+wait, failure rate, and recent incidents.
+
+### Repositories
+
+All repositories visible to the GitHub App installation, active or paused state, default branch,
+last sync, policy, open PR count, last review, and health. This requires issue #37.
+
+### Pull request history
+
+Open and closed pull requests, reviewed commits, run count, findings, approvals, Check Run result,
+publish result, duration, usage, and cost. This requires issue #38.
+
+### Run detail
+
+Stage timeline, model and tool attempts, repository checks, bounded logs, test summary, evidence,
+approval, GitHub writes, retries, and safe rerun or cancel controls.
+
+### System health
+
+API, PostgreSQL, Temporal, dispatcher, workers, queue depth, oldest queued run, runner capacity,
+error rate, and alert state. This requires issue #43.
+
+## Data gaps to close
+
+- Repository inventory is learned from pull request webhooks, not installation sync.
+- Retry, usage, and cost facts are incomplete until issue #39.
+- Test summaries and bounded logs require issue #42.
+- GitHub Check Run state requires issue #40.
 
 ## Operations
 
-Use the **Approval inbox** link when a finding needs a decision. The dashboard itself is read-only
-and cannot publish comments or mutate a run.
+Use the **Approval inbox** for decisions. The dashboard cannot publish comments. Readiness comes
+from `/health/ready`; trace IDs map to [observability](observability.md).
 
-Readiness comes from `/health/ready`. A failed dependency appears as **Needs attention**. Trace IDs
-can be matched with the collector described in `observability.md`.
-
-For a private VM deployment, expose the dashboard through the same Caddy HTTPS origin as the API.
-Do not expose PostgreSQL, Temporal, Prometheus, or the collector directly to the public internet.
+Expose the dashboard through the same private HTTPS origin as the API. Do not expose PostgreSQL,
+Temporal, Prometheus, or the collector to the public internet.

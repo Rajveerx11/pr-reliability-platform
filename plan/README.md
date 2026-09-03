@@ -5,3 +5,5 @@
 
 Plans describe intended work. `Changes.md` records work already completed.
 
+Current production gates are summarized in `docs/production-readiness.md` and tracked by GitHub
+issue #46.

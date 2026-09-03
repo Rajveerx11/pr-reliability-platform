@@ -66,6 +66,19 @@ Not allowed:
 - Sandbox filesystem snapshots
 - Secrets found in source or output
 
+## Production controls still required
+
+- Replace the shared reviewer token with GitHub login and owner-scoped sessions (#44).
+- Mint short-lived GitHub installation tokens only inside trusted provider operations (#36).
+- Use only the GitHub permissions required for review comments and Check Runs (#40).
+- Treat repository check configuration as untrusted. It cannot enable network, choose images,
+  mount host paths, raise limits, or request secrets (#41).
+- Forked pull request checks never receive provider, GitHub, database, or runner secrets.
+- Redact, bound, and expire stored logs and test summaries (#42).
+- Deploy only signed immutable images recorded in a release manifest (#45).
+
+See [production readiness](production-readiness.md) for the full release gate.
+
 ## Incident rule
 
 If a write happens without approval, disable publishing immediately, preserve safe audit facts,
@@ -86,4 +99,3 @@ rotate affected credentials, and document the event before restoring writes.
   them off the VM, verify checksums before restore, and test recovery on a disposable VM.
 - Treat VM root and Docker-administrator access as privileged production access. Preserve private
   firewall, certificate, backup, health, and rollback evidence without storing secret contents.
-

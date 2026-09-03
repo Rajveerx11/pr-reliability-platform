@@ -5,6 +5,33 @@
 Review a GitHub pull request with one agent, verify the result, and require human approval
 before any output is published.
 
+The product is an AI pull request reviewer. Selected CI-style checks may provide evidence, but
+the platform does not own deployments or general CI/CD pipelines.
+
+## Production target (planned)
+
+```mermaid
+flowchart LR
+  I[GitHub installation sync] --> R[Repository policy]
+  G[Pull request webhook] --> T[Durable review workflow]
+  R --> T
+  T --> A[Review agent]
+  T --> S[Sandboxed repository checks]
+  A --> V[Evidence and approval]
+  S --> V
+  V --> C[GitHub Check Run]
+  V --> P[Approved PR review]
+  T --> D[Dashboard history and metrics]
+```
+
+Issues #36 through #45 add production provider operations, repository onboarding, Check Runs,
+complete history, metrics, access control, and release artifacts. These items are not implemented
+unless their issue is closed. See [production readiness](production-readiness.md).
+
+Planned persistent records include installation and repository policy, check runs, verification
+checks, bounded artifacts, runner heartbeats, and metric facts. They extend the current product
+schema; they do not create a general pipeline engine.
+
 ## Main components
 
 ```mermaid
@@ -140,7 +167,8 @@ The review agent depends only on a provider-neutral `ModelClient`. It sends cont
 JSON schema, rejects invalid or duplicate structured findings, then attaches trusted run identity.
 Provider failures return no partial result. Provider-reported duration, token usage, coverage, and
 exact cost cross the boundary without estimating unknown values. No concrete hosted provider is
-configured in this repository yet.
+configured in this repository yet. Production OpenAI and GitHub operations are tracked in
+[issue #36](https://github.com/Rajveerx11/pr-reliability-platform/issues/36).
 
 ## Persistence boundary
 

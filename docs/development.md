@@ -36,6 +36,13 @@ idea across many tiny files. A file should be easy to understand in one sitting.
 7. Open a pull request linked to the issue.
 8. Merge only after required checks pass and a human approves.
 
+## Production work
+
+Use [production readiness](production-readiness.md) and tracking issue #46 for delivery order.
+Production provider wiring is tracked in issue #36. Repository-defined checks must follow
+[review checks and CI boundary](review-checks.md). Each feature still needs its own issue before
+implementation.
+
 ## Local configuration
 
 Copy `.env.example` to `.env`. Never commit `.env`, API keys, GitHub private keys, or tokens.
@@ -87,7 +94,7 @@ sandbox Docker engine. Follow `docs/deployment.md`; local Compose remains a deve
 
 ## Quality commands
 
-Commands will be finalized with the first implementation issue. Expected checks are:
+Run these required repository checks:
 
 ```text
 ruff check .
@@ -106,6 +113,10 @@ uv run pytest workers/tests -q
 ```
 
 CI runs these tests in the dedicated `temporal-workflow` job.
+
+On Windows, three Temporal continue-as-new tests may time out while the same Linux CI job passes.
+This is tracked in issue #47. Do not skip or weaken the Linux workflow tests; use Linux as the
+production target and fix the Windows harness separately.
 
 Sandbox unit tests use an injected fake Docker boundary and run with the normal worker suite. Real
 isolation tests require a reachable Linux Docker engine and an immutable local image ID:
@@ -127,4 +138,3 @@ migrations, and remove that schema afterward. Example local value:
 ```text
 postgresql://postgres:postgres@localhost:5432/postgres
 ```
-

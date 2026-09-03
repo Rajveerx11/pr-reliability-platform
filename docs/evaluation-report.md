@@ -1,6 +1,8 @@
 # Version-one evaluation report
 
 > Deterministic harness replay. This is not a real model run and not single-agent quality evidence.
+> Status checked 2026-09-03. A real current baseline still requires issues #36 and #14.
+> Do not use this replay as a model-quality or production-readiness claim.
 
 ## Recorded run
 

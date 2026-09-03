@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Interactive implementation plan for the Autonomous PR Reliability Platform.">
-  <title>Autonomous PR Reliability Platform — Interactive Plan</title>
+  <meta name="description" content="Interactive production plan for the PR Reliability Platform.">
+  <title>PR Reliability Platform — Interactive Plan</title>
   <style>
     :root {
       --bg: #f4f1e9;
@@ -327,11 +327,11 @@
 
   <main>
     <section class="hero shell">
-      <div class="eyebrow">Interactive build plan · 12 August 2026</div>
-      <h1>Make every agent-written PR prove itself.</h1>
-      <p class="hero-copy">A GitHub App analyzes a pull request, checks its own findings with deterministic evidence, and waits for a human before publishing or changing code.</p>
+      <div class="eyebrow">Interactive production plan · updated 3 September 2026</div>
+      <h1>Make every AI review prove its evidence.</h1>
+      <p class="hero-copy">An approval-first GitHub App reviews a pull request, runs bounded evidence checks, and waits for a human before publishing.</p>
       <div class="hero-meta">
-        <span class="pill"><span class="dot"></span>First milestone: single-agent baseline</span>
+        <span class="pill"><span class="dot"></span>Core merged · production acceptance open</span>
         <span class="pill">Core API: FastAPI</span>
         <span class="pill">Durable workflow: Temporal</span>
         <span class="pill">Evidence gate: Proof of Work</span>
@@ -484,25 +484,20 @@
 
     <section class="section shell" id="roadmap">
       <div class="section-head">
-        <div><div class="kicker">Implementation plan</div><h2>Baseline before specialists</h2></div>
-        <p class="section-intro">Open each phase. Each ends with a checkable result.</p>
+        <div><div class="kicker">Implementation plan</div><h2>Production before specialists</h2></div>
+        <p class="section-intro">Core phases are merged. Production acceptance remains open.</p>
       </div>
       <div class="roadmap">
-        <div class="phase-label"><strong>Phase 0</strong><span>Today · 1 day</span></div>
-        <details class="phase" open><summary>Freeze contracts and scaffold repo</summary><div class="phase-body"><ul><li>Create service, worker, web, infrastructure, and evaluation folders.</li><li>Write version-one run state, finding JSON, webhook event, and approval contracts.</li><li>Create one tiny PR fixture with one known bug.</li></ul><p class="deliverable">Done: local command creates one queued run from fixture metadata.</p></div></details>
-        <div class="phase-label"><strong>Phase 1</strong><span>Week 1</span></div>
-        <details class="phase"><summary>Prove single-agent local baseline</summary><div class="phase-body"><ul><li>Select changed files plus direct imports under fixed token budget.</li><li>Run one provider through a narrow <span class="mono">ModelClient</span> interface.</li><li>Validate structured findings; record tokens, duration, and exact reported cost.</li></ul><p class="deliverable">Done: agent finds seeded defect and emits valid evidence JSON.</p></div></details>
-        <div class="phase-label"><strong>Phase 2</strong><span>Week 2</span></div>
-        <details class="phase"><summary>Add GitHub and durable orchestration</summary><div class="phase-body"><ul><li>Verify webhook signature before parsing payload.</li><li>Deduplicate deliveries and start one Temporal workflow per head SHA.</li><li>Support timeout, retry, cancellation, and superseded-commit handling.</li></ul><p class="deliverable">Done: closing or updating PR safely cancels or replaces run.</p></div></details>
-        <div class="phase-label"><strong>Phase 3</strong><span>Week 3</span></div>
-        <details class="phase"><summary>Add sandbox, evidence gate, and approval</summary><div class="phase-body"><ul><li>Run tests in disposable container with CPU, memory, time, filesystem, and network limits.</li><li>Wrap existing Proof of Work gate behind stable adapter.</li><li>Show verified findings; require approval before GitHub comment.</li></ul><p class="deliverable">Done: retry posts at most one approved comment.</p></div></details>
-        <div class="phase-label"><strong>Phase 4</strong><span>Week 4</span></div>
-        <details class="phase"><summary>Measure reliability</summary><div class="phase-body"><ul><li>Add traces for model calls, tools, retries, waits, latency, and cost.</li><li>Build 10 golden PR tasks; label true defects and allowed findings.</li><li>Publish baseline defect recall, false-positive rate, latency, and cost.</li></ul><p class="deliverable">Done: repeatable HTML report with honest unknowns.</p></div></details>
-        <div class="phase-label"><strong>Phase 5</strong><span>After baseline</span></div>
-        <details class="phase"><summary>Test specialist agents, then deploy</summary><div class="phase-body"><ul><li>Add test and security specialists behind routing rules.</li><li>Compare single-agent and multi-agent runs on same frozen corpus.</li><li>Keep specialists only when benefit beats cost and latency thresholds.</li><li>Deploy, run on five external repos, collect 100 real runs.</li></ul><p class="deliverable">Done: public comparison, threat model, runbook, dashboard, demo, and postmortem.</p></div></details>
+        <div class="phase-label"><strong>Phases 0–3</strong><span>Merged</span></div>
+        <details class="phase"><summary>Core review workflow</summary><div class="phase-body"><ul><li>Contracts, PostgreSQL, signed webhooks, and Temporal orchestration.</li><li>Context selection, single review agent, sandbox, and Proof of Work.</li><li>Approval inbox and idempotent publish boundary.</li></ul><p class="deliverable">Done: repository implementation is on main.</p></div></details>
+        <div class="phase-label"><strong>Phase 4</strong><span>Foundation merged</span></div>
+        <details class="phase"><summary>Evaluation and deployment foundation</summary><div class="phase-body"><ul><li>Frozen ten-task corpus and deterministic replay.</li><li>Telemetry, dashboard, health, backup, restore, and VM runbook.</li><li>Model quality remains unknown until a real provider run.</li></ul><p class="deliverable">Open: real evaluation and Linux acceptance.</p></div></details>
+        <div class="phase-label"><strong>Phase 4A</strong><span>Next</span></div>
+        <details class="phase" open><summary>Private production hardening</summary><div class="phase-body"><ul><li>Production provider operations, repository sync, policy, and GitHub login.</li><li>Check Runs, repository checks, bounded evidence, metrics, and runner operations.</li><li>Repository and PR history dashboard plus signed release artifacts.</li></ul><p class="deliverable">Done when issue #46 has accepted evidence.</p></div></details>
+        <div class="phase-label"><strong>Phase 5</strong><span>Later</span></div>
+        <details class="phase"><summary>Test specialist agents</summary><div class="phase-body"><ul><li>Compare specialists with the single-agent baseline on the same frozen inputs.</li><li>Ship only when quality improves within cost and latency limits.</li></ul><p class="deliverable">No specialist rollout before measured production baseline.</p></div></details>
       </div>
     </section>
-
     <section class="section shell" id="metrics">
       <div class="section-head">
         <div><div class="kicker">Success measures</div><h2>Numbers that matter</h2></div>
@@ -513,39 +508,33 @@
         <div class="card metric"><strong>≤15%</strong><span>False-positive target</span></div>
         <div class="card metric"><strong>p95</strong><span>End-to-end latency</span></div>
         <div class="card metric"><strong>$/run</strong><span>Exact known cost</span></div>
-        <div class="card metric"><strong>100</strong><span>Real runs before claim</span></div>
+        <div class="card metric"><strong>Staged</strong><span>Rollout before scale</span></div>
       </div>
     </section>
 
     <section class="section shell" id="files">
       <div class="section-head">
-        <div><div class="kicker">File map</div><h2>What changes</h2></div>
-        <p class="section-intro"><span class="reuse">Reuse</span> existing verifier. <span class="new">Add</span> new platform beside it.</p>
+        <div><div class="kicker">File map</div><h2>Current repository</h2></div>
+        <p class="section-intro">Plans and docs stay separate from owned runtime code.</p>
       </div>
-      <div class="card file-tree"><pre>C:\Agentic-Engineer-Roadmap\
-├── <span class="reuse">proof-of-work\</span>                     # existing v0.2.0 package
-│   ├── <span class="reuse">proofofwork\engine.py</span>            # deterministic checks
-│   ├── <span class="reuse">proofofwork\eval\gate.py</span>         # fail-closed gate
-│   └── <span class="reuse">proofofwork\eval\report.py</span>       # evidence reporting pattern
-└── <span class="new">pr-reliability-platform\</span>            # new repository
-    ├── <span class="new">apps\api\</span>                        # FastAPI webhooks and REST API
-    ├── <span class="new">apps\web\</span>                        # runs and approvals UI
-    ├── <span class="new">workers\workflows\</span>                # Temporal workflows
-    ├── <span class="new">workers\activities\</span>               # context, agent, tests, publish
-    ├── <span class="new">packages\contracts\</span>               # versioned typed JSON shapes
-    ├── <span class="new">packages\proof_adapter\</span>           # stable Proof of Work boundary
-    ├── <span class="new">evals\golden_prs\</span>                 # frozen PR fixtures
-    ├── <span class="new">infra\</span>                            # local compose and deployment
-    └── <span class="new">tests\</span>                            # unit, contract, integration, E2E</pre></div>
+      <div class="card file-tree"><pre>C:\pr-reliability-platform\
+├── apps\api\                    # webhook, product API, health
+├── apps\web\                    # approval inbox and dashboard
+├── workers\                      # workflows, activities, sandbox
+├── packages\contracts\          # versioned contracts
+├── packages\proof_adapter\      # Proof of Work boundary
+├── evals\golden_prs\            # frozen evaluation tasks
+├── infra\                        # local and VM operations
+├── migrations\                   # product database
+├── docs\                         # operating documentation
+└── plan\                         # decisions and roadmap</pre></div>
     </section>
-
     <section class="section shell" id="scope">
       <div class="two-col">
-        <article class="card list-card"><div class="kicker">MVP includes</div><h3>One trustworthy review path</h3><ul><li>One GitHub organization and installation flow.</li><li>One single-agent analyzer.</li><li>Changed-file plus dependency context.</li><li>Sandboxed test execution.</li><li>Proof of Work gate.</li><li>Manual approve or reject.</li><li>Run, quality, latency, and cost metrics.</li></ul></article>
-        <article class="card list-card"><div class="kicker">Deferred</div><h3>Earn complexity later</h3><ul><li>Automatic patches or commits.</li><li>Multi-agent debate on every PR.</li><li>RepoGraph and vector retrieval.</li><li>Fine-tuned models.</li><li>Enterprise billing and policy builder.</li><li>Support beyond GitHub.</li><li>Untrusted execution without real isolation.</li></ul></article>
+        <article class="card list-card"><div class="kicker">Product includes</div><h3>One trustworthy AI review path</h3><ul><li>GitHub installation and repository policy.</li><li>Single-agent analysis with bounded context.</li><li>Sandboxed review checks and Proof of Work.</li><li>Human approve or reject.</li><li>Check Run, history, quality, latency, usage, and cost views.</li></ul></article>
+        <article class="card list-card"><div class="kicker">Not this product</div><h3>No general CI/CD platform</h3><ul><li>No application or infrastructure deployment.</li><li>No GitHub Actions compatibility.</li><li>No marketplace action execution.</li><li>No arbitrary host commands or privileged containers.</li><li>No secrets for forked pull requests.</li><li>No specialist agents before a measured baseline.</li></ul></article>
       </div>
     </section>
-
     <section class="section shell" id="risks">
       <div class="section-head">
         <div><div class="kicker">Risk controls</div><h2>Failure is visible and safe</h2></div>
@@ -558,8 +547,8 @@
 
     <section class="section shell" id="first-day">
       <div class="section-head">
-        <div><div class="kicker">Start here</div><h2>Today’s build checklist</h2></div>
-        <p class="section-intro">Progress saves only in this browser.</p>
+        <div><div class="kicker">Production next</div><h2>Release checklist</h2></div>
+        <p class="section-intro">Progress saves only in this browser. GitHub issue #46 is authoritative.</p>
       </div>
       <div class="card checklist">
         <strong id="progressLabel">0 of 6 complete</strong>
@@ -570,20 +559,16 @@
 
     <section class="section shell" id="questions">
       <div class="section-head">
-        <div><div class="kicker">Open questions</div><h2>Confirm before implementation</h2></div>
-        <p class="section-intro">Recommended defaults are selected. Choices save locally.</p>
+        <div><div class="kicker">Recorded direction</div><h2>Decisions are set</h2></div>
       </div>
-      <div class="card question" data-question="provider"><h3>Which model provider should power first baseline?</h3><div class="options"><button class="option selected" type="button" data-value="openai">OpenAI API</button><button class="option" type="button" data-value="anthropic">Anthropic API</button><button class="option" type="button" data-value="local">Local CLI</button></div><div class="recommended-note">Recommended: OpenAI API behind provider-neutral interface. Local CLI remains evaluation adapter.</div></div>
-      <div class="card question" data-question="deployment"><h3>Where should first public version run?</h3><div class="options"><button class="option selected" type="button" data-value="single-vm">Single cloud VM</button><button class="option" type="button" data-value="managed">Managed containers</button><button class="option" type="button" data-value="local">Local demo only</button></div><div class="recommended-note">Recommended: single VM after local milestone. Cheapest path to real users and full observability.</div></div>
-      <div class="card question" data-question="repository"><h3>Repository shape?</h3><div class="options"><button class="option selected" type="button" data-value="new">New repository</button><button class="option" type="button" data-value="monorepo">Inside Proof of Work</button></div><div class="recommended-note">Recommended: new repository. Proof of Work stays focused and versioned as dependency.</div></div>
+      <div class="card callout"><strong>Provider:</strong> OpenAI behind a provider-neutral interface. <strong>Hosting:</strong> one private Linux VM after acceptance. <strong>Repository:</strong> this standalone project.</div>
     </section>
-
     <section class="section shell">
-      <div class="callout"><strong>Approval gate:</strong> Review architecture, scope, file map, and three choices above. Implementation starts only after direction is approved.</div>
+      <div class="callout"><strong>Production gate:</strong> Complete issue #46 and the production-readiness checklist before reviewing production repositories.</div>
     </section>
   </main>
 
-  <footer class="shell">Plan grounded in <span class="mono">02-Roadmap/ROADMAP.md</span>, <span class="mono">03-Project-Blueprints/02-multi-agent-orchestrator.md</span>, and Proof of Work v0.2.0 source.</footer>
+  <footer class="shell">Authoritative details: <span class="mono">plan/v1.md</span>, <span class="mono">docs/production-readiness.md</span>, and GitHub issue #46.</footer>
 
   <script>
     const storageKey = 'pr-reliability-plan-v1';
@@ -641,12 +626,12 @@
     });
 
     const tasks = [
-      ['Create new repository skeleton', 'FastAPI API, worker, web, contracts, evaluations, infrastructure.'],
-      ['Write version-one contracts', 'Run state, finding JSON, webhook envelope, approval command.'],
-      ['Create first golden PR fixture', 'Tiny real repository diff with one known, testable defect.'],
-      ['Add PostgreSQL schema migration', 'Repositories, pull requests, runs, findings, approvals, run events.'],
-      ['Start local Temporal workflow', 'Queued run reaches a safe terminal state and survives worker restart.'],
-      ['Record baseline evidence', 'One agent run with outcome, duration, usage coverage, and honest limitations.']
+      ['Wire production providers', 'OpenAI model calls and short-lived GitHub installation operations.'],
+      ['Sync repositories and policy', 'Show active repositories and enforce owner-scoped configuration.'],
+      ['Add review checks', 'Check Runs, allow-listed sandbox commands, and bounded evidence.'],
+      ['Finish dashboard and access', 'PR history, analytics, runner health, and GitHub login.'],
+      ['Publish signed release', 'Immutable images, scans, signatures, manifest, and rollback digests.'],
+      ['Prove production', 'Real evaluation plus private Linux VM recovery and end-to-end acceptance.']
     ];
     const taskState = saved.tasks || {};
     const checklist = document.getElementById('checklist');

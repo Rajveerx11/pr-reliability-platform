@@ -36,6 +36,16 @@ Provider adapters return `ModelUsage` only when the provider reports it. Input t
 tokens, and exact micro-dollar cost become span attributes. `pr.usage.tokens_known` and
 `pr.cost.known` make partially missing values explicit.
 
+## Product metrics and dashboard state
+
+OpenTelemetry metrics are runtime signals. They do not replace durable product facts. Today the
+dashboard shows `Unknown` when retry, usage, or cost data is not stored per run.
+
+Issue #39 adds owner-scoped volume, outcome, retry, latency, usage, and cost facts. Issue #43 adds
+queue depth, oldest queued age, runner capacity, cancellations, reruns, and alert delivery. Metric
+labels must stay bounded; never use repository names, PR numbers, run IDs, or source paths as
+Prometheus labels.
+
 ## Health
 
 - `GET /health/live` proves the API process can answer.

@@ -1,5 +1,7 @@
 # Documentation
 
+- `production-readiness.md` — remaining production work, release gates, and rollout order.
+- `review-checks.md` — CI-style review evidence that is included and excluded.
 - `status.md` — current implementation, verification, and external acceptance status.
 - `architecture.md` — services, data flow, ownership, and runtime boundaries.
 - `development.md` — local setup, folder rules, tests, and delivery workflow.
@@ -11,4 +13,6 @@
 - `deployment.md` — private single-VM TLS deployment, backup, recovery, monitoring, and rollback.
 
 Product scope and decisions live in `plan/v1.md`.
-
+Production readiness is tracked by
+[issue #46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46). Planned pages and
+fields remain planned until their linked issue is implemented.
