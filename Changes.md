@@ -14,8 +14,9 @@ them and names the affected files.
 - Changed files:
   - `workers/tests/test_pull_request_review_workflow.py` — platform-safe Temporal test environment
     with bounded status polling.
+  - `.github/workflows/quality.yml` — focused Windows Temporal regression coverage.
   - `docs/development.md`, `docs/production-readiness.md`, `docs/status.md`, and `plan/v1.md` —
-    local test behavior, verification evidence, and resolved issue state.
+    local and CI test behavior, verification evidence, and resolved issue state.
 
 ### Updated production-readiness documentation
 

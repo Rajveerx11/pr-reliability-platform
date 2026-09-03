@@ -113,10 +113,13 @@ runs. Both paths exercise retries, approval timeout, cancellation, supersession,
 uv run pytest workers/tests -q
 ```
 
-CI runs these tests in the dedicated `temporal-workflow` job.
+CI runs the full worker suite in the Linux `temporal-workflow` job. A focused
+`temporal-workflow-windows` job runs the workflow regression module on every pull request and push
+to `main`.
 
 This platform-specific test harness keeps production timeouts unchanged and preserves the Linux
-time-skipping coverage. The Windows behavior is tracked in issue #47.
+time-skipping coverage. [Issue #47](https://github.com/Rajveerx11/pr-reliability-platform/issues/47)
+was closed after both paths passed repeatedly.
 
 Sandbox unit tests use an injected fake Docker boundary and run with the normal worker suite. Real
 isolation tests require a reachable Linux Docker engine and an immutable local image ID:

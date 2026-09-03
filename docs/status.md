@@ -36,10 +36,12 @@ Existing acceptance issues #12, #14, and #15 also remain open. See
 
 ## Verification snapshot
 
-- Latest remote Linux GitHub checks on `main`: passing.
+- Required GitHub checks on `main`: passing.
 - Local Python 3.12 lint and format checks: passing.
 - Local Windows Python 3.12 test run: 218 passed and 72 skipped.
-- Windows Temporal tests use the local dev server; Linux CI keeps time-skipping coverage.
+- Linux CI runs the full Temporal worker suite with time skipping. Windows CI runs the focused
+  workflow regression module against the local dev server.
+- Issue #47 is closed.
 - No production timeout was increased.
 
 Do not describe the service as deployed or model quality as measured until the production exit

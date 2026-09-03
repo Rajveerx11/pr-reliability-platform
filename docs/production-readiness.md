@@ -18,6 +18,7 @@ review evidence. It is not a general CI/CD platform or deployment system.
 - Human approval and idempotent publishing boundaries.
 - Private dashboard, telemetry, health checks, and VM deployment kit.
 - Frozen evaluation corpus and deterministic harness replay.
+- Cross-platform Temporal workflow test harness and CI regression coverage.
 
 ## Required work
 
@@ -40,7 +41,7 @@ review evidence. It is not a general CI/CD platform or deployment system.
 
 ## Exit checklist
 
-- Required Linux checks pass.
+- Required Linux checks and the focused Windows Temporal regression check pass.
 - A test repository completes webhook, review, verification, approval, and exactly one publish.
 - Forked pull requests receive no secrets.
 - Dashboard access uses GitHub identity and owner-scoped authorization.
