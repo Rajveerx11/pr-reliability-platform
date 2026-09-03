@@ -57,6 +57,17 @@ to the configured owner. A decision transaction locks the pull request row, so a
 update cannot race a stale approval into storage. The approval endpoint records audit and durable
 workflow-signal events but performs no external write.
 
+## Provider operations
+
+- The OpenAI adapter sends only selected context, disables response storage, requires strict
+  structured output, and validates the same finding schema locally before persistence.
+- GitHub App JWTs live only in memory. Installation tokens expire quickly, name exactly one
+  repository, and grant only contents read plus pull-request write permissions.
+- Git authentication is passed only through an allow-listed child-process environment. Tokens do
+  not enter command arguments, repository URLs, Git configuration files, errors, or activity
+  history.
+- Every checkout verifies HEAD against the requested commit. Stage persistence rechecks the
+  database head after network work and stores only safe references and bounded facts.
 ## GitHub review publishing
 
 - The activity accepts only the stable `{run_id}:{head_sha}:publish` idempotency key.

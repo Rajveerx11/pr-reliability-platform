@@ -17,9 +17,9 @@ It is not a general CI/CD system and does not replace GitHub Actions deployment 
 - Versioned contracts, PostgreSQL migrations, and owner-scoped records.
 - Signed and deduplicated GitHub webhook intake.
 - Durable Temporal workflow with retries, cancellation, and supersession.
-- Deterministic context selection and provider-neutral structured findings.
+- Deterministic context selection, strict OpenAI structured findings, and safe usage facts.
 - Disposable Docker sandbox and Proof of Work evidence gate.
-- Human approval and idempotent publishing boundaries.
+- Short-lived repository-scoped GitHub App checkout and approval-bound idempotent publishing.
 - Traces, metrics, health checks, approval inbox, and private operations dashboard.
 - Frozen ten-task evaluation corpus and deterministic harness replay.
 - Private-IP TLS deployment configuration, backup, restore, and rollback tools.
@@ -27,9 +27,9 @@ It is not a general CI/CD system and does not replace GitHub Actions deployment 
 ## Production backlog
 
 [Issue #46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46) is the production
-tracking issue. Its work includes #36 through #45: production providers, repository sync and
-policy, dashboard history, analytics, Check Runs, review checks, bounded evidence, runner
-operations, GitHub login, and signed images.
+tracking issue. Issue #36 supplies the production provider operations. Remaining work includes
+repository sync and policy, dashboard history, analytics, Check Runs, review checks, bounded
+evidence, runner operations, GitHub login, and signed images.
 
 Existing acceptance issues #14 and #15 remain open. See
 [production readiness](production-readiness.md) for the order and release gate.

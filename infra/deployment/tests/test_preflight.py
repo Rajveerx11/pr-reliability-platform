@@ -19,6 +19,7 @@ IMAGE_KEYS = (
     "CADDY_IMAGE",
     "OTEL_COLLECTOR_IMAGE",
     "PROMETHEUS_IMAGE",
+    "REVIEW_SANDBOX_IMAGE",
 )
 
 
@@ -36,6 +37,7 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "DATABASE_URL": f"postgresql://pr_reliability:{'d' * 32}@postgres:5432/pr_reliability",
         "OWNER_ID": "01J00000000000000000000001",
         "GITHUB_APP_ID": "1",
+        "GITHUB_APP_BOT_USER_ID": "3",
         "GITHUB_INSTALLATION_ID": "2",
         "GITHUB_WEBHOOK_SECRET": "w" * 32,
         "REVIEW_ACTIVITY_OPERATIONS_FACTORY": "provider:create",
@@ -48,6 +50,7 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "SANDBOX_ENGINE_UID": "1001",
         "SANDBOX_ENGINE_GID": "1001",
         "SANDBOX_STAGING_DIRECTORY": "/run/user/1001/pr-reliability-sandbox-staging",
+        "REVIEW_SANDBOX_COMMAND_JSON": '["python","-m","pytest","-q"]',
     }
     for index, name in enumerate(IMAGE_KEYS):
         values[name] = f"registry.internal/image-{index}@sha256:{index + 1:064x}"

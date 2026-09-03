@@ -83,10 +83,12 @@ and collector health on port `13133`. API liveness and dependency readiness are 
 `/health/live` and `/health/ready`. See `docs/observability.md` for trace and metric fields.
 Set `HEALTH_CHECK_TIMEOUT_SECONDS` to bound each readiness dependency check; the default is two
 seconds.
-`ACTIVITY_WORKER_IMAGE` must name an image built from this project that also installs a provider
-package. `REVIEW_ACTIVITY_OPERATIONS_FACTORY` must use `module:factory` and return one complete
-`ActivityOperations` value containing context, model, verification, publish, and terminal
-operations. Registering partial activity sets on the same queue is not supported.
+ACTIVITY_WORKER_IMAGE must name an image built from this project.
+Set REVIEW_ACTIVITY_OPERATIONS_FACTORY to the built-in
+pr_reliability_workers.providers:create_operations factory. It returns the complete context,
+OpenAI analysis, sandbox verification, approved GitHub publish, and terminal persistence set.
+Configure OPENAI_MODEL explicitly. REVIEW_SANDBOX_COMMAND_JSON is a JSON argument vector, not a
+host shell command. Registering partial activity sets on the same queue is not supported.
 The publish operation must use `GitHubReviewPublishOperation` with `GitHubRestReviewClient`.
 Configure that client with a short-lived repository installation token and the numeric user ID of
 the authenticated GitHub App bot. It first creates an unsubmitted `PENDING` pull request review

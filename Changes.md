@@ -5,6 +5,28 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added production OpenAI and GitHub activity operations
+
+- Issue: [#36](https://github.com/Rajveerx11/pr-reliability-platform/issues/36)
+- Decisions: [DEC-004](plan/v1.md#dec-004--use-temporal-for-durable-workflows),
+  [DEC-008](plan/v1.md#dec-008--run-untrusted-commands-inside-a-real-sandbox),
+  [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write), and
+  [DEC-012](plan/v1.md#dec-012--start-with-openai-behind-a-provider-neutral-interface)
+- Reason: The deployed activity worker needs concrete, retry-safe operations from an exact GitHub
+  commit through strict model analysis, verification, persistence, and approved publishing.
+- Changed files:
+  - workers/src/pr_reliability_workers/providers/ — OpenAI Responses adapter, repository-scoped
+    GitHub App credentials, exact-head checkout, PostgreSQL activity operations, and production
+    factory.
+  - workers/src/pr_reliability_workers/activities/github.py and worker.py — refreshable
+    installation-token publishing enforcement.
+  - Provider, checkout, persistence, privacy, factory, and deployment tests — no live credentials.
+  - infra/deployment/ — built-in provider factory, reviewed model, immutable sandbox image,
+    argument-vector check command, and GitHub App bot identity configuration.
+  - pyproject.toml and uv.lock — direct cryptographic signing dependency.
+  - Architecture, security, development, deployment, readiness, and status documentation —
+    production operation boundaries and remaining live acceptance.
+
 ### Added approval-bound idempotent GitHub review publishing
 
 - Issue: [#12](https://github.com/Rajveerx11/pr-reliability-platform/issues/12)

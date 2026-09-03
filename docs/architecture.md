@@ -166,9 +166,10 @@ the configured model budget.
 The review agent depends only on a provider-neutral `ModelClient`. It sends context and a strict
 JSON schema, rejects invalid or duplicate structured findings, then attaches trusted run identity.
 Provider failures return no partial result. Provider-reported duration, token usage, coverage, and
-exact cost cross the boundary without estimating unknown values. No concrete hosted provider is
-configured in this repository yet. Production OpenAI and GitHub operations are tracked in
-[issue #36](https://github.com/Rajveerx11/pr-reliability-platform/issues/36).
+exact cost cross the boundary without estimating unknown values. The production activity package
+uses the OpenAI Responses API with strict structured output and disables response storage. It
+records provider token counts exactly and leaves cost unknown because the response does not report
+billed cost. GitHub App tokens are short-lived and scoped to the exact repository.
 
 ## Persistence boundary
 

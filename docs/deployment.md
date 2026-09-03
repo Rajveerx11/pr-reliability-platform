@@ -176,6 +176,7 @@ affected GitHub credentials, and follow the incident rule in [security.md](secur
 - Backup and restore tooling: implemented and unit-tested with fake commands; real VM drill blocked.
 - Health and local monitoring: implemented; real VM observation blocked.
 - End-to-end test-repository review: blocked by missing VM and external test authority.
-- Production provider operations and GitHub login: planned in #36 and #44.
+- Production provider operations: implemented and tested without live credentials in #36.
+- GitHub login: planned in #44.
 - Signed immutable release images and manifest: planned in #45.
 - Rollback: documented; real rollback drill blocked.

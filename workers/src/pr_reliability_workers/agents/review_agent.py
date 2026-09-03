@@ -79,6 +79,7 @@ class ReviewAgent:
             instruction=_INSTRUCTION,
             context=context,
             output_schema=_FindingsEnvelope.model_json_schema(),
+            idempotency_key=f"{command.run_id}:{command.head_sha}:analyze",
         )
         started_ns = self._monotonic_ns()
         response = None

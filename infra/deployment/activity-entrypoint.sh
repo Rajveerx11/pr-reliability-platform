@@ -7,6 +7,7 @@ case "${SANDBOX_STAGING_DIRECTORY:-}" in
 esac
 
 find "${SANDBOX_STAGING_DIRECTORY}" -mindepth 1 -maxdepth 1 -type d \
-  \( -name 'pr-review-source-*' -o -name 'pr-proof-gate-*' \) -exec rm -rf -- {} +
+  \( -name 'pr-review-source-*' -o -name 'pr-proof-gate-*' -o \
+    -name 'pr-review-checkout-*' -o -name 'pr-review-workspace-*' \) -exec rm -rf -- {} +
 
 exec "$@"

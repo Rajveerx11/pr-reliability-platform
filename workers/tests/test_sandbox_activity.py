@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
@@ -43,6 +44,17 @@ from temporalio.exceptions import ApplicationError
 
 IMAGE = f"sha256:{'a' * 64}"
 STAGE_REQUEST = StageRequest("owner", "run", "b" * 40, "key", base_sha="a" * 40)
+
+
+def test_worker_imports_in_clean_process() -> None:
+    result = subprocess.run(
+        (sys.executable, "-c", "import pr_reliability_workers.worker"),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 class StaticRunner:
