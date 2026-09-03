@@ -5,6 +5,17 @@ them and names the affected files.
 
 ## Unreleased
 
+### Stabilized Windows Temporal supersession tests
+
+- Issue: [#47](https://github.com/Rajveerx11/pr-reliability-platform/issues/47)
+- Decision: [DEC-004](plan/v1.md#dec-004--use-temporal-for-durable-workflows)
+- Reason: The Windows time-skipping test server stalled queries while Continue-As-New changed
+  workflow runs even though the same workflow behavior passed on Linux and the local dev server.
+- Changed files:
+  - `workers/tests/test_pull_request_review_workflow.py` — platform-safe Temporal test environment.
+  - `docs/development.md`, `docs/production-readiness.md`, `docs/status.md`, and `plan/v1.md` —
+    local test behavior, verification evidence, and resolved issue state.
+
 ### Updated production-readiness documentation
 
 - Issue: [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46)

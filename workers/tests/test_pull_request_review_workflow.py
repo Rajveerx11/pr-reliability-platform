@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -243,8 +244,34 @@ def start_command(
     )
 
 
+async def start_temporal_environment() -> WorkflowEnvironment:
+    if sys.platform == "win32":
+        # Windows time-skipping server can stall queries while Continue-As-New changes runs.
+        return await WorkflowEnvironment.start_local()
+    return await WorkflowEnvironment.start_time_skipping()
+
+
+def test_windows_temporal_environment_uses_local_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = object()
+
+    async def start_local():
+        return selected
+
+    async def fail_time_skipping():
+        raise AssertionError("Windows must not use the time-skipping server")
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(WorkflowEnvironment, "start_local", staticmethod(start_local))
+    monkeypatch.setattr(
+        WorkflowEnvironment, "start_time_skipping", staticmethod(fail_time_skipping)
+    )
+    assert asyncio.run(start_temporal_environment()) is selected
+
+
 async def start_environment(operations: RecordingOperations):
-    environment = await WorkflowEnvironment.start_time_skipping()
+    environment = await start_temporal_environment()
     worker = create_worker(environment.client, TASK_QUEUE, operations.activities())
     return environment, worker
 
@@ -304,7 +331,7 @@ def test_retry_uses_stable_keys_and_history_replays() -> None:
 
 def test_split_production_workers_advance_through_all_registered_activities() -> None:
     async def run() -> None:
-        environment = await WorkflowEnvironment.start_time_skipping()
+        environment = await start_temporal_environment()
         operations = RecordingOperations()
         workflow_worker = create_workflow_worker(environment.client, TASK_QUEUE)
         activity_worker = create_activity_worker(
@@ -591,7 +618,7 @@ def test_reopen_generation_supersedes_same_head_old_run() -> None:
 def test_reopened_generation_activities_use_its_persisted_webhook_trace() -> None:
     async def run() -> None:
         operations = RecordingOperations()
-        environment = await WorkflowEnvironment.start_time_skipping()
+        environment = await start_temporal_environment()
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
