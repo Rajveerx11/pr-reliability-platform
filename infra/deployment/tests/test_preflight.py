@@ -19,6 +19,7 @@ IMAGE_KEYS = (
     "CADDY_IMAGE",
     "OTEL_COLLECTOR_IMAGE",
     "PROMETHEUS_IMAGE",
+    "REVIEW_SANDBOX_IMAGE",
 )
 
 
@@ -36,6 +37,7 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "DATABASE_URL": f"postgresql://pr_reliability:{'d' * 32}@postgres:5432/pr_reliability",
         "OWNER_ID": "01J00000000000000000000001",
         "GITHUB_APP_ID": "1",
+        "GITHUB_APP_BOT_USER_ID": "3",
         "GITHUB_INSTALLATION_ID": "2",
         "GITHUB_WEBHOOK_SECRET": "w" * 32,
         "REVIEW_ACTIVITY_OPERATIONS_FACTORY": "provider:create",
@@ -48,6 +50,7 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "SANDBOX_ENGINE_UID": "1001",
         "SANDBOX_ENGINE_GID": "1001",
         "SANDBOX_STAGING_DIRECTORY": "/run/user/1001/pr-reliability-sandbox-staging",
+        "REVIEW_SANDBOX_COMMAND_JSON": '["python","-m","pytest","-q"]',
     }
     for index, name in enumerate(IMAGE_KEYS):
         values[name] = f"registry.internal/image-{index}@sha256:{index + 1:064x}"
@@ -223,7 +226,10 @@ def test_rootless_runtime_requires_owned_socket_and_staging_directory(tmp_path: 
 
 
 def test_vm_compose_exposes_only_private_tls_and_loopback_monitoring() -> None:
-    compose = (Path(__file__).parents[1] / "compose.vm.yaml").read_text(encoding="utf-8")
+    deployment = Path(__file__).parents[1]
+    compose = (deployment / "compose.vm.yaml").read_text(encoding="utf-8")
+    activity_worker = compose.split("  activity-worker:", 1)[1].split("\n  otel-collector:", 1)[0]
+    entrypoint = (deployment / "activity-entrypoint.sh").read_text(encoding="utf-8")
 
     assert compose.count("    ports:\n") == 2
     assert "      - 127.0.0.1:9090:9090" in compose
@@ -234,6 +240,11 @@ def test_vm_compose_exposes_only_private_tls_and_loopback_monitoring() -> None:
         in compose
     )
     assert compose.count("${SANDBOX_STAGING_DIRECTORY:?SANDBOX_STAGING_DIRECTORY is required}") >= 3
+    assert "OWNER_ID: ${OWNER_ID:?OWNER_ID is required}" in activity_worker
+    assert "-mindepth 1 -maxdepth 1 -type d" in entrypoint
+    assert "-name 'pr-review-checkout-*'" in entrypoint
+    assert "-mindepth 1 -maxdepth 1 -type f" in entrypoint
+    assert "-name 'pr-review-checkout-*.lock'" in entrypoint
     assert "APPROVAL_ACTOR_ID: ${APPROVAL_ACTOR_ID:?APPROVAL_ACTOR_ID is required}" in compose
     assert (
         "APPROVAL_REVIEWER_TOKEN: "

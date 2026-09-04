@@ -13,6 +13,7 @@ class ModelRequest:
     instruction: str
     context: str
     output_schema: dict[str, Any]
+    idempotency_key: str
 
 
 @dataclass(frozen=True, slots=True)

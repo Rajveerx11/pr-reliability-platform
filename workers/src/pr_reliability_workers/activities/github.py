@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 
+from ..providers.github_app import (
+    REVIEW_PERMISSIONS,
+    GitHubAppInstallationTokenProvider,
+)
 from .publish import GitHubReview, GitHubReviewPayloadMismatch, GitHubReviewStaleHead
 
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _REVIEWS_PER_PAGE = 100
 _GITHUB_API_URL = "https://api.github.com"
+RepositoryIdResolver = Callable[[str], int]
 
 
 class GitHubRestReviewClient:
@@ -22,22 +29,35 @@ class GitHubRestReviewClient:
     __slots__ = (
         "_api_url",
         "_authenticated_author_id",
+        "_repository_id_resolver",
         "_timeout_seconds",
         "_token",
+        "_token_provider",
         "_transport",
     )
 
     def __init__(
         self,
-        token: str,
+        token: str | GitHubAppInstallationTokenProvider,
         authenticated_author_id: int,
         *,
+        repository_id_resolver: RepositoryIdResolver | None = None,
         api_url: str = "https://api.github.com",
         timeout_seconds: float = 10.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        if not token or not token.strip():
-            raise ValueError("GitHub token is required")
+        if isinstance(token, GitHubAppInstallationTokenProvider):
+            if repository_id_resolver is None:
+                raise ValueError("GitHub repository ID resolver is required")
+            static_token = None
+            token_provider = token
+        else:
+            if not isinstance(token, str) or not token.strip():
+                raise ValueError("GitHub token is required")
+            if repository_id_resolver is not None:
+                raise ValueError("GitHub repository ID resolver requires a token provider")
+            static_token = token
+            token_provider = None
         if authenticated_author_id < 1:
             raise ValueError("authenticated GitHub author ID must be positive")
         if timeout_seconds <= 0:
@@ -45,15 +65,21 @@ class GitHubRestReviewClient:
         parsed_url = str(httpx.URL(api_url)).rstrip("/")
         if parsed_url != _GITHUB_API_URL:
             raise ValueError("GitHub API URL must be https://api.github.com")
-        self._token = token
+        self._token = static_token
+        self._token_provider = token_provider
+        self._repository_id_resolver = repository_id_resolver
         self._authenticated_author_id = authenticated_author_id
         self._api_url = _GITHUB_API_URL + "/"
         self._timeout_seconds = timeout_seconds
         self._transport = transport
 
+    @property
+    def uses_installation_token_provider(self) -> bool:
+        return self._token_provider is not None
+
     async def current_head_sha(self, repository: str, pull_request_number: int) -> str:
         path = _pull_request_path(repository, pull_request_number)
-        async with self._new_http_client() as client:
+        async with await self._new_http_client(repository) as client:
             return await _current_head_sha(client, path)
 
     async def find_review(
@@ -74,7 +100,7 @@ class GitHubRestReviewClient:
         page = 1
         mismatched_terminal_marker = False
         pending_review: dict[str, Any] | None = None
-        async with self._new_http_client() as client:
+        async with await self._new_http_client(repository) as client:
             while True:
                 response = await client.get(
                     path,
@@ -128,7 +154,7 @@ class GitHubRestReviewClient:
     ) -> GitHubReview:
         _require_sha(expected_head_sha)
         path = _reviews_path(repository, pull_request_number)
-        async with self._new_http_client() as client:
+        async with await self._new_http_client(repository) as client:
             response = await client.post(
                 path,
                 json={"body": body, "commit_id": expected_head_sha},
@@ -150,18 +176,37 @@ class GitHubRestReviewClient:
                 expected_head_sha,
             )
 
-    def _new_http_client(self) -> httpx.AsyncClient:
+    async def _new_http_client(self, repository: str) -> httpx.AsyncClient:
+        token = await self._token_for(repository)
         return httpx.AsyncClient(
             base_url=self._api_url,
             headers={
                 "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {self._token}",
+                "Authorization": f"Bearer {token}",
                 "User-Agent": "pr-reliability-platform",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
             timeout=self._timeout_seconds,
             transport=self._transport,
         )
+
+    async def _token_for(self, repository: str) -> str:
+        if self._token_provider is None:
+            assert self._token is not None
+            return self._token
+        assert self._repository_id_resolver is not None
+        try:
+            repository_id = await asyncio.to_thread(self._repository_id_resolver, repository)
+            if (
+                isinstance(repository_id, bool)
+                or not isinstance(repository_id, int)
+                or repository_id < 1
+            ):
+                raise ValueError
+            credential = await self._token_provider.issue(repository_id, REVIEW_PERMISSIONS)
+            return credential.value
+        except Exception:  # noqa: BLE001 -- credential details must not escape
+            raise RuntimeError("GitHub authentication failed") from None
 
 
 def _pull_request_path(repository: str, pull_request_number: int) -> str:

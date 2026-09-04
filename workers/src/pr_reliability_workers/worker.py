@@ -121,6 +121,8 @@ def load_activity_operations(factory_path: str) -> ActivityOperations:
         raise TypeError("production publishing must use GitHubReviewPublishOperation")
     if type(operations.publish.client) is not GitHubRestReviewClient:
         raise TypeError("production publishing must use GitHubRestReviewClient")
+    if not operations.publish.client.uses_installation_token_provider:
+        raise TypeError("production publishing must use a GitHub App installation token provider")
     return operations
 
 

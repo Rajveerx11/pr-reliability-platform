@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
@@ -25,6 +26,7 @@ from pr_reliability_workers.activities import (
     SandboxVerificationOperation,
     VerificationEvidence,
 )
+from pr_reliability_workers.providers import GitHubAppInstallationTokenProvider
 from pr_reliability_workers.sandbox import (
     DockerSandboxRunner,
     RuntimeResult,
@@ -42,6 +44,17 @@ from temporalio.exceptions import ApplicationError
 
 IMAGE = f"sha256:{'a' * 64}"
 STAGE_REQUEST = StageRequest("owner", "run", "b" * 40, "key", base_sha="a" * 40)
+
+
+def test_worker_imports_in_clean_process() -> None:
+    result = subprocess.run(
+        (sys.executable, "-c", "import pr_reliability_workers.worker"),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 class StaticRunner:
@@ -79,6 +92,11 @@ class FakeContainerRuntime:
     ) -> RuntimeResult:
         del arguments, timeout_seconds, output_limit_bytes
         return RuntimeResult(0, b"", b"")
+
+
+class FakeInstallationTokenProvider(GitHubAppInstallationTokenProvider):
+    def __init__(self) -> None:
+        pass
 
 
 class FakeGitHubReviewClient:
@@ -261,6 +279,17 @@ def test_production_loader_requires_real_docker_runner(
     with pytest.raises(TypeError, match="GitHubRestReviewClient"):
         load_activity_operations(f"{provider.__name__}:create")
 
+    provider.create = lambda: replace(
+        expected,
+        publish=GitHubReviewPublishOperation(
+            lambda: None,  # type: ignore[arg-type,return-value]
+            GitHubRestReviewClient("installation-token", 1),
+            lambda: "01J00000000000000000000001",
+        ),
+    )
+    with pytest.raises(TypeError, match="installation token provider"):
+        load_activity_operations(f"{provider.__name__}:create")
+
     provider.create = lambda: expected  # type: ignore[attr-defined]
     assert load_activity_operations(f"{provider.__name__}:create") is expected
 
@@ -296,7 +325,11 @@ def _operations(
         ),
         publish=GitHubReviewPublishOperation(
             lambda: None,  # type: ignore[arg-type,return-value]
-            GitHubRestReviewClient("installation-token", 1),
+            GitHubRestReviewClient(
+                FakeInstallationTokenProvider(),
+                1,
+                repository_id_resolver=lambda repository: 1,
+            ),
             lambda: "01J00000000000000000000001",
         ),
         record_terminal=terminal,

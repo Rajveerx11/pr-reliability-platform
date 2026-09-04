@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import json
 import os
 import re
 import stat
@@ -19,6 +20,7 @@ _IMAGE_KEYS = (
     "CADDY_IMAGE",
     "OTEL_COLLECTOR_IMAGE",
     "PROMETHEUS_IMAGE",
+    "REVIEW_SANDBOX_IMAGE",
 )
 _SECRET_FILE_KEYS = (
     "TLS_CERTIFICATE_FILE",
@@ -35,6 +37,7 @@ _REQUIRED_VALUES = (
     "DATABASE_URL",
     "OWNER_ID",
     "GITHUB_APP_ID",
+    "GITHUB_APP_BOT_USER_ID",
     "GITHUB_INSTALLATION_ID",
     "GITHUB_WEBHOOK_SECRET",
     "REVIEW_ACTIVITY_OPERATIONS_FACTORY",
@@ -47,6 +50,7 @@ _REQUIRED_VALUES = (
     "SANDBOX_ENGINE_UID",
     "SANDBOX_ENGINE_GID",
     "SANDBOX_STAGING_DIRECTORY",
+    "REVIEW_SANDBOX_COMMAND_JSON",
 )
 
 
@@ -101,6 +105,21 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
         or values["OPENAI_API_KEY"].startswith("replace-")
     ):
         raise PreflightError("OPENAI_API_KEY must be configured outside source")
+    if values["MODEL_PROVIDER"] == "openai" and not values.get("OPENAI_MODEL", "").strip():
+        raise PreflightError("OPENAI_MODEL must be configured")
+    for name in ("GITHUB_APP_ID", "GITHUB_APP_BOT_USER_ID", "GITHUB_INSTALLATION_ID"):
+        if not values[name].isdigit() or int(values[name]) < 1:
+            raise PreflightError(f"{name} must be positive")
+    try:
+        sandbox_command = json.loads(values["REVIEW_SANDBOX_COMMAND_JSON"])
+    except json.JSONDecodeError as exc:
+        raise PreflightError("REVIEW_SANDBOX_COMMAND_JSON must be valid JSON") from exc
+    if (
+        not isinstance(sandbox_command, list)
+        or not sandbox_command
+        or any(not isinstance(item, str) or not item for item in sandbox_command)
+    ):
+        raise PreflightError("REVIEW_SANDBOX_COMMAND_JSON must be an argument list")
 
     try:
         bind_address = ipaddress.ip_address(values.get("PRIVATE_BIND_ADDRESS", ""))
