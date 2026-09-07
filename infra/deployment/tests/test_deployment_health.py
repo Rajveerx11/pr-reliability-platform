@@ -10,7 +10,8 @@ import pytest
 from infra.deployment import health
 from infra.deployment.health import HealthCheckError, check_health
 
-SERVICES = """api
+SERVICES = """repository-sync
+api
 command-dispatcher
 workflow-worker
 activity-worker

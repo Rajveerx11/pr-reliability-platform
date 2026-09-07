@@ -21,7 +21,14 @@ DATABASE_ROLES = {
 }
 DATABASES = tuple(DATABASE_ROLES)
 RESTORE_CONFIRMATION = "restore-pr-reliability-v1"
-_WRITERS = ("api", "command-dispatcher", "workflow-worker", "activity-worker", "temporal")
+_WRITERS = (
+    "repository-sync",
+    "api",
+    "command-dispatcher",
+    "workflow-worker",
+    "activity-worker",
+    "temporal",
+)
 Runner = Callable[[Sequence[str], BinaryIO | None, BinaryIO | None], int]
 
 

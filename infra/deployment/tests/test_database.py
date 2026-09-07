@@ -25,6 +25,7 @@ class FakeRunner:
         fail_restore: bool = False,
         fail_stop: bool = False,
         running_services: tuple[str, ...] = (
+            "repository-sync",
             "api",
             "command-dispatcher",
             "workflow-worker",
@@ -107,8 +108,9 @@ def test_backup_and_restore_cover_application_and_temporal_databases(tmp_path: P
         "restarting",
         "--services",
     )
-    assert runner.commands[1][-6:] == (
+    assert runner.commands[1][-7:] == (
         "stop",
+        "repository-sync",
         "api",
         "command-dispatcher",
         "workflow-worker",
@@ -129,8 +131,9 @@ def test_backup_and_restore_cover_application_and_temporal_databases(tmp_path: P
         "--role=temporal",
         "--role=temporal",
     ]
-    assert runner.commands[-1][-6:] == (
+    assert runner.commands[-1][-7:] == (
         "start",
+        "repository-sync",
         "api",
         "command-dispatcher",
         "workflow-worker",
@@ -146,8 +149,9 @@ def test_backup_restarts_services_after_dump_failure(tmp_path: Path) -> None:
     with pytest.raises(DatabaseOperationError, match="deployment command failed"):
         backup(repository, compose, environment, destination, runner=runner)
 
-    assert runner.commands[-1][-6:] == (
+    assert runner.commands[-1][-7:] == (
         "start",
+        "repository-sync",
         "api",
         "command-dispatcher",
         "workflow-worker",
@@ -163,8 +167,9 @@ def test_partial_stop_failure_attempts_restart(tmp_path: Path) -> None:
     with pytest.raises(DatabaseOperationError, match="deployment command failed"):
         backup(repository, compose, environment, destination, runner=runner)
 
-    assert runner.commands[-1][-6:] == (
+    assert runner.commands[-1][-7:] == (
         "start",
+        "repository-sync",
         "api",
         "command-dispatcher",
         "workflow-worker",

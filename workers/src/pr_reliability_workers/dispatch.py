@@ -15,6 +15,7 @@ from typing import Any
 
 import psycopg
 from opentelemetry import context as otel_context
+from pr_reliability_api.repositories.store import admitted_policy, lock_installation
 from pr_reliability_contracts import ApprovalCommand, ApprovalDecision, StartRunCommand
 from pr_reliability_observability import configure_telemetry, context_from_traceparent
 from psycopg import Connection
@@ -214,6 +215,40 @@ async def dispatch_next_command(
                 id_factory,
                 status="skipped",
                 reason=f"run already {run_state}",
+            )
+            return True
+
+        repository = connection.execute(
+            """SELECT r.installation_id, r.github_repository_id, run.base_branch
+               FROM repositories r JOIN pull_requests p
+                 ON p.owner_id = r.owner_id AND p.repository_id = r.id
+               JOIN runs run ON run.owner_id = p.owner_id AND run.pull_request_id = p.id
+               WHERE run.owner_id = %s AND run.id = %s""",
+            (owner_id, internal_run_id),
+        ).fetchone()
+        policy = None
+        if repository is not None and repository[0] is not None:
+            lock_installation(connection, owner_id, repository[0])
+            policy = admitted_policy(
+                connection, owner_id, repository[0], repository[1], repository[2]
+            )
+        if (
+            policy is None
+            or token_budget > policy.token_budget
+            or cost_budget_usd_micros > policy.cost_budget_usd_micros
+        ):
+            connection.execute(
+                """UPDATE runs SET state = 'cancelled', updated_at = now()
+                   WHERE owner_id = %s AND id = %s AND state = 'queued'""",
+                (owner_id, internal_run_id),
+            )
+            _insert_receipt(
+                connection,
+                command,
+                internal_run_id,
+                id_factory,
+                status="skipped",
+                reason="repository policy blocks review",
             )
             return True
 

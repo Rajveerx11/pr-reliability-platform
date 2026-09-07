@@ -31,6 +31,8 @@ jobs:
           APPROVAL_REVIEWER_TOKEN: test-only-reviewer-token
           ACTIVITY_WORKER_IMAGE: example.invalid/pr-reliability-activities:ci
           DATABASE_URL: postgresql://example.invalid/product
+          GITHUB_APP_ID: "1"
+          GITHUB_PRIVATE_KEY_PATH: /tmp/ci-github-private-key
           GITHUB_INSTALLATION_ID: "1"
           GITHUB_WEBHOOK_SECRET: test-only
           OWNER_ID: 01J00000000000000000000001
