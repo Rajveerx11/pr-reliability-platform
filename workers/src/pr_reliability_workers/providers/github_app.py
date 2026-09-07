@@ -155,6 +155,19 @@ class GitHubAppInstallationTokenProvider:
         signature = self._private_key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
         return (signing_input + b"." + _base64url(signature)).decode("ascii")
 
+    async def inventory(self):
+        """Read all installed repositories with a separate metadata-only credential."""
+        from .inventory import fetch_inventory
+
+        now = _utc_now(self._now)
+        return await fetch_inventory(
+            self._installation_id,
+            self._create_jwt(now),
+            now,
+            transport=self._transport,
+            timeout=self._timeout_seconds,
+        )
+
 
 def _validated_token(
     payload: Any,

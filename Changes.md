@@ -5,6 +5,17 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added installation synchronization and repository policy
+
+- Issue: [#37](https://github.com/Rajveerx11/pr-reliability-platform/issues/37).
+- Decisions: DEC-001, DEC-005, and DEC-014 in [the version-one plan](plan/v1.md).
+- Added owner-scoped inventory, lifecycle revocation, complete periodic reconciliation, and an
+  authenticated policy API. Unknown, paused, removed, suspended, and stale repositories cannot
+  create or dispatch new reviews. Policy budgets and default verification profile persist per run.
+- Changed areas: `apps/api/`, `workers/`, `packages/contracts/`, `migrations/`, Compose manifests,
+  `pyproject.toml`, CI environment, and adjacent tests. Added [operator guidance](docs/repository-policy.md)
+  and [implementation checkpoint](plan/issue-37.md).
+
 ### Added production OpenAI and GitHub activity operations
 
 - Issue: [#36](https://github.com/Rajveerx11/pr-reliability-platform/issues/36)

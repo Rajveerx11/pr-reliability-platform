@@ -137,10 +137,16 @@ def seed_command(
         traceparent=TRACEPARENT,
     )
     with connection_factory() as connection, connection.transaction():
+        connection.execute(
+            """INSERT INTO github_installations (owner_id, installation_id, state, last_sync_at)
+               VALUES (%s, 71, 'active', now())""",
+            (OWNER_ID,),
+        )
         repository_id = connection.execute(
             """
-            INSERT INTO repositories (public_id, owner_id, github_repository_id, full_name)
-            VALUES (%s, %s, 91, 'owner/repository') RETURNING id
+            INSERT INTO repositories (public_id, owner_id, github_repository_id, full_name,
+                                      installation_id, access_state)
+            VALUES (%s, %s, 91, 'owner/repository', 71, 'active') RETURNING id
             """,
             (command.repository_id, OWNER_ID),
         ).fetchone()[0]
@@ -170,6 +176,34 @@ def seed_command(
             (public_id(5), OWNER_ID, run_id, command.public_id, command.model_dump_json()),
         )
     return command
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "UPDATE repositories SET enabled = false",
+        "UPDATE repositories SET access_state = 'removed'",
+        "UPDATE repositories SET enabled_branches = ARRAY['release']",
+        "UPDATE repositories SET token_budget = 1",
+        "UPDATE repositories SET cost_budget_usd_micros = 0",
+        "UPDATE github_installations SET state = 'suspended'",
+        "UPDATE github_installations SET last_sync_at = now() - interval '16 minutes'",
+    ],
+)
+def test_policy_change_blocks_queued_dispatch(connection_factory, change):
+    seed_command(connection_factory)
+    with connection_factory() as connection:
+        connection.execute(change)
+    client = RecordingTemporalClient()
+    assert asyncio.run(dispatch_next_command(connection_factory, client, task_queue=TASK_QUEUE))
+    assert client.calls == []
+    with connection_factory() as connection:
+        assert connection.execute("SELECT state FROM runs").fetchone() == ("cancelled",)
+        receipt = connection.execute(
+            "SELECT event_data FROM run_events WHERE event_key LIKE '%:dispatched'"
+        ).fetchone()[0]
+        assert receipt["reason"] == "repository policy blocks review"
+    assert not asyncio.run(dispatch_next_command(connection_factory, client, task_queue=TASK_QUEUE))
 
 
 def seed_approval_signal(

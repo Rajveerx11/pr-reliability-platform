@@ -69,6 +69,22 @@ def connection_factory(database_url: str) -> Iterator[Callable[[], Connection[ob
 
 @pytest.fixture
 def client(connection_factory: Callable[[], Connection[object]]) -> TestClient:
+    from pr_reliability_api.repositories.store import apply_snapshot
+    from pr_reliability_contracts.repositories import InstallationSnapshot
+
+    with connection_factory() as connection:
+        apply_snapshot(
+            connection,
+            OWNER_ID,
+            InstallationSnapshot(
+                installation_id=71,
+                state="active",
+                repositories=[
+                    {"id": 91, "full_name": "owner/repository", "default_branch": "main"}
+                ],
+            ),
+            0,
+        )
     id_values = ids()
     app = FastAPI()
     app.include_router(
@@ -122,7 +138,7 @@ def payload(
         "pull_request": {
             "number": 12,
             "updated_at": updated_at,
-            "base": {"sha": BASE_SHA},
+            "base": {"sha": BASE_SHA, "ref": "main"},
             "head": {"sha": head_sha},
         },
     }

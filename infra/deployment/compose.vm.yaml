@@ -124,6 +124,21 @@ services:
       retries: 5
       start_period: 20s
 
+  repository-sync:
+    <<: *app
+    command: [pr-reliability-repository-sync]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      OWNER_ID: ${OWNER_ID:?OWNER_ID is required}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:?GITHUB_APP_ID is required}
+      GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:?GITHUB_INSTALLATION_ID is required}
+      GITHUB_PRIVATE_KEY_PATH: /run/secrets/github_private_key
+    secrets: [github_private_key]
+    networks: [private, egress]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   command-dispatcher:
     <<: *app
     command: [pr-reliability-command-dispatcher]

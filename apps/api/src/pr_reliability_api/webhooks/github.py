@@ -26,6 +26,8 @@ from pydantic import (
 )
 
 from ..identifiers import new_ulid
+from ..repositories.lifecycle import InstallationDelivery, RepositoryDelivery, receive_lifecycle
+from ..repositories.store import admitted_policy, lock_installation
 
 ConnectionFactory = Callable[[], Connection[Any]]
 IdFactory = Callable[[], str]
@@ -65,6 +67,7 @@ class _Repository(BaseModel):
 class _Branch(BaseModel):
     model_config = ConfigDict(extra="ignore")
     sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    ref: str | None = Field(default=None, min_length=1, max_length=255)
 
 
 class _PullRequest(BaseModel):
@@ -115,11 +118,16 @@ def create_github_webhook_router(
         raw_body = await request.body()
         if not _valid_signature(raw_body, x_hub_signature_256, settings.webhook_secret):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid signature")
-        if x_github_event != "pull_request":
+        if x_github_event not in {"pull_request", "installation", "installation_repositories"}:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "unsupported event")
 
         try:
-            payload = _PullRequestPayload.model_validate(json.loads(raw_body))
+            payload_type = {
+                "pull_request": _PullRequestPayload,
+                "installation": InstallationDelivery,
+                "installation_repositories": RepositoryDelivery,
+            }[x_github_event]
+            payload = payload_type.model_validate(json.loads(raw_body))
         except (json.JSONDecodeError, UnicodeDecodeError, ValidationError):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid payload") from None
         if payload.installation.id != settings.installation_id:
@@ -127,6 +135,11 @@ def create_github_webhook_router(
 
         received_at = now().astimezone(UTC)
         with connection_factory() as connection, connection.transaction():
+            if x_github_event != "pull_request":
+                return receive_lifecycle(
+                    connection, settings, x_github_event, x_github_delivery, payload
+                )
+            lock_installation(connection, settings.owner_id, settings.installation_id)
             delivery = connection.execute(
                 """
                 INSERT INTO github_webhook_deliveries (
@@ -156,9 +169,27 @@ def create_github_webhook_router(
             if delivery is None:
                 return {"accepted": True, "duplicate": True, "command_id": None}
 
-            repository_id, repository_public_id = _upsert_repository(
-                connection, settings.owner_id, payload, id_factory
+            connection.execute(
+                """UPDATE repositories SET last_webhook_at = now()
+                   WHERE owner_id = %s AND installation_id = %s AND github_repository_id = %s""",
+                (settings.owner_id, settings.installation_id, payload.repository.id),
             )
+            policy = admitted_policy(
+                connection,
+                settings.owner_id,
+                settings.installation_id,
+                payload.repository.id,
+                payload.pull_request.base.ref,
+            )
+            # Closed PRs still invalidate approvals even if reviews were paused or access removed.
+            known_repository = connection.execute(
+                """SELECT id, public_id FROM repositories WHERE owner_id = %s
+                   AND installation_id = %s AND github_repository_id = %s""",
+                (settings.owner_id, settings.installation_id, payload.repository.id),
+            ).fetchone()
+            if known_repository is None:
+                return {"accepted": True, "duplicate": False, "command_id": None}
+            repository_id, repository_public_id = known_repository
             resolved_head_sha = _resolve_head_sha(connection, settings.owner_id, payload)
             pull_request_id, pull_request_public_id, current_delivery = _upsert_pull_request(
                 connection,
@@ -173,7 +204,11 @@ def create_github_webhook_router(
             if current_delivery:
                 _update_repository_name(connection, repository_id, payload.repository.full_name)
             command_public_id = None
-            if current_delivery and payload.action is not PullRequestAction.CLOSED:
+            if (
+                policy is not None
+                and current_delivery
+                and payload.action is not PullRequestAction.CLOSED
+            ):
                 command_public_id = _create_run(
                     connection,
                     settings,
@@ -185,6 +220,7 @@ def create_github_webhook_router(
                     id_factory,
                     traceparent=traceparent_factory(),
                     force_new=payload.action is PullRequestAction.REOPENED,
+                    policy=policy,
                 )
             connection.execute(
                 "UPDATE github_webhook_deliveries SET command_public_id = %s WHERE id = %s",
@@ -205,25 +241,6 @@ def _valid_signature(body: bytes, supplied: str, secret: bytes) -> bool:
         return False
     expected = "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, supplied)
-
-
-def _upsert_repository(
-    connection: Connection[Any],
-    owner_id: str,
-    payload: _PullRequestPayload,
-    id_factory: IdFactory,
-) -> tuple[int, str]:
-    return connection.execute(
-        """
-        INSERT INTO repositories (
-            public_id, owner_id, github_repository_id, full_name
-        ) VALUES (%s, %s, %s, %s)
-        ON CONFLICT (owner_id, github_repository_id) DO UPDATE
-        SET full_name = repositories.full_name
-        RETURNING id, public_id
-        """,
-        (id_factory(), owner_id, payload.repository.id, payload.repository.full_name),
-    ).fetchone()
 
 
 def _update_repository_name(
@@ -355,6 +372,7 @@ def _create_run(
     *,
     traceparent: str | None,
     force_new: bool,
+    policy,
 ) -> str | None:
     run_public_id = id_factory()
     generation = connection.execute(
@@ -372,8 +390,8 @@ def _create_run(
         """
         INSERT INTO runs (
             public_id, owner_id, pull_request_id, base_sha, head_sha,
-            token_budget, cost_budget_usd_micros, generation
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            token_budget, cost_budget_usd_micros, generation, base_branch, verification_profile
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (pull_request_id, head_sha, generation) DO NOTHING
         RETURNING id, public_id
         """,
@@ -383,13 +401,20 @@ def _create_run(
             pull_request_id,
             payload.pull_request.base.sha,
             resolved_head_sha,
-            settings.token_budget,
-            settings.cost_budget_usd_micros,
+            policy.token_budget,
+            policy.cost_budget_usd_micros,
             generation,
+            payload.pull_request.base.ref,
+            policy.verification_profile,
         ),
     ).fetchone()
     if run is None:
         return None
+    connection.execute(
+        """UPDATE repositories SET last_review_run_at = now()
+           WHERE owner_id = %s AND public_id = %s""",
+        (settings.owner_id, repository_public_id),
+    )
 
     command_public_id = id_factory()
     command = StartRunCommand(
@@ -403,8 +428,8 @@ def _create_run(
         pull_request_id=pull_request_public_id,
         pull_request_number=payload.pull_request.number,
         base_sha=payload.pull_request.base.sha,
-        token_budget=settings.token_budget,
-        cost_budget_usd_micros=settings.cost_budget_usd_micros,
+        token_budget=policy.token_budget,
+        cost_budget_usd_micros=policy.cost_budget_usd_micros,
         traceparent=traceparent,
     )
     connection.execute(

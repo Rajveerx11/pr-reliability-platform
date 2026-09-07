@@ -1,5 +1,7 @@
 # Documentation
 
+- [Repository inventory and review policy](repository-policy.md)
+
 - `production-readiness.md` — remaining production work, release gates, and rollout order.
 - `review-checks.md` — CI-style review evidence that is included and excluded.
 - `status.md` — current implementation, verification, and external acceptance status.

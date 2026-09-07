@@ -13,6 +13,7 @@ from pathlib import Path
 from .preflight import load_environment
 
 _RUNNING_SERVICES = {
+    "repository-sync",
     "api",
     "command-dispatcher",
     "workflow-worker",

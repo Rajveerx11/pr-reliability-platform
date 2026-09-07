@@ -18,6 +18,7 @@ from .approvals import ApprovalInboxSettings, create_approval_inbox_router
 from .dashboard import create_dashboard_router
 from .db import apply_migrations
 from .health import DatabaseHealthCheck, WorkflowHealthCheck, create_health_router
+from .repositories.routes import create_repository_router
 from .webhooks import GithubWebhookSettings, create_github_webhook_router
 
 
@@ -44,6 +45,9 @@ def create_app(
     if approval_settings is not None:
         app.include_router(create_approval_inbox_router(approval_settings, connection_factory))
         app.include_router(create_dashboard_router(approval_settings, connection_factory))
+        app.include_router(
+            create_repository_router(approval_settings, settings, connection_factory)
+        )
 
     @app.middleware("http")
     async def trace_request(request: Request, call_next):
