@@ -306,7 +306,7 @@ def test_postgres_sync_readiness_scopes_identity_and_freshness(
         ),
     )
     if ready:
-        asyncio.run(check())
+        asyncio.run(check(), loop_factory=asyncio.SelectorEventLoop)
     else:
         with pytest.raises(RuntimeError, match="synchronization is not fresh"):
-            asyncio.run(check())
+            asyncio.run(check(), loop_factory=asyncio.SelectorEventLoop)

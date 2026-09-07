@@ -14,6 +14,7 @@ them and names the affected files.
   create or dispatch new reviews. Policy budgets and default verification profile persist per run.
 - Production readiness reports `repository_sync: unavailable` until a successful sync and after
   15 minutes without one; deployment health therefore detects a live but failing sync process.
+- PostgreSQL readiness tests use a selector event loop, as required by Psycopg on Windows.
 - Changed areas: `apps/api/`, `workers/`, `packages/contracts/`, `migrations/`, Compose manifests,
   `pyproject.toml`, CI environment, and adjacent tests. Added [operator guidance](docs/repository-policy.md)
   and [implementation checkpoint](plan/issue-37.md).
