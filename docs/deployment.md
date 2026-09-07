@@ -8,16 +8,18 @@ claim that a VM, certificate, backup restore, or test-repository review exists.
 
 ## Production gate
 
-Do not use this stack for production repositories yet. Complete provider operations (#36), GitHub
-login (#44), signed release artifacts (#45), a real evaluation (#14), and test-repository
-acceptance (#15). See [production readiness](production-readiness.md).
+Provider operations (#36), approved publishing (#12), and installation sync/policy (#37) are
+merged. Before production repositories, complete GitHub login (#44), the remaining review and
+operations features, signed releases (#45), real evaluation (#14), and VM acceptance (#15).
+See [production readiness](production-readiness.md) and [current status](status.md).
 
 ## Boundary
 
 One Linux VM runs PostgreSQL, Temporal, the API, workers, OpenTelemetry Collector, Prometheus, and
 Caddy. Only Caddy publishes a private-IP port. Prometheus binds to loopback for an SSH tunnel.
 PostgreSQL, Temporal, OTLP, and application ports stay on an internal Docker network. The activity
-worker alone has outbound network access for reviewed providers and GitHub. Its sandbox socket must
+worker has outbound access for GitHub and OpenAI; the separate repository-sync process has outbound
+access for GitHub metadata. Only the activity worker receives the sandbox socket. Its sandbox socket must
 belong to a dedicated rootless Docker engine; never use the host root Docker socket.
 The worker and rootless engine share only
 `/run/user/UID/pr-reliability-sandbox-staging`, allowing the engine to mount staged source. The
@@ -38,8 +40,9 @@ files, broad secret permissions, and non-rootless sandbox paths.
 
 Issue #45 must produce immutable application and sandbox image digests, signatures, scan results,
 software bills of materials, source commit, migration set, configuration version, and rollback
-digests. Store them in one release manifest. Preflight must verify that deployed digests match the
-approved manifest.
+digests. Store them in one release manifest. Manifest/signature verification remains #45; current
+preflight validates configuration, secret files, and digest format but does not verify release
+signatures or a release manifest. Do not claim those checks already exist.
 
 ## Provision secrets outside source
 
@@ -66,8 +69,10 @@ external environment file and rotate it if exposed. After deployment, open
 Keep the environment file at mode `0600`. Create a dedicated secret-reader group, set its numeric
 ID as `DEPLOYMENT_SECRET_GID`, assign secret files to that group, and use mode `0640`; the TLS
 certificate and CA may use `0644`. Compose adds only that supplementary group to secret-consuming
-containers. Provider keys and the webhook secret remain only in the external environment file. Docker
-daemon administrators can inspect container environments and are trusted deployment operators.
+containers. The GitHub App private key is a mounted secret file shared only by the activity and
+sync processes; the API does not receive it. The OpenAI key and webhook secret are supplied through
+the external environment file to their consumers. Docker administrators can inspect environments
+and are trusted deployment operators. See [configuration](configuration.md).
 Never copy this directory into a build context, backup bundle, support archive, or repository.
 Set the staging directory group and `SANDBOX_ENGINE_GID` to the dedicated rootless engine group.
 Compose runs the activity worker as the configured rootless engine UID and GID, so its mode-0700
@@ -88,7 +93,11 @@ python -m infra.deployment.health --env-file /etc/pr-reliability/deployment.env
 ```
 
 The one-shot `migrate` service applies checksummed migrations before the API and database-backed
-workers start. A migration failure keeps dependants stopped. Confirm the certificate and hostname
+workers start, including repository-sync. Migration 0005 starts existing repositories as pending.
+The initial sync imports the configured installation before reviews can start; subsequent syncs
+run every 60 seconds. Readiness is 503 before that first success or after 15 minutes without a
+successful sync. Diagnose missing/stale sync through [observability](observability.md#health).
+A migration failure keeps dependants stopped. Confirm the certificate and hostname
 from an approved private-network client, not only from the VM:
 
 ```text
@@ -106,8 +115,8 @@ restore a verified backup into a newly initialized volume before switching servi
 
 ## Backup and restore drill
 
-The backup command records which database writers are running or restarting, stops all writers,
-dumps the application and both Temporal databases, writes SHA-256 checksums, then restarts only
+The backup command records which database writers are running or restarting, stops the API,
+repository-sync, dispatcher, workflow/activity workers, and Temporal, then dumps the application and both Temporal databases, writes SHA-256 checksums, then restarts only
 that observed subset. Intentionally stopped publishing and worker services remain stopped. Keep
 the destination outside the checkout on an encrypted volume and copy completed bundles to a second
 encrypted location with restricted access.
@@ -148,8 +157,10 @@ a real VM restore.
 
 ## End-to-end acceptance
 
-Use a dedicated private test repository and test GitHub App installation. Deliver a signed webhook,
-wait for analysis and sandbox verification, approve one finding, and confirm exactly one review is
+Use a dedicated private test repository and test GitHub App installation. Subscribe PR,
+installation, and installation-repository events. Confirm fresh sync and the repository's enabled
+policy before delivering a signed PR webhook. Verify removal/pause admission blocks and restoration
+through reconciliation. Wait for analysis and sandbox verification, approve one finding, and confirm exactly one review is
 published for the reviewed commit. Save safe run, finding, approval, review, trace, and commit IDs.
 Do not use production repositories or credentials. This remains blocked until an operator supplies
 the VM, private DNS and certificate, provider account, GitHub App, and test repository.
@@ -177,6 +188,7 @@ affected GitHub credentials, and follow the incident rule in [security.md](secur
 - Health and local monitoring: implemented; real VM observation blocked.
 - End-to-end test-repository review: blocked by missing VM and external test authority.
 - Production provider operations: implemented and tested without live credentials in #36.
+- Installation sync, policy, and freshness readiness: implemented and tested in #37; first real installation acceptance remains part of #15.
 - GitHub login: planned in #44.
 - Signed immutable release images and manifest: planned in #45.
 - Rollback: documented; real rollback drill blocked.

@@ -4,9 +4,10 @@
 
 Measure whether the platform finds real pull request defects without producing too many false
 alarms. Multi-agent work must beat the single-agent baseline on the same frozen tasks.
-A real provider baseline still depends on production provider operations (#36) and evaluation
-acceptance (#14). Until then, no claim about model recall, false positives, latency, or cost is
-supported.
+Production provider operations (#36) are merged, but evaluation acceptance (#14) still needs
+real model runs through the current pipeline and adjudicated results on the frozen cohort.
+CI and the deterministic replay do not establish model recall, false positives, latency, or cost.
+See [current status](status.md) for implementation evidence.
 
 ## Golden task shape
 
@@ -34,7 +35,7 @@ reference-fix, and verifier bytes so accidental changes are visible.
 
 This runner is tamper-resistant evaluation for reviewed fixtures. It is not a security sandbox.
 Untrusted pull request code must use the merged disposable sandbox described in
-`security.md`.
+[security](security.md).
 
 ## Proof of Work gate
 
@@ -104,15 +105,12 @@ and reference fix. It writes machine-readable JSON and a Markdown report under i
 `artifacts/` paths:
 
 ```text
-uv run python -m evals.evaluation_runner \
-  --input evals/replays/full_cohort_harness.json \
-  --json-output artifacts/evaluation/full_cohort_harness.json \
-  --markdown-output artifacts/evaluation/full_cohort_harness.md
+uv run python -m evals.evaluation_runner --input evals/replays/full_cohort_harness.json --json-output artifacts/evaluation/full_cohort_harness.json --markdown-output artifacts/evaluation/full_cohort_harness.md
 ```
 
 The committed replay is explicitly a deterministic harness replay. It contains no model output.
 Provider, model, latency, duration, token usage, and cost remain unknown. See
-`docs/evaluation-report.md` for its complete cohort and blocker report.
+[the historical evaluation report](evaluation-report.md) for its complete cohort and blocker report.
 The harness, observability dependency, and Proof of Work adapter are now merged to `main`. The
 committed replay still describes its historical evaluated commit and contains no model attempt;
 merging the code does not turn that replay into a quality baseline.

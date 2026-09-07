@@ -5,7 +5,14 @@
 The product may run small CI-style checks when they improve review evidence, speed, or GitHub
 visibility. It will not become a general CI/CD system or a GitHub Actions replacement.
 
-## Included
+## Implemented today
+
+The `default` verification profile runs the operator-configured image and command inside the
+existing disposable Linux sandbox, followed by Proof of Work. Repository policy selects that
+profile and governs admission. There is no repository-defined command schema, Check Run, retained
+test-log service, or runner-capacity dashboard yet.
+
+## Approved scope still to deliver
 
 - One GitHub Check Run for each reviewed head SHA.
 - Repository-defined lint, test, type-check, or build commands from an allow-listed config.
@@ -35,9 +42,11 @@ check for the same repository, pull request, and head SHA.
 ## Repository configuration
 
 [Issue #41](https://github.com/Rajveerx11/pr-reliability-platform/issues/41) adds a small,
-versioned repository config. It may choose from approved commands and path filters. It cannot
-choose the container image, enable network, mount host paths, request secrets, or raise limits.
-Invalid or missing configuration fails safely and appears in the dashboard.
+versioned repository config. Its issue calls for approved checks, immutable images, path filters,
+timeouts, and resource limits. Operator allowlists must constrain those choices; PR configuration
+must not grant arbitrary images, host mounts, network, secrets, or higher limits. Invalid or missing
+configuration must fail safely. This format is not implemented; no filename or sample schema is
+promised here. Current policy accepts only `verification_profile: default`.
 
 ## Execution rules
 

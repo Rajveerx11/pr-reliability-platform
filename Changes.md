@@ -5,6 +5,21 @@ them and names the affected files.
 
 ## Unreleased
 
+### Refreshed documentation against merged main (2026-09-07)
+
+- Scope: the release checklist in [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46).
+- Decisions: DEC-010 and DEC-015 in [the version-one plan](plan/v1.md).
+- Updated the documentation index, status, architecture, security, development, deployment,
+  observability, dashboard, evaluation, repository policy, and production-readiness guides.
+  Completed work now reflects merged issues #12, #36, #37, and #47; live acceptance stays open.
+- Added [configuration](docs/configuration.md) and [API](docs/api.md) references. Completed
+  `.env.example`, explained explicit environment loading and the local activity-worker override,
+  and documented first-sync admission and readiness requirements.
+- Updated `README.md`, `plan/README.md`, `plan/v1.md`, `plan/issue-37.md`, and
+  `plan/interactive.html` with current state, schema, evidence, and remaining work.
+- Historical evaluation measurements remain unchanged. The interactive mockup is labeled as
+  illustrative, and its checklist is personal planning rather than release acceptance evidence.
+
 ### Added installation synchronization and repository policy
 
 - Issue: [#37](https://github.com/Rajveerx11/pr-reliability-platform/issues/37).
@@ -89,6 +104,15 @@ them and names the affected files.
     `docs/deployment.md`, and `docs/observability.md` — production design and operations.
   - `docs/evaluation.md` and `docs/evaluation-report.md` — baseline and evidence rules.
   - `plan/README.md`, `plan/v1.md`, and `plan/interactive.html` — roadmap and issue map.
+
+### Added version-one foundation infographic
+
+- Decision: [DEC-010 - Repository structure](plan/v1.md#dec-010--use-clear-code-plan-and-documentation-boundaries)
+- Reason: Share the first implementation milestone with a concise, evidence-backed visual.
+- Changed files:
+  - `assets/linkedin/pr-reliability-v1-foundations-infographic.png` - final 1080 by 1350
+    LinkedIn infographic.
+  - `assets/linkedin/pr-reliability-v1-foundations-phone-preview.png` - phone-size review copy.
 
 ### Updated merged implementation and acceptance documentation
 

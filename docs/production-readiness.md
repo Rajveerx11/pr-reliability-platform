@@ -1,59 +1,57 @@
 # Production readiness
 
-Status date: 2026-09-03
+Status date: 2026-09-07. Baseline: `675257a`. Release tracker:
+[#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46).
 
-The core is merged, but the service is not ready for production. Track the release gate in
-[issue #46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46).
+The AI pull request review core, provider operations (#36), approved publishing (#12), and
+installation sync/policy (#37) are merged. They are prerequisites for production, not proof
+that a live service or measured model baseline exists. [Current status](status.md) records CI evidence.
 
-## Product boundary
+## Remaining delivery
 
-This is an approval-first AI pull request reviewer. It can run selected repository checks as
-review evidence. It is not a general CI/CD platform or deployment system.
+| Issue | Remaining outcome | Prerequisite status |
+|---|---|---|
+| #38 | Repository and PR history dashboard | #37 merged |
+| #39 | Durable analytics, usage, retry, and cost facts | #36 merged |
+| #40 | Commit-bound GitHub Check Runs | #12 and #36 merged |
+| #41 | Repository-defined sandbox verification checks | #37 merged |
+| #42 | Retained bounded logs and test summaries | Requires #41 |
+| #43 | Runner capacity, queue visibility, and alert delivery | Requires #39 and #41 |
+| #44 | Individual GitHub identity and sessions | #37 merged |
+| #45 | Signed immutable release images and manifest | #36 merged |
+| #14 | Frozen real-provider evaluation report | Provider code ready; real runs and adjudication needed |
+| #15 | Private Linux VM end-to-end and recovery acceptance | Remaining release gates must pass |
 
-## Ready in the repository
+The full dependency map is in [plan/v1.md](../plan/v1.md#github-issue-map). Work on unblocked
+issues; do not bypass dependencies. Prioritize individual access (#44), Check Runs (#40), and
+repository checks (#41), then complete evidence, metrics, history, runner operations, and releases.
+Finish real evaluation and VM acceptance before any production claim.
 
-- Signed GitHub webhook intake and durable Temporal runs.
-- Context selection and provider-neutral review contracts.
-- Disposable sandbox and Proof of Work evidence gate.
-- Human approval and idempotent publishing boundaries.
-- Private dashboard, telemetry, health checks, and VM deployment kit.
-- Frozen evaluation corpus and deterministic harness replay.
-- Cross-platform Temporal workflow test harness and CI regression coverage.
+## Production exit checklist
 
-## Required work
+- Approved release commit passes the configured Linux and focused Windows CI jobs.
+- A dedicated test repository completes sync, signed webhook, review, verification, human approval,
+  Check Run reporting, and exactly-once publication on the reviewed commit.
+- Removed, paused, suspended, and stale installations cannot admit or dispatch new reviews.
+- Fork PR checks receive no provider, GitHub, database, or runner credentials.
+- GitHub login and owner-scoped authorization protect dashboard and approval operations.
+- Repository check configuration cannot exceed operator-approved images, commands, or limits.
+- Usage, retry, queue, and failure facts are stored; unavailable facts remain unknown.
+- A frozen real-provider report records quality, latency, usage coverage, cost, and limitations.
+- Signed, scanned immutable images match an approved release manifest.
+- Private TLS, monitoring, alerts, secret rotation, backup, restore, and rollback are exercised on Linux.
+- No unresolved critical or high-severity security finding remains.
+- Issues #14 and #15 close with evidence; #46 records accepted release evidence. #12 is already closed.
 
-- Runtime: production provider and GitHub operations are implemented by #36. Live
-  test-repository publishing acceptance remains required before rollout.
-- Repository experience: installation sync and policy (#37), repository and PR history (#38),
-  Check Runs (#40), and GitHub login (#44).
-- Evidence and operations: persisted analytics (#39), repository-defined checks (#41), bounded
-  test evidence (#42), and runner operations (#43).
-- Release proof: signed images (#45), real-provider evaluation (#14), and private Linux VM
-  acceptance (#15).
+## Current rollout constraints
 
-## Recommended order
+Start an acceptance deployment with one private test repository. Migration 0005 starts existing
+repository access as pending; complete the first sync before delivering test PRs. Sync runs at
+startup and every 60 seconds, with a 15-minute freshness limit. Readiness returns 503 when sync
+is missing or expired. See [repository policy](repository-policy.md) and [deployment](deployment.md).
 
-1. Provider and GitHub operations.
-2. Installation sync, repository policy, and GitHub login.
-3. Check Runs and repository-defined sandbox checks.
-4. Evidence, metrics, runner operations, and dashboard history.
-5. Signed images and release manifest.
-6. Real-provider evaluation and private VM acceptance.
-
-## Exit checklist
-
-- Required Linux checks and the focused Windows Temporal regression check pass.
-- A test repository completes webhook, review, verification, approval, and exactly one publish.
-- Forked pull requests receive no secrets.
-- Dashboard access uses GitHub identity and owner-scoped authorization.
-- Repository configuration cannot expand network, secrets, image, or resource limits.
-- Usage, cost, retry, queue, and failure facts are stored with explicit unknown values.
-- Images are immutable, signed, scanned, and recorded in a release manifest.
-- Backup, restore, rollback, monitoring, and credential rotation are exercised on Linux.
-- A real-provider evaluation report is published with limitations.
-
-## Rollout
-
-Start with one private test repository in observation mode. Keep the GitHub check non-blocking.
-Make it required only after quality, latency, cost, capacity, and recovery are acceptable. Add
-repositories one at a time.
+Policy changes govern new admissions and queued dispatch. They do not cancel running reviews.
+Blocked webhook deliveries are recorded without deferred execution; a new PR event is needed
+after recovery. The shared reviewer token is temporary. GitHub Check Runs are not yet implemented;
+after #40 ships, start them in informational mode before considering required-check enforcement.
+This product does not replace general CI/CD or deploy customer applications.

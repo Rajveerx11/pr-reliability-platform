@@ -1,5 +1,9 @@
 # Repository inventory and review policy
 
+Implemented in [PR #51](https://github.com/Rajveerx11/pr-reliability-platform/pull/51), merged
+2026-09-07. See [configuration](configuration.md) for environment loading and
+[API reference](api.md) for authorization and route contracts.
+
 The GitHub App installation defines which repositories the service can access. The policy
 defines which of those repositories receive reviews. Both are checked before creating a run
 and again before dispatching its queued command.
@@ -8,7 +12,8 @@ and again before dispatching its queued command.
 
 Apply migrations before starting `pr-reliability-repository-sync`. The Compose manifests run
 this process continuously. It imports repositories at startup and reconciles every 60 seconds.
-For a one-time check, run `pr-reliability-repository-sync --once`.
+Each reconciliation has a 120-second overall timeout. For a one-time host check, run
+`uv run --env-file .env pr-reliability-repository-sync --once`.
 
 Required environment: `DATABASE_URL`, `OWNER_ID`, `GITHUB_INSTALLATION_ID`, `GITHUB_APP_ID`, and
 `GITHUB_PRIVATE_KEY_PATH`. The private key must be an absolute path to a private mounted file.

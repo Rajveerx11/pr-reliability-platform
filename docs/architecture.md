@@ -8,7 +8,7 @@ before any output is published.
 The product is an AI pull request reviewer. Selected CI-style checks may provide evidence, but
 the platform does not own deployments or general CI/CD pipelines.
 
-## Production target (planned)
+## Current implementation and production target
 
 ```mermaid
 flowchart LR
@@ -24,20 +24,23 @@ flowchart LR
   T --> D[Dashboard history and metrics]
 ```
 
-Issues #36 through #45 add production provider operations, repository onboarding, Check Runs,
-complete history, metrics, access control, and release artifacts. These items are not implemented
-unless their issue is closed. See [production readiness](production-readiness.md).
+The diagram includes the production target. Provider operations (#36) and installation inventory
+and policy (#37) are implemented. Check Runs (#40), repository-defined checks (#41), complete
+history/analytics (#38/#39), GitHub login (#44), and release artifacts (#45) remain planned.
+Today verification uses the operator-configured `default` sandbox profile.
 
-Planned persistent records include installation and repository policy, check runs, verification
-checks, bounded artifacts, runner heartbeats, and metric facts. They extend the current product
-schema; they do not create a general pipeline engine.
+Installation state, repository policy, and repository audit records are persisted now. Planned
+records include Check Runs, additional verification checks, retained artifacts, runner heartbeats,
+and complete metric facts. See [production readiness](production-readiness.md).
 
 ## Main components
 
 ```mermaid
 flowchart TB
   G[GitHub App] --> A[FastAPI control plane]
-  A --> P[(PostgreSQL)]
+  G --> I[Repository sync worker]
+  I --> P[(PostgreSQL)]
+  A --> P
   A --> T[Temporal workflow]
   T --> C[Context selector]
   T --> M[Review agent]
@@ -54,6 +57,7 @@ flowchart TB
 ## Ownership
 
 - FastAPI owns authentication, webhook intake, API validation, and product records.
+- Repository sync owns periodic GitHub inventory reconciliation; the API and dispatcher enforce policy.
 - Temporal owns run order, retries, cancellation, timeouts, and approval waits.
 - Context selector owns file selection under a fixed token budget.
 - Review agent owns structured proposed findings. It cannot publish them.
@@ -64,13 +68,14 @@ flowchart TB
 
 ## Run boundary
 
-One run is identified by repository, pull request number, and head SHA. A new head SHA creates
-a new run and cancels the older active run. Findings never move between commits.
+A run is identified by owner, PR, head SHA, and increasing generation. A new head creates a new
+run; reopening can create a new generation for the same SHA. Supersession cancels an older active
+run after any already-started approved publish settles. Findings never move between commits.
 
 GitHub webhook intake verifies the HMAC SHA-256 signature over raw bytes before decoding JSON.
-Only pull request opened, reopened, synchronize, and closed actions are accepted. Delivery IDs are
-inserted in the same database transaction as repository, pull request, run, and command-event
-records. A repeated owner and delivery ID returns success without creating another command.
+Supported PR actions are opened, reopened, synchronize, and closed. Installation and repository
+lifecycle events are also accepted. PR delivery IDs are inserted in the same transaction as
+PR state and any admitted run/command records. Repositories must already exist in synchronized inventory. A repeated owner and delivery ID returns success without creating another command.
 The configured GitHub App installation is bound to one owner; validly signed events from other
 installations are rejected before any database write. Command events store the complete versioned
 `StartRunCommand`, never raw webhook payloads.
@@ -81,6 +86,22 @@ When opposite state events have the same source timestamp, open wins. This conse
 cause an extra review but cannot let an ambiguous delayed close suppress a review.
 Equal-time synchronize events use GitHub's required `before` and `after` SHA chain, including
 out-of-order delivery, so a delayed predecessor cannot replace its known descendant.
+
+## Installation and admission boundary
+
+The sync worker reads the configured installation at startup and every 60 seconds using an
+installation-wide metadata-only token. Complete bounded snapshots use a revision check under
+an installation advisory lock; a concurrent lifecycle delivery or newer sync invalidates stale
+results. Removal/suspension revokes immediately. Added/restored webhooks never grant access by
+themselves. Reconciliation preserves repository pauses and budgets, and records per-repository
+identity/metadata changes in append-only `repository_events`.
+
+Intake and queued dispatch both require active access, an enabled repository, an allowed exact
+base branch, and installation sync within 15 minutes. Run creation snapshots token/cost budgets,
+base branch, and the `default` verification profile. A budget reduction can block an older queued
+command. Policy changes do not cancel running reviews. Blocked deliveries are recorded without
+deferred execution; a new PR event is required after recovery. Closed events still update known
+PR state while reviews are paused. See [repository policy](repository-policy.md).
 
 ## Message boundary
 
@@ -150,8 +171,9 @@ Webhook requests, outbox dispatch, workflows, and activities share one W3C trace
 workers still accept legacy version `1` commands without that optional field. Temporal propagates
 it to model and tool
 activity attempts. Run and activity histograms, retry counts, approval-wait spans, and explicit
-known/unknown provider usage are exported through OTLP. Readiness checks both PostgreSQL and the
-Temporal workflow service.
+known/unknown provider usage are exported through OTLP. Production readiness checks PostgreSQL,
+Temporal, and owner-bound installation sync freshness independently.
+
 ## Context boundary
 
 Context selection is deterministic. Changed files are ordered first, followed by their direct
@@ -177,12 +199,14 @@ PostgreSQL stores summaries and safe evidence references. It does not store repo
 secrets, raw prompts, full agent output, or sandbox contents. Temporal history stores safe
 workflow arguments only.
 
-The first migration creates repositories, pull requests, runs, findings, approvals, external
-actions, and append-only run events. Every product row has a public ULID and an `owner_id` ULID.
-Relationships use bigint identity keys plus composite foreign keys that require child and parent
-ownership to match. A pull request can have only one run for each head SHA. Finding keys,
-approval decisions, external action targets, and event keys are unique within their retry
-boundary. PostgreSQL rejects updates and deletes against the audit-event table.
+Five migrations define current storage. Core entities expose ULIDs; internal joins use bigint
+keys and composite owner constraints. `github_installations` uses `(owner_id, installation_id)`
+as its key, while internal `repository_events` use an identity key and owner-scoped event keys.
+PR run uniqueness includes head SHA and generation. Repository rows persist installation/access
+state, default branch, enabled state, branch policy, budgets, verification profile, and timestamps.
+Finding keys, approvals, external action targets, and event keys are unique at their retry boundary.
+Both audit tables reject updates, deletes, and truncation. Schema tables are defined in
+[migrations](../migrations); do not infer unimplemented history fields from the target diagram.
 
 Migrations run in filename order under a PostgreSQL advisory lock. Applied checksums are stored
 in `schema_migrations`; changing an applied migration stops startup instead of silently changing
@@ -216,12 +240,12 @@ failed sandbox command can never advance to approval.
 
 Every external write follows this order:
 
-1. Build a proposed action.
-2. Verify evidence.
-3. Store proposed action.
-4. Wait for human decision.
-5. Publish with an idempotency key.
-6. Store remote result.
+1. Persist findings and verify evidence.
+2. Wait for immutable human decisions on the current head.
+3. Build the approved finding set and validate its identities.
+4. Claim the external action with a stable key and payload fingerprint.
+5. Reconcile prior attempts, check the GitHub head, and publish the approved review.
+6. Store the remote result and safe audit receipt.
 
 No worker may bypass this path.
 

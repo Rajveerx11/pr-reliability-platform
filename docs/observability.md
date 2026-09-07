@@ -49,8 +49,11 @@ Prometheus labels.
 ## Health
 
 - `GET /health/live` proves the API process can answer.
-- `GET /health/ready` checks PostgreSQL with `SELECT 1` and checks Temporal workflow-service health.
-  It returns `503` until both dependencies are ready. Each check is bounded by
+- Production `GET /health/ready` checks PostgreSQL, Temporal workflow-service health, and the
+  configured owner/installation's last successful sync. Its `dependencies` object contains
+  `database`, `workflow`, and `repository_sync`. It returns `503` unless all three are ready.
+  Missing sync or a last success older than 15 minutes reports `repository_sync: unavailable`.
+  Fresh confirmed suspension/deletion is operationally healthy while admission remains blocked. Each check is bounded by
   `HEALTH_CHECK_TIMEOUT_SECONDS`, which defaults to two seconds. PostgreSQL uses an async
   connection, server statement deadline, and guaranteed connection close on timeout, so repeated
   failed probes do not leave blocked worker threads or open clients. Concurrent readiness requests
@@ -58,6 +61,21 @@ Prometheus labels.
   or Temporal RPCs.
 - The collector health endpoint is exposed on port `13133`.
 
+The deployment health command checks required container processes and `/health/ready`, so a
+running sync process with persistent errors cannot remain healthy after inventory expires.
+The existing dashboard renders the overall readiness status and separate database/workflow
+labels; it does not yet have a dedicated sync detail card. Use the readiness JSON for that detail.
+
+For `repository_sync: unavailable`, check migration success, configured owner/installation IDs,
+private-key file access, App credentials, and GitHub network access. Run the sync worker's `--once`
+command in the configured environment to obtain a safe success/failure exit status. The daemon
+retries every 60 seconds and logs a generic failure message without credentials. The authenticated
+inventory API exposes timestamps; append-only repository events record successful changes.
+Never paste key contents or provider response bodies into incident reports. Dedicated sync failure
+metrics and alert delivery are not implemented; broader operations remain #43.
+
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to another OTLP/HTTP collector to use a hosted trace and metrics
 backend. Compose uses `http://otel-collector:4318`; processes run directly on the host should use
 `http://localhost:4318`. Leaving it unset keeps instrumentation active without exporting telemetry.
+The baseline local Compose file publishes metrics and health only; a host exporter needs a
+separate collector or a reviewed loopback-only OTLP port mapping. See [development](development.md).

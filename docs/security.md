@@ -9,7 +9,7 @@ their GitHub signature is verified.
 
 - Verify webhook signature before parsing event details.
 - Resolve every repository through its GitHub installation and owner.
-- Use short-lived, repository-scoped GitHub tokens.
+- Use short-lived GitHub tokens: repository-scoped for review work, installation-wide metadata-only for inventory.
 - Keep provider and GitHub secrets outside prompts and logs.
 - Run pull request commands in disposable containers.
 - Block network access by default inside the sandbox.
@@ -50,7 +50,19 @@ Allowed:
 - Commit SHAs
 - Structured findings and safe evidence references
 - Run status, timings, token counts, and exact reported cost
-- Approval and publish audit events
+- Approval, publishing, installation, and repository-policy audit events
+- Repository identity, default branch, access state, policy, and synchronization timestamps
+
+Not allowed:
+
+- GitHub App private keys
+- Provider API keys
+- Raw repository contents
+- Full prompts or agent transcripts
+- Sandbox filesystem snapshots
+- Secrets found in source or output
+
+## Approval data access
 
 The approval page never stores its reviewer token in browser storage. API queries scope every row
 to the configured owner. A decision transaction locks the pull request row, so a concurrent head
@@ -61,13 +73,30 @@ workflow-signal events but performs no external write.
 
 - The OpenAI adapter sends only selected context, disables response storage, requires strict
   structured output, and validates the same finding schema locally before persistence.
-- GitHub App JWTs live only in memory. Installation tokens expire quickly, name exactly one
-  repository, and grant only contents read plus pull-request write permissions.
+- GitHub App JWTs live only in memory. Checkout tokens target one repository with contents/metadata
+  read permissions. Publishing tokens add pull-request write permission. The separate inventory
+  token covers selected installation repositories with metadata read only; it cannot read source
+  or publish reviews. No caller-selected API origin or redirect receives those credentials.
 - Git authentication is passed only through an allow-listed child-process environment. Tokens do
   not enter command arguments, repository URLs, Git configuration files, errors, or activity
   history.
 - Every checkout verifies HEAD against the requested commit. Stage persistence rechecks the
   database head after network work and stores only safe references and bounded facts.
+
+## Installation and policy controls
+
+Signed lifecycle events are bound to the configured owner and installation. Removal and suspension
+revoke immediately; delayed additions/restorations never grant access without a fresh GitHub read.
+Revision checks prevent an in-flight snapshot from overwriting a concurrent lifecycle change.
+Repository policy changes use the reviewer bearer token and record its configured actor.
+Queries, writes, and audit records stay owner-scoped. The shared token is not individual GitHub identity.
+
+Intake and queued dispatch reject unknown, inactive, paused, or stale access and enforce exact
+base-branch filters and budgets. Sync expires after 15 minutes and production readiness then fails.
+Policy changes do not cancel an already-running review or replace its existing publish authorization
+checks. Emergency publishing shutdown remains an operator action. Only the operator-configured
+`default` verification profile is accepted; policy cannot supply a host command or new sandbox image.
+
 ## GitHub review publishing
 
 - The activity accepts only the stable `{run_id}:{head_sha}:publish` idempotency key.
@@ -103,22 +132,12 @@ workflow-signal events but performs no external write.
   one bounded reason code only. Provider failures append a fixed failure code; neither event stores
   body, token, response, or exception text.
 
-Not allowed:
-
-- GitHub App private keys
-- Provider API keys
-- Raw repository contents
-- Full prompts or agent transcripts
-- Sandbox filesystem snapshots
-- Secrets found in source or output
-
 ## Production controls still required
 
 - Replace the shared reviewer token with GitHub login and owner-scoped sessions (#44).
-- Mint short-lived GitHub installation tokens only inside trusted provider operations (#36).
 - Use only the GitHub permissions required for review comments and Check Runs (#40).
-- Treat repository check configuration as untrusted. It cannot enable network, choose images,
-  mount host paths, raise limits, or request secrets (#41).
+- Treat future repository check configuration as untrusted. Operator allowlists must constrain
+  images, commands, and limits; configuration cannot grant host mounts, network, or secrets (#41).
 - Forked pull request checks never receive provider, GitHub, database, or runner secrets.
 - Redact, bound, and expire stored logs and test summaries (#42).
 - Deploy only signed immutable images recorded in a release manifest (#45).

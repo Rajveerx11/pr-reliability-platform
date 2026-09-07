@@ -327,11 +327,11 @@
 
   <main>
     <section class="hero shell">
-      <div class="eyebrow">Interactive production plan · updated 3 September 2026</div>
+      <div class="eyebrow">Interactive production plan · updated 7 September 2026</div>
       <h1>Make every AI review prove its evidence.</h1>
       <p class="hero-copy">An approval-first GitHub App reviews a pull request, runs bounded evidence checks, and waits for a human before publishing.</p>
       <div class="hero-meta">
-        <span class="pill"><span class="dot"></span>Core merged · production acceptance open</span>
+        <span class="pill"><span class="dot"></span>Core, providers, and sync merged · acceptance open</span>
         <span class="pill">Core API: FastAPI</span>
         <span class="pill">Durable workflow: Temporal</span>
         <span class="pill">Evidence gate: Proof of Work</span>
@@ -340,8 +340,8 @@
 
     <section class="section shell" id="product">
       <div class="section-head">
-        <div><div class="kicker">Concrete product view</div><h2>What reviewer sees</h2></div>
-        <p class="section-intro">One place to see agent findings, supporting evidence, gate result, cost, and approval state.</p>
+        <div><div class="kicker">Illustrative product concept</div><h2>The intended reviewer experience</h2></div>
+        <p class="section-intro">Mockup with fictional findings, timing, and cost. Current pages are the approval inbox and run dashboard; repository history and analytics remain planned.</p>
       </div>
       <div class="card snapshot">
         <div class="fake-browser">
@@ -397,12 +397,13 @@
         <div class="architecture" aria-label="Platform architecture diagram">
           <div class="lane">
             <div class="lane-title">Entry</div>
-            <div class="node" data-layer="github"><strong>GitHub App</strong><span>Signed PR webhooks</span></div>
+            <div class="node" data-layer="github"><strong>GitHub App</strong><span>Signed PR and installation events</span></div>
             <div class="node" data-layer="human"><strong>Reviewer</strong><span>Approve or reject</span></div>
           </div>
           <div class="lane core">
             <div class="lane-title">Platform core</div>
-            <div class="node" data-layer="api"><strong>FastAPI control plane</strong><span>Auth, runs, approvals</span></div>
+            <div class="node" data-layer="api"><strong>FastAPI control plane</strong><span>Policy, runs, approvals</span></div>
+            <div class="node" data-layer="github"><strong>Installation sync</strong><span>Inventory, lifecycle, freshness</span></div>
             <div class="node" data-layer="workflow"><strong>Temporal workflow</strong><span>Retry, timeout, cancel</span></div>
             <div class="node" data-layer="context"><strong>Context selector</strong><span>Files within token budget</span></div>
             <div class="node" data-layer="agent"><strong>Single review agent</strong><span>Structured findings only</span></div>
@@ -414,8 +415,8 @@
           <div class="lane">
             <div class="lane-title">Outputs</div>
             <div class="node" data-layer="human"><strong>Approval inbox</strong><span>No auto-write in MVP</span></div>
-            <div class="node" data-layer="github"><strong>GitHub comment</strong><span>Approved findings only</span></div>
-            <div class="node" data-layer="observe"><strong>Metrics dashboard</strong><span>Quality and operations</span></div>
+            <div class="node" data-layer="github"><strong>GitHub PR review</strong><span>Approved findings only</span></div>
+            <div class="node" data-layer="observe"><strong>Run dashboard</strong><span>Timeline and basic summaries</span></div>
           </div>
         </div>
         <div class="legend" aria-label="Architecture filters">
@@ -437,33 +438,36 @@
 
     <section class="section shell" id="state">
       <div class="section-head">
-        <div><div class="kicker">Run state machine</div><h2>Every run can recover</h2></div>
+        <div><div class="kicker">Run state machine</div><h2>Retries have defined boundaries</h2></div>
         <p class="section-intro">Temporal owns execution state. PostgreSQL stores the product record and append-only audit events.</p>
       </div>
       <div class="state-grid">
-        <div class="state"><strong>queued</strong><span>Webhook accepted and deduplicated.</span></div>
+        <div class="state"><strong>queued</strong><span>Fresh access and policy admitted the review.</span></div>
         <div class="state"><strong>selecting_context</strong><span>Relevant files chosen under budget.</span></div>
         <div class="state"><strong>analyzing</strong><span>Agent produces typed findings.</span></div>
         <div class="state"><strong>verifying</strong><span>Tests and Proof of Work run.</span></div>
         <div class="state"><strong>awaiting_approval</strong><span>Verified output waits for a person.</span></div>
-        <div class="state terminal"><strong>published</strong><span>Approved comment sent once.</span></div>
+        <div class="state terminal"><strong>published</strong><span>Approved review recorded with an idempotency receipt.</span></div>
         <div class="state terminal"><strong>rejected</strong><span>Human rejects proposed output.</span></div>
-        <div class="state terminal"><strong>failed / cancelled</strong><span>Reason recorded; safe retry allowed.</span></div>
+        <div class="state terminal"><strong>failed / cancelled</strong><span>Terminal reason recorded; never restart this generation.</span></div>
       </div>
     </section>
 
     <section class="section shell" id="data">
       <div class="section-head">
         <div><div class="kicker">Data model</div><h2>Facts first</h2></div>
-        <p class="section-intro">Public IDs use ULIDs. Internal joins use bigint IDs. Every table carries <span class="mono">owner_id</span> from day one.</p>
+        <p class="section-intro">Core public entities use ULIDs and internal bigint joins. Installations use an owner/installation key; repository audit events use internal bigint IDs. All product records are owner-scoped.</p>
       </div>
       <div class="card schema">
-        <div class="entity"><h3>repositories</h3><ul><li>id, public_id</li><li>owner_id</li><li>github_installation_id</li><li>github_repository_id</li></ul></div>
-        <div class="entity"><h3>pull_requests</h3><ul><li>repository_id</li><li>github_pr_number</li><li>head_sha, base_sha</li><li>title, author</li></ul></div>
-        <div class="entity"><h3>runs</h3><ul><li>pull_request_id</li><li>workflow_id</li><li>status, attempt</li><li>budget_usd_micros</li></ul></div>
-        <div class="entity"><h3>findings</h3><ul><li>run_id</li><li>severity, category</li><li>file_path, line</li><li>claim, evidence</li></ul></div>
-        <div class="entity"><h3>approvals</h3><ul><li>run_id, finding_id</li><li>actor_github_id</li><li>decision</li><li>decided_at</li></ul></div>
-        <div class="entity"><h3>run_events</h3><ul><li>run_id, sequence</li><li>event_type</li><li>safe_payload_json</li><li>created_at</li></ul></div>
+        <div class="entity"><h3>github_installations</h3><ul><li>owner_id, installation_id</li><li>state, revision</li><li>last_sync_at</li><li>last_webhook_at</li></ul></div>
+        <div class="entity"><h3>repositories</h3><ul><li>id, public_id, owner_id</li><li>installation_id, github_repository_id</li><li>access_state, enabled, enabled_branches</li><li>token_budget, cost_budget_usd_micros</li></ul></div>
+        <div class="entity"><h3>pull_requests</h3><ul><li>repository_id, github_number</li><li>base_sha, head_sha</li><li>state</li><li>owner_id, public_id</li></ul></div>
+        <div class="entity"><h3>runs</h3><ul><li>pull_request_id, generation</li><li>head_sha, base_sha, base_branch</li><li>state, verification_profile</li><li>token_budget, cost_budget_usd_micros</li></ul></div>
+        <div class="entity"><h3>findings</h3><ul><li>run_id, finding_key</li><li>severity, category</li><li>claim, confidence</li><li>evidence (JSON)</li></ul></div>
+        <div class="entity"><h3>approvals</h3><ul><li>run_id, finding_id</li><li>actor_id, head_sha</li><li>decision, reason</li><li>decided_at</li></ul></div>
+        <div class="entity"><h3>external_actions</h3><ul><li>run_id, action_type, target_sha</li><li>idempotency_key, payload_fingerprint</li><li>status, remote_id</li><li>owner_id, public_id</li></ul></div>
+        <div class="entity"><h3>run_events</h3><ul><li>run_id, event_key</li><li>event_type, event_data</li><li>occurred_at, id</li><li>owner_id, public_id</li></ul></div>
+        <div class="entity"><h3>repository_events</h3><ul><li>owner_id, installation_id</li><li>event_key, event_type</li><li>event_data, occurred_at</li><li>id (internal; append-only)</li></ul></div>
       </div>
     </section>
 
@@ -476,24 +480,24 @@
         <article class="card decision"><div class="kicker">Workflow</div><h3 class="choice">Temporal from first vertical slice</h3><p>Durable retries, cancellation, timers, and human waits belong in workflow history, not ad-hoc background jobs.</p></article>
         <article class="card decision"><div class="kicker">Agent output</div><h3 class="choice">Versioned JSON contract</h3><p>Agents return findings, evidence, confidence, and proposed action. Free-form prose is presentation only.</p></article>
         <article class="card decision"><div class="kicker">Ownership</div><h3 class="choice">GitHub installation is tenant boundary</h3><p>Every repo, run, artifact, and approval resolves through one installation and owner.</p></article>
-        <article class="card decision"><div class="kicker">Writes</div><h3 class="choice">Idempotency key per external action</h3><p>Publishing uses <span class="mono">run_id + action_type + target_sha</span>. Retries cannot post twice.</p></article>
+        <article class="card decision"><div class="kicker">Writes</div><h3 class="choice">Idempotency key per external action</h3><p>The publish key is <span class="mono">{run_id}:{head_sha}:publish</span>. Retries reconcile a stored receipt and GitHub marker before writing again.</p></article>
         <article class="card decision"><div class="kicker">Evidence</div><h3 class="choice">Fail closed</h3><p>If tests, sandbox, or Proof of Work cannot complete, finding stays unpublished and run shows why.</p></article>
-        <article class="card decision"><div class="kicker">Secrets</div><h3 class="choice">Short-lived scoped tokens</h3><p>Workers receive only repo-specific, time-limited access. Prompts and logs never store secrets.</p></article>
+        <article class="card decision"><div class="kicker">Secrets</div><h3 class="choice">Short-lived scoped tokens</h3><p>Checkout and publishing use repository-scoped tokens. Inventory uses installation-wide metadata-only access. Secrets stay out of prompts and logs.</p></article>
       </div>
     </section>
 
     <section class="section shell" id="roadmap">
       <div class="section-head">
         <div><div class="kicker">Implementation plan</div><h2>Production before specialists</h2></div>
-        <p class="section-intro">Core phases are merged. Production acceptance remains open.</p>
+        <p class="section-intro">Core, provider operations (#36), and repository policy (#37) are merged. Production acceptance remains open.</p>
       </div>
       <div class="roadmap">
         <div class="phase-label"><strong>Phases 0–3</strong><span>Merged</span></div>
         <details class="phase"><summary>Core review workflow</summary><div class="phase-body"><ul><li>Contracts, PostgreSQL, signed webhooks, and Temporal orchestration.</li><li>Context selection, single review agent, sandbox, and Proof of Work.</li><li>Approval inbox and idempotent publish boundary.</li></ul><p class="deliverable">Done: repository implementation is on main.</p></div></details>
         <div class="phase-label"><strong>Phase 4</strong><span>Foundation merged</span></div>
         <details class="phase"><summary>Evaluation and deployment foundation</summary><div class="phase-body"><ul><li>Frozen ten-task corpus and deterministic replay.</li><li>Telemetry, dashboard, health, backup, restore, and VM runbook.</li><li>Model quality remains unknown until a real provider run.</li></ul><p class="deliverable">Open: real evaluation and Linux acceptance.</p></div></details>
-        <div class="phase-label"><strong>Phase 4A</strong><span>Next</span></div>
-        <details class="phase" open><summary>Private production hardening</summary><div class="phase-body"><ul><li>Production provider operations, repository sync, policy, and GitHub login.</li><li>Check Runs, repository checks, bounded evidence, metrics, and runner operations.</li><li>Repository and PR history dashboard plus signed release artifacts.</li></ul><p class="deliverable">Done when issue #46 has accepted evidence.</p></div></details>
+        <div class="phase-label"><strong>Phase 4A</strong><span>Partly merged</span></div>
+        <details class="phase" open><summary>Private production hardening</summary><div class="phase-body"><ul><li>Merged: production provider operations (#36), installation sync and policy (#37).</li><li>Open: GitHub login (#44), with a shared reviewer token used today.</li><li>Check Runs, repository checks, bounded evidence, metrics, and runner operations.</li><li>Repository and PR history dashboard plus signed release artifacts.</li></ul><p class="deliverable">Done when issue #46 has accepted evidence.</p></div></details>
         <div class="phase-label"><strong>Phase 5</strong><span>Later</span></div>
         <details class="phase"><summary>Test specialist agents</summary><div class="phase-body"><ul><li>Compare specialists with the single-agent baseline on the same frozen inputs.</li><li>Ship only when quality improves within cost and latency limits.</li></ul><p class="deliverable">No specialist rollout before measured production baseline.</p></div></details>
       </div>
@@ -501,13 +505,13 @@
     <section class="section shell" id="metrics">
       <div class="section-head">
         <div><div class="kicker">Success measures</div><h2>Numbers that matter</h2></div>
-        <p class="section-intro">Quality first. Speed and cost matter only after findings are trustworthy.</p>
+        <p class="section-intro">Real-provider quality remains unmeasured (#14). Historical deterministic replay validates the harness, not model recall. Missing billed cost stays unknown.</p>
       </div>
       <div class="metric-grid">
-        <div class="card metric"><strong>≥80%</strong><span>Defect recall target</span></div>
-        <div class="card metric"><strong>≤15%</strong><span>False-positive target</span></div>
+        <div class="card metric"><strong>Unknown</strong><span>Real-provider defect recall</span></div>
+        <div class="card metric"><strong>Unknown</strong><span>Real-provider false-positive rate</span></div>
         <div class="card metric"><strong>p95</strong><span>End-to-end latency</span></div>
-        <div class="card metric"><strong>$/run</strong><span>Exact known cost</span></div>
+        <div class="card metric"><strong>$/run</strong><span>Only when billing facts exist</span></div>
         <div class="card metric"><strong>Staged</strong><span>Rollout before scale</span></div>
       </div>
     </section>
@@ -531,7 +535,7 @@
     </section>
     <section class="section shell" id="scope">
       <div class="two-col">
-        <article class="card list-card"><div class="kicker">Product includes</div><h3>One trustworthy AI review path</h3><ul><li>GitHub installation and repository policy.</li><li>Single-agent analysis with bounded context.</li><li>Sandboxed review checks and Proof of Work.</li><li>Human approve or reject.</li><li>Check Run, history, quality, latency, usage, and cost views.</li></ul></article>
+        <article class="card list-card"><div class="kicker">Current core and planned additions</div><h3>One trustworthy AI review path</h3><ul><li>GitHub installation and repository policy.</li><li>Single-agent analysis with bounded context.</li><li>Sandboxed review checks and Proof of Work.</li><li>Human approve or reject.</li><li>Current: run dashboard and basic operational summaries.</li><li>Planned: Check Runs, repository history, complete quality and usage analytics (#38–#40).</li></ul></article>
         <article class="card list-card"><div class="kicker">Not this product</div><h3>No general CI/CD platform</h3><ul><li>No application or infrastructure deployment.</li><li>No GitHub Actions compatibility.</li><li>No marketplace action execution.</li><li>No arbitrary host commands or privileged containers.</li><li>No secrets for forked pull requests.</li><li>No specialist agents before a measured baseline.</li></ul></article>
       </div>
     </section>
@@ -541,17 +545,17 @@
       </div>
       <div class="two-col">
         <article class="card list-card"><h3>Likely risk</h3><ul><li>Webhook retries create duplicate runs.</li><li>Agent invents evidence.</li><li>Tests escape worker process.</li><li>New commit makes old finding stale.</li><li>Provider usage is missing.</li></ul></article>
-        <article class="card list-card"><h3>Control</h3><ul><li>Delivery ID and head SHA idempotency.</li><li>Evidence must map to file, line, or reproducible test.</li><li>Disposable container; blocked network; hard limits.</li><li>Cancel superseded workflow; bind findings to SHA.</li><li>Show unknown; never estimate or convert to zero.</li></ul></article>
+        <article class="card list-card"><h3>Control</h3><ul><li>Delivery deduplication and PR/head/generation identity.</li><li>Evidence must map to file, line, or reproducible test.</li><li>Disposable container; blocked network; hard limits.</li><li>Cancel superseded workflow; bind findings to SHA.</li><li>Show unknown; never estimate or convert to zero.</li></ul></article>
       </div>
     </section>
 
     <section class="section shell" id="first-day">
       <div class="section-head">
         <div><div class="kicker">Production next</div><h2>Release checklist</h2></div>
-        <p class="section-intro">Progress saves only in this browser. GitHub issue #46 is authoritative.</p>
+        <p class="section-intro">Two merged foundations are fixed below. Other checkboxes save personal planning progress only; they are not acceptance evidence. GitHub issue #46 is the release gate.</p>
       </div>
       <div class="card checklist">
-        <strong id="progressLabel">0 of 6 complete</strong>
+        <strong id="progressLabel">2 of 6 marked complete</strong>
         <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
         <div id="checklist"></div>
       </div>
@@ -568,7 +572,7 @@
     </section>
   </main>
 
-  <footer class="shell">Authoritative details: <span class="mono">plan/v1.md</span>, <span class="mono">docs/production-readiness.md</span>, and GitHub issue #46.</footer>
+  <footer class="shell">Authoritative details: <a href="v1.md">version-one plan</a>, <a href="../docs/status.md">current status</a>, <a href="../docs/production-readiness.md">production readiness</a>, and <a href="https://github.com/Rajveerx11/pr-reliability-platform/issues/46">issue #46</a>.</footer>
 
   <script>
     const storageKey = 'pr-reliability-plan-v1';
@@ -594,13 +598,13 @@
     });
 
     const flows = [
-      ['Receive', 'Verify GitHub signature, store delivery ID, and bind request to repository installation.', 'FastAPI'],
-      ['Queue', 'Create one durable workflow for the pull request head SHA. Duplicate delivery returns same run.', 'Temporal'],
+      ['Receive', 'Verify the signature and installation, deduplicate delivery, and require fresh repository access plus enabled branch policy.', 'FastAPI'],
+      ['Queue', 'Store a run and command for the admitted PR/head/generation. Recheck policy before dispatch. Duplicate deliveries do not queue another command.', 'Dispatcher + Temporal'],
       ['Context', 'Select changed files and direct dependencies until token budget is full.', 'Context service'],
       ['Analyze', 'Single agent returns versioned JSON findings. Invalid output is rejected.', 'Agent worker'],
       ['Verify', 'Run tests and Proof of Work against captured workspace. Failure blocks output.', 'Sandbox + gate'],
       ['Approve', 'Human reads claim and evidence, then approves or rejects proposed GitHub action.', 'Reviewer'],
-      ['Publish', 'Idempotent activity posts approved comment once and records GitHub result.', 'Publisher']
+      ['Publish', 'Recheck the current head and approvals, reconcile earlier attempts, and post one commit-bound PR review with a stored receipt.', 'Publisher']
     ];
     const flowNav = document.getElementById('flowNav');
     function showFlow(index) {
@@ -626,24 +630,24 @@
     });
 
     const tasks = [
-      ['Wire production providers', 'OpenAI model calls and short-lived GitHub installation operations.'],
-      ['Sync repositories and policy', 'Show active repositories and enforce owner-scoped configuration.'],
+      ['Merged: production providers (#36)', 'OpenAI model calls and short-lived GitHub installation operations.', true],
+      ['Merged: repository sync and policy (#37)', 'Inventory API and owner-scoped admission policy; repository UI remains #38.', true],
       ['Add review checks', 'Check Runs, allow-listed sandbox commands, and bounded evidence.'],
       ['Finish dashboard and access', 'PR history, analytics, runner health, and GitHub login.'],
       ['Publish signed release', 'Immutable images, scans, signatures, manifest, and rollback digests.'],
       ['Prove production', 'Real evaluation plus private Linux VM recovery and end-to-end acceptance.']
     ];
-    const taskState = saved.tasks || {};
+    const taskState = saved.tasks20260907 || {};
     const checklist = document.getElementById('checklist');
     function updateProgress() {
-      const done = Object.values(taskState).filter(Boolean).length;
-      document.getElementById('progressLabel').textContent = `${done} of ${tasks.length} complete`;
+      const done = tasks.filter((task, index) => task[2] || taskState[index]).length;
+      document.getElementById('progressLabel').textContent = `${done} of ${tasks.length} marked complete`;
       document.getElementById('progressBar').style.width = `${done / tasks.length * 100}%`;
-      saved.tasks = taskState; persist(saved);
+      saved.tasks20260907 = taskState; persist(saved);
     }
     tasks.forEach((task, index) => {
       const row = document.createElement('div'); row.className = 'check-row';
-      const input = document.createElement('input'); input.type = 'checkbox'; input.id = `task-${index}`; input.checked = Boolean(taskState[index]);
+      const input = document.createElement('input'); input.type = 'checkbox'; input.id = `task-${index}`; input.checked = Boolean(task[2] || taskState[index]); input.disabled = Boolean(task[2]);
       const label = document.createElement('label'); label.htmlFor = input.id; label.innerHTML = `<strong>${task[0]}</strong><small>${task[1]}</small>`;
       input.addEventListener('change', () => { taskState[index] = input.checked; updateProgress(); });
       row.append(input, label); checklist.appendChild(row);

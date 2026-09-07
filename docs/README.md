@@ -1,20 +1,27 @@
 # Documentation
 
-- [Repository inventory and review policy](repository-policy.md)
+Verified against merged `main` at `675257a` on 2026-09-07. Start with [current status](status.md).
 
-- `production-readiness.md` — remaining production work, release gates, and rollout order.
-- `review-checks.md` — CI-style review evidence that is included and excluded.
-- `status.md` — current implementation, verification, and external acceptance status.
-- `architecture.md` — services, data flow, ownership, and runtime boundaries.
-- `development.md` — local setup, folder rules, tests, and delivery workflow.
-- `security.md` — trust boundaries, secrets, sandboxing, and approval controls.
-- `evaluation.md` — golden tasks, metrics, comparison rules, and reporting.
-- `evaluation-report.md` — full-cohort deterministic harness replay and exact baseline blockers.
-- `observability.md` — run tracing, latency and usage metrics, and dependency health.
-- `dashboard.md` — private run, approval, health, latency, and evidence operations view.
-- `deployment.md` — private single-VM TLS deployment, backup, recovery, monitoring, and rollback.
+## Build and operate
 
-Product scope and decisions live in `plan/v1.md`.
-Production readiness is tracked by
-[issue #46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46). Planned pages and
-fields remain planned until their linked issue is implemented.
+- [Development](development.md): install, configure, migrate, start processes, and run tests.
+- [Configuration](configuration.md): environment variables and process-specific requirements.
+- [API](api.md): routes, authorization, webhook behavior, and contract references.
+- [Repository policy](repository-policy.md): installation sync, admission, policy, audit, and recovery.
+- [Dashboard](dashboard.md): implemented views and remaining UI work.
+- [Observability](observability.md): tracing, metrics, readiness, and sync diagnostics.
+- [Deployment](deployment.md): private Linux VM, preflight, backup, restore, and rollback.
+
+## Design and acceptance
+
+- [Architecture](architecture.md): components, ownership, persistence, and execution boundaries.
+- [Security](security.md): credentials, sandboxing, approval, and operational trust.
+- [Review checks](review-checks.md): current sandbox and planned CI-style evidence scope.
+- [Evaluation methodology](evaluation.md): frozen tasks, scoring, and comparison rules.
+- [Historical evaluation report](evaluation-report.md): deterministic replay, not model-quality proof.
+- [Production readiness](production-readiness.md): open work and evidence required for release.
+- [Version-one plan](../plan/v1.md) and [interactive plan](../plan/interactive.html).
+- [Change history](../Changes.md).
+
+Plans live in `plan/`; operational documentation lives here. Planned behavior is labelled and
+linked to its issue. GitHub issue #46 tracks the remaining production gate.

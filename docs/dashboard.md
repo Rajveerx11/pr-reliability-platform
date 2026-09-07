@@ -19,7 +19,8 @@ from [issue #44](https://github.com/Rajveerx11/pr-reliability-platform/issues/44
 - p50 and p95 duration for terminal runs.
 - Recent runs with repository and status filters.
 - Run timeline, trace ID, findings, and safe evidence.
-- PostgreSQL and Temporal readiness.
+- Overall API readiness, with PostgreSQL and Temporal detail labels. Sync freshness participates
+  in overall readiness but has no separate dashboard card yet.
 - Honest usage coverage and known cost.
 
 Retries, usage, and cost show `Unknown` when no persisted fact exists. The API never estimates
@@ -34,8 +35,10 @@ wait, failure rate, and recent incidents.
 
 ### Repositories
 
-All repositories visible to the GitHub App installation, active or paused state, default branch,
-last sync, policy, open PR count, last review, and health. This requires issue #37.
+Issue #37 supplies the authenticated inventory and policy APIs: installation/access state,
+enabled state, default branch, sync/webhook/review timestamps, branch rules, and budgets.
+The repository page, open PR counts, and complete history UI still require #38. Until then use
+[repository policy](repository-policy.md#private-api) or [API reference](api.md).
 
 ### Pull request history
 
@@ -54,7 +57,7 @@ error rate, and alert state. This requires issue #43.
 
 ## Data gaps to close
 
-- Repository inventory is learned from pull request webhooks, not installation sync.
+- Installation inventory is synchronized, but a repository/history UI is not yet implemented (#38).
 - Retry, usage, and cost facts are incomplete until issue #39.
 - Test summaries and bounded logs require issue #42.
 - GitHub Check Run state requires issue #40.

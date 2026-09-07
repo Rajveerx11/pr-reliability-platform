@@ -1,158 +1,164 @@
-# Development Guide
+# Development guide
 
-## Requirements
+## Requirements and install
 
-- Python 3.12 or newer
-- Git
-- Docker with Compose
-- GitHub CLI for repository administration
-- Temporal development server or local container
-- PostgreSQL local container
+Use Python 3.12, uv, Git, PostgreSQL, and a Temporal development server. Python 3.12 is the CI
+baseline; the package permits newer Python versions, but they are not the release evidence.
+Real verification requires a Linux Docker engine with resource-limit support. GitHub CLI is
+needed for issue and PR administration, not application runtime.
 
-## Folder rules
-
-- `apps/api/`: webhook and product API.
-- `apps/web/`: approval and run interface.
-- `workers/`: Temporal workflows and activities.
-- `packages/contracts/`: shared versioned data shapes.
-- `packages/proof_adapter/`: Proof of Work integration.
-- `evals/golden_prs/`: frozen evaluation fixtures.
-- `infra/`: local and deployment infrastructure.
-- `migrations/`: PostgreSQL migrations.
-- `plan/`: product plans and decisions.
-- `docs/`: technical documentation.
-
-Keep each file focused on one responsibility. Prefer small modules, but do not split one simple
-idea across many tiny files. A file should be easy to understand in one sitting.
-
-## Feature workflow
-
-1. Open or choose one GitHub issue.
-2. Confirm acceptance criteria and linked decision.
-3. Create a focused branch.
-4. Add tests with implementation.
-5. Update relevant documentation.
-6. Add one entry to `Changes.md` with issue, decision, and changed files.
-7. Open a pull request linked to the issue.
-8. Merge only after required checks pass and a human approves.
-
-## Production work
-
-Use [production readiness](production-readiness.md) and tracking issue #46 for delivery order.
-Production provider wiring is tracked in issue #36. Repository-defined checks must follow
-[review checks and CI boundary](review-checks.md). Each feature still needs its own issue before
-implementation.
-
-## Local configuration
-
-Copy `.env.example` to `.env`. Never commit `.env`, API keys, GitHub private keys, or tokens.
-Local containers must use development-only credentials.
-
-Run the API after setting the required values in `.env`:
+From the repository root:
 
 ```text
-uvicorn --factory pr_reliability_api.app:create_app_from_environment
+uv sync --frozen --extra dev --python 3.12
 ```
 
-Webhook and approval startup requires `DATABASE_URL`, `OWNER_ID`, `GITHUB_INSTALLATION_ID`,
-`GITHUB_WEBHOOK_SECRET`, `APPROVAL_ACTOR_ID`, and `APPROVAL_REVIEWER_TOKEN`. Open
-`/approval-inbox`, enter the configured reviewer token, and load findings. Keep this token outside
-source control and rotate it like any other application secret.
+Copy `.env.example` to `.env`, fill the required values, and keep it untracked. On PowerShell:
 
-Run the durable command dispatcher with `DATABASE_URL`, `TEMPORAL_ADDRESS`,
-`TEMPORAL_NAMESPACE`, and `TEMPORAL_TASK_QUEUE` configured:
-
-```text
-pr-reliability-command-dispatcher
+```powershell
+Copy-Item -LiteralPath .env.example -Destination .env
 ```
 
-It drains committed `run.command_created` events, starts or supersedes the matching Temporal
-workflow, and appends a dispatch receipt. Run one or more replicas; row locking prevents
-concurrent delivery while stable command IDs make crash retries safe.
+On POSIX shells use `cp .env.example .env`. The copy command is for first setup; preserve an
+existing `.env`. Never commit keys, passwords, or filled secret files. See [configuration](configuration.md).
 
-Repository deployment configuration launches the API, command dispatcher, Temporal workflow
-worker, and provider activity worker as separate processes:
+## Start the local control plane
+
+Start PostgreSQL and Temporal separately and configure reachable addresses in `.env`.
+The baseline Compose file does not provide either server. Apply all five migrations:
 
 ```text
-docker compose --env-file .env -f infra/compose/compose.yaml up --build
+uv run --env-file .env python -m pr_reliability_api.migrate
 ```
 
-The configured PostgreSQL and Temporal addresses must be reachable from their consuming services.
-The local OpenTelemetry collector accepts OTLP/HTTP and exposes Prometheus metrics on port `8889`
-and collector health on port `13133`. API liveness and dependency readiness are available at
-`/health/live` and `/health/ready`. See `docs/observability.md` for trace and metric fields.
-Set `HEALTH_CHECK_TIMEOUT_SECONDS` to bound each readiness dependency check; the default is two
-seconds.
-ACTIVITY_WORKER_IMAGE must name an image built from this project.
-Set REVIEW_ACTIVITY_OPERATIONS_FACTORY to the built-in
-pr_reliability_workers.providers:create_operations factory. It returns the complete context,
-OpenAI analysis, sandbox verification, approved GitHub publish, and terminal persistence set.
-Configure OPENAI_MODEL explicitly. REVIEW_SANDBOX_COMMAND_JSON is a JSON argument vector, not a
-host shell command. Registering partial activity sets on the same queue is not supported.
-The publish operation must use `GitHubReviewPublishOperation` with `GitHubRestReviewClient`.
-Configure that client with a short-lived repository installation token and the numeric user ID of
-the authenticated GitHub App bot. It first creates an unsubmitted `PENDING` pull request review
-with the approved head SHA as `commit_id`. It rechecks the head, deletes the draft on drift, and
-submits event `COMMENT` only after a match. It pages through every review and accepts a retry marker
-only from that author when the commit, state, terminal marker, and full body match. An exact pending
-draft is resumed or deleted after the same head check. It never trusts another author's marker, a
-marker inside claim text, edited content, or a review bound to another commit, and never includes
-tokens, review bodies, GitHub response bodies, or provider exception text in activity failures.
-
-The client accepts only the standard `https://api.github.com` origin, preventing an installation
-token from being sent to a caller-selected host. Enterprise GitHub support requires a future
-explicit trusted-origin design.
-
-Private version-one deployment uses `infra/deployment/compose.vm.yaml`, immutable image digests,
-external secret files, private-IP TLS termination, local Prometheus, and a dedicated rootless
-sandbox Docker engine. Follow `docs/deployment.md`; local Compose remains a development-only path.
-
-## Quality commands
-
-Run these required repository checks:
+Each long-running process below runs in its own terminal:
 
 ```text
-ruff check .
-ruff format --check .
-pytest
+uv run --env-file .env uvicorn --factory pr_reliability_api.app:create_app_from_environment --host 127.0.0.1 --port 8000
+uv run --env-file .env pr-reliability-repository-sync
+uv run --env-file .env pr-reliability-command-dispatcher
+uv run --env-file .env pr-reliability-workflow-worker
 ```
 
-Integration tests must use isolated databases and queues. End-to-end tests must use a test
-GitHub App or recorded fixture, never a production repository.
-
-Temporal workflow tests use the SDK's time-skipping server on Linux. On Windows, they use the local
-dev server because the Windows time-skipping server can stall a query while Continue-As-New changes
-runs. Both paths exercise retries, approval timeout, cancellation, supersession, and history replay:
+The API also verifies/applies migrations on environment-factory startup. An explicit migration
+step avoids races when starting other database-backed processes. The sync process needs the
+configured GitHub App ID, installation ID, owner, and absolute private-key path; it imports
+repositories before any PR arrives. To verify one sync and exit:
 
 ```text
+uv run --env-file .env pr-reliability-repository-sync --once
+```
+
+Subscribe a dedicated test GitHub App to PR, installation, and installation-repository events.
+Wait for successful sync before sending test PRs. `/health/ready` returns 503 until PostgreSQL,
+Temporal, and fresh installation inventory are available. `/health/live` only proves process
+liveness. See [repository policy](repository-policy.md) and [API reference](api.md).
+
+Open `http://127.0.0.1:8000/dashboard` or `/approval-inbox` and enter the configured reviewer token.
+Repository policy is an authenticated API today; the repository/history UI remains #38.
+
+## Production activity process
+
+On the approved Linux provider host/container, start:
+
+```text
+uv run --env-file .env pr-reliability-activity-worker
+```
+
+Use `REVIEW_ACTIVITY_OPERATIONS_FACTORY=pr_reliability_workers.providers:create_operations`.
+The factory supplies context, OpenAI analysis, sandbox verification, approved GitHub publishing,
+and terminal persistence. Configure an explicit model, bot user ID, immutable sandbox image,
+JSON command vector, private staging directory, and dedicated sandbox engine. Do not register
+partial activity sets on the same queue. Missing isolation fails closed; Windows development
+can test the control plane and fixtures, but does not replace the production Linux sandbox.
+
+The dispatcher drains durable run and approval commands. It rechecks repository policy before
+dispatch and uses stable IDs so retries do not create duplicate work. Publishing stages a
+commit-bound pending review and submits it only after approval and another head check. Detailed
+boundaries live in [architecture](architecture.md) and [security](security.md).
+
+## Container configurations
+
+The development process manifest is `infra/compose/compose.yaml`:
+
+```text
+docker compose --env-file .env --file infra/compose/compose.yaml config --quiet
+```
+
+The manifest defines the API, sync, dispatcher, workflow/activity workers, and collector. PostgreSQL and
+Temporal must be reachable from containers; `localhost` inside a container is that container.
+The activity service in this baseline manifest needs a reviewed override with the provider
+environment and sandbox socket/staging mounts before it can perform real reviews. Compose's
+`--env-file` does not inject every template value into every service. The complete private Linux
+VM stack is documented in [deployment](deployment.md); do not describe the baseline manifest
+alone as a working production deployment.
+
+Start with `up --build` only after validating the combined manifest and reviewed local override.
+Use container-reachable database and Temporal addresses and
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318` in the Compose environment.
+
+Use `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` for host processes and the collector's
+service hostname inside Compose. The local collector exposes metrics on 8889 and health on 13133.
+It does not publish OTLP port 4318 to the host. Host-process export needs a separate reachable
+collector or a reviewed override that binds `127.0.0.1:4318:4318`; telemetry export is optional.
+
+## Tests and quality
+
+```text
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest
+uv build
+```
+
+Set `TEST_DATABASE_URL` to an isolated development database. Each integration test creates a
+random schema, applies migrations, and removes the schema afterward; never point it at production.
+Example PowerShell setup:
+
+```powershell
+$env:TEST_DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/pr_reliability_test'
+uv run pytest apps/api/tests packages/contracts/tests -q
 uv run pytest workers/tests -q
 ```
 
-CI runs the full worker suite in the Linux `temporal-workflow` job. A focused
-`temporal-workflow-windows` job runs the workflow regression module on every pull request and push
-to `main`.
+On POSIX use `export TEST_DATABASE_URL=...`. Without a test database, local database tests skip;
+CI requires it. Linux workflow tests use Temporal's time-skipping server. Windows workflow tests
+use the local dev server to avoid the supersession stall fixed by #47. The configured Windows CI
+job runs only `workers/tests/test_pull_request_review_workflow.py`.
 
-This platform-specific test harness keeps production timeouts unchanged and preserves the Linux
-time-skipping coverage. [Issue #47](https://github.com/Rajveerx11/pr-reliability-platform/issues/47)
-was closed after both paths passed repeatedly.
+A full Windows suite has a known pre-existing Git-pack cleanup failure in the production-operations
+fixture, reproduced on `09da81a`. It does not fail Linux CI. Psycopg async tests use a selector event
+loop on Windows. Latest dated evidence is in [status](status.md); do not infer a full-suite Windows
+pass from the focused workflow job.
 
-Sandbox unit tests use an injected fake Docker boundary and run with the normal worker suite. Real
-isolation tests require a reachable Linux Docker engine and an immutable local image ID:
+For real sandbox tests, build the fixture image and obtain its immutable ID. PowerShell:
 
-```text
+```powershell
 docker build --file infra/sandbox/Dockerfile --tag pr-reliability-sandbox:test .
-SANDBOX_TEST_IMAGE=$(docker image inspect --format '{{.Id}}' pr-reliability-sandbox:test) \
+$env:SANDBOX_TEST_IMAGE = docker image inspect --format '{{.Id}}' pr-reliability-sandbox:test
+$env:RUN_DOCKER_SANDBOX_TESTS = '1'
+uv run pytest workers/tests/sandbox -q
+```
+
+POSIX:
+
+```sh
+docker build --file infra/sandbox/Dockerfile --tag pr-reliability-sandbox:test .
+export SANDBOX_TEST_IMAGE=$(docker image inspect --format '{{.Id}}' pr-reliability-sandbox:test)
 RUN_DOCKER_SANDBOX_TESTS=1 uv run pytest workers/tests/sandbox -q
 ```
 
-CI runs real network, workspace-destruction, timeout, output, tmpfs, CPU, memory, and process-limit
-checks in the dedicated `sandbox-integration` job. If Docker is missing or its daemon is not a
-Linux engine, production verification raises `SandboxUnavailableError`; it never executes the
-command on the host.
+These tests need a reachable Linux Docker engine. The dedicated CI job tests real network,
+workspace destruction, timeouts, output, tmpfs, CPU, memory, and process limits.
 
-PostgreSQL integration tests require `TEST_DATABASE_URL`. Tests create a random schema, apply all
-migrations, and remove that schema afterward. Example local value:
+## Repository and delivery rules
 
-```text
-postgresql://postgres:postgres@localhost:5432/postgres
-```
+Plans live in `plan/`; docs in `docs/`; feature code in its owning `apps/`, `workers/`, or
+`packages/` directory. Tests live beside their code area. Migrations live in `migrations/`,
+frozen tasks in `evals/golden_prs/`, and infrastructure in `infra/`.
+
+Choose one GitHub issue, confirm acceptance and the decision in [plan/v1.md](../plan/v1.md), then
+implement on a focused branch. Update docs and `Changes.md`, link the PR to the issue and decision,
+and run applicable checks. Publishing comments, patches, or commits requires explicit human
+approval under [AGENTS.md](../AGENTS.md). Merge only after checks pass and a human authorizes it.
+Production priorities remain in [production readiness](production-readiness.md).
