@@ -21,6 +21,7 @@ def create_health_router(
     workflow_health_check: WorkflowHealthCheck,
     *,
     timeout_seconds: float = 2.0,
+    repository_health_check: DependencyHealthCheck | None = None,
 ) -> APIRouter:
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("health check timeout must be positive")
@@ -42,6 +43,7 @@ def create_health_router(
                         database_health_check,
                         workflow_health_check,
                         timeout_seconds,
+                        repository_health_check,
                     )
                 )
             probe = active_probe
@@ -59,12 +61,15 @@ async def _check_dependencies(
     database_health_check: DatabaseHealthCheck,
     workflow_health_check: WorkflowHealthCheck,
     timeout_seconds: float,
+    repository_health_check: DependencyHealthCheck | None = None,
 ) -> dict[str, str]:
-    database, workflow = await asyncio.gather(
-        _safe_check(database_health_check, timeout_seconds),
-        _safe_check(workflow_health_check, timeout_seconds),
+    checks = {"database": database_health_check, "workflow": workflow_health_check}
+    if repository_health_check is not None:
+        checks["repository_sync"] = repository_health_check
+    results = await asyncio.gather(
+        *(_safe_check(check, timeout_seconds) for check in checks.values())
     )
-    return {"database": database, "workflow": workflow}
+    return dict(zip(checks, results))
 
 
 async def _safe_check(check: DependencyHealthCheck, timeout_seconds: float) -> str:

@@ -29,6 +29,7 @@ def create_app(
     *,
     workflow_health_check: WorkflowHealthCheck | None = None,
     database_health_check: DatabaseHealthCheck | None = None,
+    repository_health_check: DatabaseHealthCheck | None = None,
     health_check_timeout_seconds: float = 2.0,
 ) -> FastAPI:
     """Create the API with explicit production or test dependencies."""
@@ -39,6 +40,7 @@ def create_app(
             database_health_check or _unconfigured_database_health,
             workflow_health_check or _unconfigured_workflow_health,
             timeout_seconds=health_check_timeout_seconds,
+            repository_health_check=repository_health_check,
         )
     )
     app.include_router(create_github_webhook_router(settings, connection_factory))
@@ -103,6 +105,11 @@ def create_app_from_environment() -> FastAPI:
             database_url,
             health_check_timeout_seconds,
         ),
+        repository_health_check=_database_health_check(
+            database_url,
+            health_check_timeout_seconds,
+            installation=(settings.owner_id, settings.installation_id),
+        ),
         health_check_timeout_seconds=health_check_timeout_seconds,
     )
 
@@ -112,6 +119,7 @@ def _database_health_check(
     timeout_seconds: float,
     *,
     connect=psycopg.AsyncConnection.connect,
+    installation: tuple[str, int] | None = None,
 ) -> DatabaseHealthCheck:
     connect_timeout_seconds = max(1, math.ceil(timeout_seconds))
     statement_timeout_ms = max(1, math.ceil(timeout_seconds * 1_000))
@@ -123,7 +131,17 @@ def _database_health_check(
             options=f"-c statement_timeout={statement_timeout_ms}",
         )
         try:
-            await connection.execute("SELECT 1")
+            if installation is None:
+                await connection.execute("SELECT 1")
+            else:
+                cursor = await connection.execute(
+                    """SELECT 1 FROM github_installations
+                       WHERE owner_id = %s AND installation_id = %s
+                         AND last_sync_at > now() - interval '15 minutes'""",
+                    installation,
+                )
+                if await cursor.fetchone() is None:
+                    raise RuntimeError("repository synchronization is not fresh")
         finally:
             await connection.close()
 

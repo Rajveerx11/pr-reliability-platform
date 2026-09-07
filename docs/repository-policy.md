@@ -67,6 +67,13 @@ If synchronization fails for 15 minutes, new reviews stop until it recovers. Exi
 reviews are not cancelled by a policy change; existing approval and exact-head publication
 checks still apply. No findings are published by this feature.
 
+Production `/health/ready` includes a `repository_sync` dependency. It returns HTTP 503 when the
+configured owner's installation has never synchronized or its last successful sync is older
+than 15 minutes. Deployment health consumes this readiness response, so a running process with
+persistent authentication, network, or database failures cannot keep the deployment healthy.
+Freshly confirmed suspended or deleted installations remain operationally healthy; their access
+restrictions intentionally block reviews.
+
 Webhooks received while blocked are recorded but do not queue a deferred review. After restoring
 access, use a new PR event (for example a new commit or reopening the PR) to request a review.
 Replaying the same delivery remains a no-op. Closed PR events still update known PR state while

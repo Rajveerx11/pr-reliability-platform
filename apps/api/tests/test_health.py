@@ -6,6 +6,7 @@ import asyncio
 import time
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pr_reliability_api.app import _database_health_check
@@ -63,6 +64,48 @@ def test_readiness_fails_closed_without_leaking_errors() -> None:
         "status": "not_ready",
         "dependencies": {"database": "unavailable", "workflow": "unavailable"},
     }
+
+
+@pytest.mark.parametrize("fresh", [True, False])
+def test_readiness_exposes_repository_sync_freshness_and_closes_probe(fresh):
+    closed = []
+
+    class Probe:
+        async def execute(self, statement, parameters):
+            assert "last_sync_at > now() - interval '15 minutes'" in statement
+            assert parameters == ("owner-id", 71)
+            return self
+
+        async def fetchone(self):
+            return (1,) if fresh else None
+
+        async def close(self):
+            closed.append(True)
+
+    async def connect(*args, **kwargs):
+        return Probe()
+
+    async def healthy():
+        return None
+
+    app = FastAPI()
+    app.include_router(
+        create_health_router(
+            healthy,
+            healthy,
+            repository_health_check=_database_health_check(
+                "postgresql://database/health", 2, connect=connect, installation=("owner-id", 71)
+            ),
+        )
+    )
+    response = TestClient(app).get("/health/ready")
+    assert response.status_code == (200 if fresh else 503)
+    assert response.json()["dependencies"] == {
+        "database": "ready",
+        "workflow": "ready",
+        "repository_sync": "ready" if fresh else "unavailable",
+    }
+    assert closed == [True]
 
 
 def test_repeated_database_timeouts_cancel_and_close_connections() -> None:

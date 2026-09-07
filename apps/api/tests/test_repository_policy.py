@@ -3,10 +3,11 @@
 import asyncio
 import json
 
+import psycopg
 import pytest
 import test_github_webhooks as webhook_tests
 from fastapi.testclient import TestClient
-from pr_reliability_api.app import create_app
+from pr_reliability_api.app import _database_health_check, create_app
 from pr_reliability_api.approvals import ApprovalInboxSettings
 from pr_reliability_api.repositories.store import apply_snapshot
 from pr_reliability_api.webhooks import GithubWebhookSettings
@@ -261,3 +262,51 @@ def test_rename_and_default_branch_changes_are_audited(client, connection_factor
         assert data["before"]["full_name"] == "owner/repository"
         assert data["after"]["full_name"] == "owner/renamed"
         assert data["after"]["default_branch"] == "release"
+
+
+@pytest.mark.parametrize(
+    "condition,ready",
+    [
+        ("fresh", True),
+        ("expired", False),
+        ("never_synced", False),
+        ("other_owner", False),
+        ("other_installation", False),
+        ("suspended", True),
+    ],
+)
+def test_postgres_sync_readiness_scopes_identity_and_freshness(
+    client, connection_factory, database_url, condition, ready
+):
+    with connection_factory() as connection:
+        schema = connection.execute("SELECT current_schema()").fetchone()[0]
+        if condition == "expired":
+            connection.execute(
+                "UPDATE github_installations SET last_sync_at=now()-interval '16 minutes'"
+            )
+        elif condition == "never_synced":
+            connection.execute("UPDATE github_installations SET last_sync_at=NULL")
+        elif condition == "suspended":
+            connection.execute("UPDATE github_installations SET state='suspended'")
+
+    async def connect(url, **options):
+        connection = await psycopg.AsyncConnection.connect(url, **options)
+        await connection.execute(
+            psycopg.sql.SQL("SET search_path TO {}").format(psycopg.sql.Identifier(schema))
+        )
+        return connection
+
+    check = _database_health_check(
+        database_url,
+        2,
+        connect=connect,
+        installation=(
+            OTHER_OWNER if condition == "other_owner" else OWNER_ID,
+            72 if condition == "other_installation" else 71,
+        ),
+    )
+    if ready:
+        asyncio.run(check())
+    else:
+        with pytest.raises(RuntimeError, match="synchronization is not fresh"):
+            asyncio.run(check())
