@@ -2,13 +2,16 @@
 
 import base64
 import hashlib
+import re
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, StrictBool
 
-from .sessions import LOGIN_COOKIE, SESSION_COOKIE
+from .sessions import LOGIN_COOKIE, LOGIN_RETURN_COOKIE, SESSION_COOKIE
+
+_RUN_ID = re.compile(r"^[0-7][0-9A-HJKMNP-TV-Z]{25}$")
 
 HEADERS = {
     "Cache-Control": "no-store",
@@ -33,7 +36,10 @@ def create_login_router(sessions):
     router = APIRouter()
 
     @router.get("/auth/login")
-    def login(request: Request):
+    def login(
+        request: Request,
+        run: str | None = Query(default=None, max_length=26, pattern=_RUN_ID.pattern),
+    ):
         # Use the ASGI peer, never parse caller-supplied forwarding headers here.
         state, browser, verifier = sessions.begin(
             request.client.host if request.client else "unknown"
@@ -57,6 +63,7 @@ def create_login_router(sessions):
             "https://github.com/login/oauth/authorize?" + query, status_code=303, headers=HEADERS
         )
         cookie(response, LOGIN_COOKIE, browser, 300)
+        cookie(response, LOGIN_RETURN_COOKIE, run or "", 300)
         return response
 
     @router.get("/auth/callback", include_in_schema=False)
@@ -65,6 +72,8 @@ def create_login_router(sessions):
         state: str = Query(default="", max_length=100),
         code: str = Query(default="", max_length=1024),
     ):
+        run = request.cookies.get(LOGIN_RETURN_COOKIE, "")
+        run_query = f"run={run}" if _RUN_ID.fullmatch(run) else ""
         try:
             if not state or not code:
                 raise HTTPException(403, "GitHub login cancelled or invalid")
@@ -74,12 +83,15 @@ def create_login_router(sessions):
                 code,
                 request.cookies.get(SESSION_COOKIE, ""),
             )
-            response = RedirectResponse("/dashboard", status_code=303, headers=HEADERS)
+            target = f"/dashboard?{run_query}" if run_query else "/dashboard"
+            response = RedirectResponse(target, status_code=303, headers=HEADERS)
             cookie(response, SESSION_COOKIE, raw, age)
         except HTTPException:
             # Remove OAuth callback parameters from the address bar even on failure.
-            response = RedirectResponse("/dashboard?login=failed", status_code=303, headers=HEADERS)
+            query = "&".join(part for part in (run_query, "login=failed") if part)
+            response = RedirectResponse(f"/dashboard?{query}", status_code=303, headers=HEADERS)
         cookie(response, LOGIN_COOKIE, "", 0)
+        cookie(response, LOGIN_RETURN_COOKIE, "", 0)
         return response
 
     @router.get("/auth/session")

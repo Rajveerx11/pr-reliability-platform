@@ -112,12 +112,7 @@ async def dispatch_next_command(
             SELECT command.run_id, command.owner_id, command.event_key, command.event_data,
                    run.public_id, run.state, run.generation, run.base_sha, run.head_sha,
                    run.token_budget, run.cost_budget_usd_micros,
-                   pull_request.public_id, pull_request.github_number, repository.public_id,
-                   (
-                       SELECT max(latest.generation)
-                       FROM runs AS latest
-                       WHERE latest.pull_request_id = run.pull_request_id
-                   ) AS latest_generation
+                   pull_request.public_id, pull_request.github_number, repository.public_id
             FROM run_events AS command
             JOIN runs AS run
               ON run.id = command.run_id
@@ -134,6 +129,23 @@ async def dispatch_next_command(
                   FROM run_events AS receipt
                   WHERE receipt.run_id = command.run_id
                     AND receipt.event_key = command.event_key || ':dispatched'
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM run_events AS earlier_command
+                  JOIN runs AS earlier_run
+                    ON earlier_run.id = earlier_command.run_id
+                   AND earlier_run.owner_id = earlier_command.owner_id
+                  WHERE earlier_command.event_type = 'run.command_created'
+                    AND earlier_run.pull_request_id = run.pull_request_id
+                    AND earlier_command.id < command.id
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM run_events AS earlier_receipt
+                        WHERE earlier_receipt.run_id = earlier_command.run_id
+                          AND earlier_receipt.event_key =
+                              earlier_command.event_key || ':dispatched'
+                    )
               )
             ORDER BY command.id
             FOR UPDATE OF command, run SKIP LOCKED
@@ -158,7 +170,6 @@ async def dispatch_next_command(
             pull_request_public_id,
             pull_request_number,
             repository_public_id,
-            latest_generation,
         ) = row
         command = StartRunCommand.model_validate(event_data)
         persisted_identity = (
@@ -190,23 +201,6 @@ async def dispatch_next_command(
         if command_identity != persisted_identity:
             raise ValueError("persisted start-run command does not match relational state")
 
-        if generation < latest_generation:
-            _cancel_superseded_queued_run(
-                connection,
-                command,
-                internal_run_id,
-                latest_generation,
-                id_factory,
-            )
-            _insert_receipt(
-                connection,
-                command,
-                internal_run_id,
-                id_factory,
-                status="skipped",
-                reason="superseded generation",
-            )
-            return True
         if run_state in _TERMINAL_RUN_STATES:
             _insert_receipt(
                 connection,
@@ -604,48 +598,6 @@ def _insert_aggregate_approval_receipt(
             internal_run_id,
             f"approval-set:{approval_set_digest}:dispatched",
             json.dumps(event_data),
-        ),
-    )
-
-
-def _cancel_superseded_queued_run(
-    connection: Connection[Any],
-    command: StartRunCommand,
-    internal_run_id: int,
-    latest_generation: int,
-    id_factory: Callable[[], str],
-) -> None:
-    cancelled = connection.execute(
-        """
-        UPDATE runs
-        SET state = 'cancelled', updated_at = now()
-        WHERE id = %s AND owner_id = %s AND state = 'queued'
-        RETURNING id
-        """,
-        (internal_run_id, command.owner_id),
-    ).fetchone()
-    if cancelled is None:
-        return
-    connection.execute(
-        """
-        INSERT INTO run_events (
-            public_id, owner_id, run_id, event_key, event_type, event_data, occurred_at
-        )
-        VALUES (%s, %s, %s, %s, 'run.cancelled', %s::jsonb, now())
-        ON CONFLICT (run_id, event_key) DO NOTHING
-        """,
-        (
-            id_factory(),
-            command.owner_id,
-            internal_run_id,
-            f"{command.run_id}:{command.head_sha}:terminal:cancelled",
-            json.dumps(
-                {
-                    "outcome": "cancelled",
-                    "reason": "superseded before dispatch",
-                    "superseded_by_generation": latest_generation,
-                }
-            ),
         ),
     )
 

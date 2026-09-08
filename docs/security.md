@@ -77,7 +77,8 @@ workflow-signal events but performs no external write.
 - The OpenAI adapter sends only selected context, disables response storage, requires strict
   structured output, and validates the same finding schema locally before persistence.
 - GitHub App JWTs live only in memory. Checkout tokens target one repository with contents/metadata
-  read permissions. Publishing tokens add pull-request write permission. The separate inventory
+  read permissions. Publishing tokens add pull-request write permission. Check Run tokens request
+  only checks write and metadata read permission. The separate inventory
   token covers selected installation repositories with metadata read only; it cannot read source
   or publish reviews. No caller-selected API origin or redirect receives those credentials.
 - Git authentication is passed only through an allow-listed child-process environment. Tokens do

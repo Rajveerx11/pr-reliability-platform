@@ -2,6 +2,7 @@
 
 from .checkout import ExactHeadCheckout, GitHubCheckoutError, RepositoryCheckout
 from .github_app import (
+    CHECK_RUN_PERMISSIONS,
     CHECKOUT_PERMISSIONS,
     REVIEW_PERMISSIONS,
     GitHubAppAuthenticationError,
@@ -21,6 +22,7 @@ def create_operations():
 
 __all__ = [
     "CHECKOUT_PERMISSIONS",
+    "CHECK_RUN_PERMISSIONS",
     "REVIEW_PERMISSIONS",
     "ExactHeadCheckout",
     "GitHubAppAuthenticationError",

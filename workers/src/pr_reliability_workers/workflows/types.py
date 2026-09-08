@@ -16,6 +16,24 @@ class WorkflowOutcome(StrEnum):
     FAILED = "failed"
 
 
+class CheckRunStatus(StrEnum):
+    """GitHub Check Run lifecycle states used by the workflow."""
+
+    QUEUED = "queued"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
+class CheckRunConclusion(StrEnum):
+    """Honest terminal conclusions supported by this review workflow."""
+
+    SUCCESS = "success"
+    FAILURE = "failure"
+    ACTION_REQUIRED = "action_required"
+    CANCELLED = "cancelled"
+    TIMED_OUT = "timed_out"
+
+
 @dataclass(frozen=True)
 class ReviewWorkflowInput:
     owner_id: str
@@ -141,3 +159,15 @@ class TerminalRequest:
     run_duration_ms: int | None = None
     approval_wait_ms: int | None = None
     usage: ModelUsage | None = None
+
+
+@dataclass(frozen=True)
+class CheckRunRequest:
+    owner_id: str
+    run_id: str
+    generation: int
+    repository_id: str
+    pull_request_number: int
+    head_sha: str
+    status: CheckRunStatus
+    conclusion: CheckRunConclusion | None = None

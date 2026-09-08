@@ -10,8 +10,9 @@ import httpx
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from pr_reliability_workers.activities import GitHubRestReviewClient
+from pr_reliability_workers.activities import GitHubRestCheckRunClient, GitHubRestReviewClient
 from pr_reliability_workers.providers import (
+    CHECK_RUN_PERMISSIONS,
     CHECKOUT_PERMISSIONS,
     REVIEW_PERMISSIONS,
     GitHubAppAuthenticationError,
@@ -134,6 +135,45 @@ def test_review_client_refreshes_repository_scoped_credentials(
     assert resolved == ["owner/repository"]
     assert token_requests == [
         {"repository_ids": [REPOSITORY_ID], "permissions": REVIEW_PERMISSIONS}
+    ]
+
+
+def test_check_client_requests_only_checks_write_and_metadata_read(
+    private_key_pem: bytes,
+) -> None:
+    token_requests: list[dict[str, object]] = []
+
+    def token_handler(request: httpx.Request) -> httpx.Response:
+        token_requests.append(json.loads(request.content))
+        return httpx.Response(
+            201,
+            json={
+                "token": "ghs_check_token",
+                "expires_at": (NOW + timedelta(hours=1)).isoformat(),
+                "permissions": CHECK_RUN_PERMISSIONS,
+                "repositories": [{"id": REPOSITORY_ID}],
+            },
+        )
+
+    provider = GitHubAppInstallationTokenProvider(
+        APP_ID,
+        INSTALLATION_ID,
+        private_key_pem,
+        transport=httpx.MockTransport(token_handler),
+        now=lambda: NOW,
+    )
+    client = GitHubRestCheckRunClient(
+        provider,
+        APP_ID,
+        repository_id_resolver=lambda repository: REPOSITORY_ID,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"check_runs": []}, request=request)
+        ),
+    )
+
+    assert _run(client.find_check_run("owner/repository", "a" * 40, "check-id")) is None
+    assert token_requests == [
+        {"repository_ids": [REPOSITORY_ID], "permissions": CHECK_RUN_PERMISSIONS}
     ]
 
 

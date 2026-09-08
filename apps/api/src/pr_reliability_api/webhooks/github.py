@@ -28,6 +28,7 @@ from pydantic import (
 from ..identifiers import new_ulid
 from ..repositories.lifecycle import InstallationDelivery, RepositoryDelivery, receive_lifecycle
 from ..repositories.store import admitted_policy, lock_installation
+from .checks import CheckRunPayload, receive_check_rerun
 
 ConnectionFactory = Callable[[], Connection[Any]]
 IdFactory = Callable[[], str]
@@ -43,12 +44,17 @@ class GithubWebhookSettings:
     webhook_secret: bytes
     token_budget: int = 100_000
     cost_budget_usd_micros: int = 1_000_000
+    app_id: int | None = None
 
     def __post_init__(self) -> None:
         if not self.webhook_secret:
             raise ValueError("webhook_secret must not be empty")
         if self.installation_id < 1:
             raise ValueError("installation_id must be positive")
+        if self.app_id is not None and (
+            isinstance(self.app_id, bool) or not isinstance(self.app_id, int) or self.app_id < 1
+        ):
+            raise ValueError("app_id must be positive")
         if self.token_budget < 1 or self.cost_budget_usd_micros < 0:
             raise ValueError("review budgets are invalid")
 
@@ -118,12 +124,18 @@ def create_github_webhook_router(
         raw_body = await request.body()
         if not _valid_signature(raw_body, x_hub_signature_256, settings.webhook_secret):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid signature")
-        if x_github_event not in {"pull_request", "installation", "installation_repositories"}:
+        if x_github_event not in {
+            "pull_request",
+            "check_run",
+            "installation",
+            "installation_repositories",
+        }:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "unsupported event")
 
         try:
             payload_type = {
                 "pull_request": _PullRequestPayload,
+                "check_run": CheckRunPayload,
                 "installation": InstallationDelivery,
                 "installation_repositories": RepositoryDelivery,
             }[x_github_event]
@@ -135,6 +147,16 @@ def create_github_webhook_router(
 
         received_at = now().astimezone(UTC)
         with connection_factory() as connection, connection.transaction():
+            if x_github_event == "check_run":
+                return receive_check_rerun(
+                    connection,
+                    settings,
+                    x_github_delivery,
+                    payload,
+                    received_at,
+                    id_factory,
+                    traceparent_factory(),
+                )
             if x_github_event != "pull_request":
                 return receive_lifecycle(
                     connection, settings, x_github_event, x_github_delivery, payload

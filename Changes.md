@@ -38,6 +38,18 @@ them and names the affected files.
 - Updated activity, provider, deployment, configuration, architecture, security, and sandbox tests.
 - Kept the documented deployment preflight command importable from a clean source checkout.
 
+### Added commit-bound GitHub Check Runs
+
+- Issue: [#40](https://github.com/Rajveerx11/pr-reliability-platform/issues/40).
+- Decision: [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
+- Added one retry-safe Check Run per pull request head, queued/in-progress/completed transitions,
+  honest terminal conclusions, approval-bound source annotations, OAuth-preserved private dashboard
+  detail links, ordered stale-generation cancellation, non-blocking exhausted terminal updates,
+  and safe GitHub-triggered reruns.
+- Added Checks-only repository credentials, persisted Check Run and rerun-delivery identities,
+  workflow/provider/webhook tests, CI and deployment configuration, data-model/development docs,
+  and informational/required-mode guidance.
+
 ### Refreshed documentation against merged main (2026-09-07)
 
 - Scope: the release checklist in [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46).

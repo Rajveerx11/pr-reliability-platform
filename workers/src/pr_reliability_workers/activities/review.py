@@ -12,12 +12,20 @@ from opentelemetry import trace
 from pr_reliability_observability import meter
 from temporalio import activity
 
-from ..workflows.types import ModelUsage, PublishRequest, StageRequest, StageResult, TerminalRequest
+from ..workflows.types import (
+    CheckRunRequest,
+    ModelUsage,
+    PublishRequest,
+    StageRequest,
+    StageResult,
+    TerminalRequest,
+)
 from .sandbox import SandboxVerificationOperation
 
 StageOperation = Callable[[StageRequest], Awaitable[StageResult]]
 PublishOperation = Callable[[PublishRequest], Awaitable[None]]
 TerminalOperation = Callable[[TerminalRequest], Awaitable[None]]
+CheckRunOperation = Callable[[CheckRunRequest], Awaitable[None]]
 
 _METER = meter()
 _ACTIVITY_DURATION = _METER.create_histogram("pr.activity.duration", unit="s")
@@ -38,6 +46,7 @@ class ActivityOperations:
     verify: SandboxVerificationOperation
     publish: PublishOperation
     record_terminal: TerminalOperation
+    update_check: CheckRunOperation
 
     def __post_init__(self) -> None:
         if not isinstance(self.verify, SandboxVerificationOperation):
@@ -101,6 +110,10 @@ class ReviewActivities:
             _set_usage_attributes(span, request.usage)
         if request.approval_wait_ms is not None:
             _record_wait_event(request)
+
+    @activity.defn(name="update_check")
+    async def update_check(self, request: CheckRunRequest) -> None:
+        await _run_observed(self._operations.update_check(request), request, "tool", "update_check")
 
 
 async def _run_observed(operation, request, operation_kind: str, operation_name: str):

@@ -41,6 +41,7 @@ from pr_reliability_workers.workflows import (
     WorkflowOutcome,
 )
 from pr_reliability_workers.workflows.types import (
+    CheckRunRequest,
     PublishRequest,
     StageRequest,
     StageResult,
@@ -93,6 +94,7 @@ class RecordingOperations:
         *,
         fail_analyze_once: bool = False,
         fail_publish: bool = False,
+        fail_terminal_check: bool = False,
         block_analysis: bool = False,
         block_terminal: bool = False,
         usage: ModelUsage | None = None,
@@ -101,6 +103,7 @@ class RecordingOperations:
         self.completed_keys: set[str] = set()
         self.fail_analyze_once = fail_analyze_once
         self.fail_publish = fail_publish
+        self.fail_terminal_check = fail_terminal_check
         self.block_analysis = block_analysis
         self.block_terminal = block_terminal
         self.usage = usage
@@ -112,6 +115,7 @@ class RecordingOperations:
         self.terminal_requests: list[TerminalRequest] = []
         self.activity_trace_ids: list[tuple[str, str, int]] = []
         self.publish_requests: list[PublishRequest] = []
+        self.check_requests: list[CheckRunRequest] = []
 
     async def select_context(self, request: StageRequest) -> StageResult:
         return self._complete("select_context", request, "context-ref")
@@ -170,6 +174,11 @@ class RecordingOperations:
             await self.release_terminal.wait()
         self.completed_keys.add(request.idempotency_key)
 
+    async def update_check(self, request: CheckRunRequest) -> None:
+        self.check_requests.append(request)
+        if self.fail_terminal_check and request.conclusion is not None:
+            raise ApplicationError("terminal check failed")
+
     def _complete(self, name: str, request: StageRequest, output_ref: str) -> StageResult:
         self._record_trace(name, request.idempotency_key)
         self.calls.append((name, request.idempotency_key))
@@ -193,6 +202,7 @@ class RecordingOperations:
                 ),
                 publish=self.publish,
                 record_terminal=self.record_terminal,
+                update_check=self.update_check,
             )
         )
 
@@ -230,6 +240,7 @@ def test_activity_operations_reject_unsandboxed_verification() -> None:
             verify=operations.verify,  # type: ignore[arg-type]
             publish=operations.publish,
             record_terminal=operations.record_terminal,
+            update_check=operations.update_check,
         )
 
 
@@ -344,6 +355,12 @@ def test_retry_uses_stable_keys_and_history_replays() -> None:
             "01J00000000000000000000013",
         )
         assert operations.analyze_attempts == 2
+        assert [request.status.value for request in operations.check_requests] == [
+            "queued",
+            "in_progress",
+            "completed",
+        ]
+        assert operations.check_requests[-1].conclusion.value == "success"
         analyze_keys = [key for name, key in operations.calls if name == "analyze"]
         assert len(analyze_keys) == 2
         assert len(set(analyze_keys)) == 1
@@ -547,9 +564,57 @@ def test_publish_failure_records_failed_outcome() -> None:
 
         assert result.outcome is WorkflowOutcome.FAILED
         assert result.reason == "publish activity failed"
+        assert operations.check_requests[-1].conclusion.value == "failure"
         assert any(
             "terminal:failed" in key for name, key in operations.calls if name == "record_terminal"
         )
+
+    asyncio.run(run())
+
+
+def test_terminal_check_failure_does_not_block_superseding_generation() -> None:
+    async def run() -> None:
+        operations = RecordingOperations(fail_terminal_check=True)
+        environment, worker = await start_environment(operations)
+        async with environment, worker:
+            first = start_command(
+                public_id="01J00000000000000000000020",
+                run_id=RUN_ID,
+                head_sha=HEAD_SHA,
+            )
+            replacement = start_command(
+                public_id="01J00000000000000000000021",
+                run_id=NEXT_RUN_ID,
+                head_sha=NEXT_HEAD_SHA,
+                generation=2,
+            )
+            handle = await dispatch_start_run(environment.client, first, task_queue=TASK_QUEUE)
+            await wait_for_status(handle, "awaiting_approval")
+            await dispatch_start_run(environment.client, replacement, task_queue=TASK_QUEUE)
+            await wait_for_status(
+                handle,
+                "awaiting_approval",
+                head_sha=NEXT_HEAD_SHA,
+                run_id=NEXT_RUN_ID,
+            )
+            await handle.signal(
+                PullRequestReviewWorkflow.approve,
+                ApprovalSignal(NEXT_RUN_ID, NEXT_HEAD_SHA, False),
+            )
+            result = await handle.result()
+
+        assert result.run_id == NEXT_RUN_ID
+        assert result.outcome is WorkflowOutcome.REJECTED
+        assert [
+            request.conclusion.value for request in operations.check_requests if request.conclusion
+        ] == [
+            "cancelled",
+            "cancelled",
+            "cancelled",
+            "action_required",
+            "action_required",
+            "action_required",
+        ]
 
     asyncio.run(run())
 

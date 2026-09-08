@@ -1,6 +1,13 @@
 """Temporal activity definitions."""
 
+from .checks import GitHubCheckRunOperation
 from .github import GitHubRestReviewClient
+from .github_checks import (
+    CHECK_RUN_NAME,
+    GitHubCheckRun,
+    GitHubCheckRunClient,
+    GitHubRestCheckRunClient,
+)
 from .publish import (
     GitHubReview,
     GitHubReviewClient,
@@ -17,7 +24,12 @@ from .sandbox import (
 )
 
 __all__ = [
+    "CHECK_RUN_NAME",
     "ActivityOperations",
+    "GitHubCheckRun",
+    "GitHubCheckRunClient",
+    "GitHubCheckRunOperation",
+    "GitHubRestCheckRunClient",
     "GitHubRestReviewClient",
     "GitHubReview",
     "GitHubReviewClient",

@@ -4,7 +4,12 @@ from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from pr_reliability_api.auth.sessions import LOGIN_COOKIE, SESSION_COOKIE, digest
+from pr_reliability_api.auth.sessions import (
+    LOGIN_COOKIE,
+    LOGIN_RETURN_COOKIE,
+    SESSION_COOKIE,
+    digest,
+)
 
 from .conftest import OWNER, csrf, decision, login
 
@@ -34,6 +39,29 @@ def test_login_pkce_storage_cookies_and_replay(environment):
     assert replay.headers["location"] == "/dashboard?login=failed"
     assert e.provider.exchanges == 1
     assert e.client.get("/auth/session").json()["github_user_id"] == 11
+
+
+def test_login_preserves_valid_check_run_deep_link(environment):
+    from urllib.parse import parse_qs, urlsplit
+
+    run_id = "01J00000000000000000000003"
+    assert environment.client.get("/auth/login", follow_redirects=False).status_code == 303
+    response = environment.client.get("/auth/login", params={"run": run_id}, follow_redirects=False)
+    query = parse_qs(urlsplit(response.headers["location"]).query)
+    callback = environment.client.get(
+        "/auth/callback",
+        params={"state": query["state"][0], "code": "valid-code"},
+        follow_redirects=False,
+    )
+
+    assert callback.headers["location"] == f"/dashboard?run={run_id}"
+    assert environment.client.cookies.get(LOGIN_RETURN_COOKIE) is None
+    assert (
+        environment.client.get(
+            "/auth/login", params={"run": "../outside"}, follow_redirects=False
+        ).status_code
+        == 422
+    )
 
 
 def test_callback_is_browser_bound_and_expires(environment):
