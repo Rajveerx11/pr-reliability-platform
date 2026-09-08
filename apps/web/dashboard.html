@@ -6,6 +6,7 @@
     <meta name="color-scheme" content="light">
     <title>Review control room</title>
     <link rel="stylesheet" href="/dashboard/assets/dashboard.css">
+    <script src="/auth/assets/auth.js" defer></script>
     <script src="/dashboard/assets/dashboard.js" defer></script>
   </head>
   <body>
@@ -34,17 +35,16 @@
             <h1>Review control room</h1>
             <p class="lede">One calm view of run health, approval pressure, latency, and evidence.</p>
           </div>
-          <form id="access-form" class="access-card">
-            <label for="token">Reviewer token</label>
+          <div class="access-card">
+            <span id="reviewer-name">Sign in to view your repositories.</span>
             <div class="access-row">
-              <input id="token" name="token" type="password" autocomplete="off" required placeholder="Enter token">
-              <button id="connect" class="button primary" type="submit">Connect</button>
+              <a id="github-login" class="button primary" href="/auth/login">Sign in with GitHub</a>
+              <button id="logout" class="button quiet" type="button" hidden>Sign out</button>
             </div>
-            <small>Kept in this tab only. Never saved by the dashboard.</small>
-          </form>
+          </div>
         </header>
 
-        <div id="notice" class="notice" role="status" aria-live="polite">Enter reviewer token to load private run data.</div>
+        <div id="notice" class="notice" role="status" aria-live="polite">Sign in with GitHub to load private run data.</div>
 
         <section id="overview" aria-labelledby="overview-title">
           <div class="section-heading">

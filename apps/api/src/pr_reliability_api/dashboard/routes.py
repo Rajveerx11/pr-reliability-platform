@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi import Path as ApiPath
 from fastapi.responses import HTMLResponse, Response
 from pr_reliability_contracts import (
@@ -29,7 +29,7 @@ from pr_reliability_contracts import (
 from psycopg import Connection
 
 from ..approvals import ApprovalInboxSettings
-from ..reviewer import authorize_reviewer
+from ..reviewer import request_reviewer
 
 ConnectionFactory = Callable[[], Connection[Any]]
 _PACKAGED_WEB_ROOT = Path(__file__).parents[1] / "_web"
@@ -57,6 +57,8 @@ _SECURITY_HEADERS = {
 def create_dashboard_router(
     settings: ApprovalInboxSettings,
     connection_factory: ConnectionFactory,
+    *,
+    sessions=None,
 ) -> APIRouter:
     """Create static dashboard assets plus authenticated owner-scoped reads."""
 
@@ -88,9 +90,10 @@ def create_dashboard_router(
     @router.get("/api/dashboard/overview", response_model=DashboardOverview)
     def overview(
         response: Response,
-        authorization: str | None = Header(default=None, alias="Authorization"),
+        http_request: Request,
     ) -> DashboardOverview:
-        authorize_reviewer(authorization, settings.reviewer_token)
+        principal = request_reviewer(http_request, settings, sessions)
+        scope = principal.repository_ids
         _protect_private_response(response)
         with connection_factory() as connection:
             row = connection.execute(
@@ -117,8 +120,11 @@ def create_dashboard_router(
                        ) AS p95_duration_ms
                 FROM runs
                 WHERE owner_id = %s
+                  AND (%s::bigint[] IS NULL OR pull_request_id IN (
+                      SELECT id FROM pull_requests WHERE owner_id = %s
+                        AND repository_id = ANY(%s)))
                 """,
-                (settings.owner_id,),
+                (settings.owner_id, scope, settings.owner_id, scope),
             ).fetchone()
             pending_findings = connection.execute(
                 """
@@ -134,11 +140,12 @@ def create_dashboard_router(
                   ON approval.finding_id = finding.id
                  AND approval.owner_id = finding.owner_id
                 WHERE finding.owner_id = %s
+                  AND (%s::bigint[] IS NULL OR pull_request.repository_id = ANY(%s))
                   AND run.state = 'awaiting_approval'
                   AND run.head_sha = pull_request.head_sha
                   AND approval.id IS NULL
                 """,
-                (settings.owner_id,),
+                (settings.owner_id, scope, scope),
             ).fetchone()[0]
         total_runs, active, awaiting, failed, published, p50, p95 = row
         return DashboardOverview(
@@ -161,13 +168,14 @@ def create_dashboard_router(
     @router.get("/api/dashboard/runs", response_model=DashboardRunPage)
     def list_runs(
         response: Response,
-        authorization: str | None = Header(default=None, alias="Authorization"),
+        http_request: Request,
         run_status: Annotated[RunState | None, Query(alias="status")] = None,
         repository: Annotated[str | None, Query(min_length=1, max_length=255)] = None,
         limit: Annotated[int, Query(ge=1, le=50)] = 20,
         offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
     ) -> DashboardRunPage:
-        authorize_reviewer(authorization, settings.reviewer_token)
+        principal = request_reviewer(http_request, settings, sessions)
+        scope = principal.repository_ids
         _protect_private_response(response)
         state_value = run_status.value if run_status is not None else None
         with connection_factory() as connection:
@@ -182,10 +190,11 @@ def create_dashboard_router(
                   ON repository.id = pull_request.repository_id
                  AND repository.owner_id = run.owner_id
                 WHERE run.owner_id = %s
+                  AND (%s::bigint[] IS NULL OR pull_request.repository_id = ANY(%s))
                   AND (%s::text IS NULL OR run.state = %s)
                   AND (%s::text IS NULL OR repository.full_name = %s)
                 """,
-                (settings.owner_id, state_value, state_value, repository, repository),
+                (settings.owner_id, scope, scope, state_value, state_value, repository, repository),
             ).fetchone()[0]
             rows = connection.execute(
                 """
@@ -221,6 +230,7 @@ def create_dashboard_router(
                   ON approval.finding_id = finding.id
                  AND approval.owner_id = finding.owner_id
                 WHERE run.owner_id = %s
+                  AND (%s::bigint[] IS NULL OR pull_request.repository_id = ANY(%s))
                   AND (%s::text IS NULL OR run.state = %s)
                   AND (%s::text IS NULL OR repository.full_name = %s)
                 GROUP BY run.id, repository.full_name, pull_request.github_number
@@ -229,6 +239,8 @@ def create_dashboard_router(
                 """,
                 (
                     settings.owner_id,
+                    scope,
+                    scope,
                     state_value,
                     state_value,
                     repository,
@@ -256,9 +268,10 @@ def create_dashboard_router(
             ),
         ],
         response: Response,
-        authorization: str | None = Header(default=None, alias="Authorization"),
+        http_request: Request,
     ) -> DashboardRunDetail:
-        authorize_reviewer(authorization, settings.reviewer_token)
+        principal = request_reviewer(http_request, settings, sessions)
+        scope = principal.repository_ids
         _protect_private_response(response)
         with connection_factory() as connection:
             row = connection.execute(
@@ -295,9 +308,10 @@ def create_dashboard_router(
                   ON approval.finding_id = finding.id
                  AND approval.owner_id = finding.owner_id
                 WHERE run.owner_id = %s AND run.public_id = %s
+                  AND (%s::bigint[] IS NULL OR pull_request.repository_id = ANY(%s))
                 GROUP BY run.id, repository.full_name, pull_request.github_number
                 """,
-                (settings.owner_id, run_id),
+                (settings.owner_id, run_id, scope, scope),
             ).fetchone()
             if row is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")

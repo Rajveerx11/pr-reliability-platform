@@ -17,7 +17,7 @@ that a live service or measured model baseline exists. [Current status](status.m
 | #41 | Repository-defined sandbox verification checks | #37 merged |
 | #42 | Retained bounded logs and test summaries | Requires #41 |
 | #43 | Runner capacity, queue visibility, and alert delivery | Requires #39 and #41 |
-| #44 | Individual GitHub identity and sessions | #37 merged |
+| #44 | Individual sessions implemented; real GitHub login acceptance pending | #37 merged |
 | #45 | Signed immutable release images and manifest | #36 merged |
 | #14 | Frozen real-provider evaluation report | Provider code ready; real runs and adjudication needed |
 | #15 | Private Linux VM end-to-end and recovery acceptance | Remaining release gates must pass |
@@ -52,6 +52,6 @@ is missing or expired. See [repository policy](repository-policy.md) and [deploy
 
 Policy changes govern new admissions and queued dispatch. They do not cancel running reviews.
 Blocked webhook deliveries are recorded without deferred execution; a new PR event is needed
-after recovery. The shared reviewer token is temporary. GitHub Check Runs are not yet implemented;
+after recovery. Individual GitHub sessions replace the shared reviewer token in #44; live login acceptance remains part of #15. GitHub Check Runs are not yet implemented;
 after #40 ships, start them in informational mode before considering required-check enforcement.
 This product does not replace general CI/CD or deploy customer applications.

@@ -27,8 +27,12 @@ jobs:
           python -m compileall -q apps workers packages evals
       - name: Validate production process manifest
         env:
-          APPROVAL_ACTOR_ID: 01J00000000000000000000002
-          APPROVAL_REVIEWER_TOKEN: test-only-reviewer-token
+          GITHUB_OAUTH_CLIENT_ID: "test-client"
+          GITHUB_OAUTH_CLIENT_SECRET: "test-client-secret"
+          SESSION_ENCRYPTION_KEY: "test-key"
+          GITHUB_LOGIN_ORIGIN: "https://reviews.internal.example"
+          GITHUB_ALLOWED_ACCOUNT_ID: "1"
+          GITHUB_ADMIN_IDS: "1"
           ACTIVITY_WORKER_IMAGE: example.invalid/pr-reliability-activities:ci
           DATABASE_URL: postgresql://example.invalid/product
           GITHUB_APP_ID: "1"

@@ -61,9 +61,10 @@ Temporal use separate non-superuser roles. Put the URL-escaped application passw
 `DATABASE_URL`; preflight verifies it against `APPLICATION_DATABASE_PASSWORD_FILE`. Values remain
 outside source, but trusted Docker administrators can inspect container environments.
 
-Set a random `APPROVAL_REVIEWER_TOKEN` of at least 32 characters and a stable reviewer
-`APPROVAL_ACTOR_ID` ULID. The token protects both `/dashboard` and `/approval-inbox`; keep it in the
-external environment file and rotate it if exposed. After deployment, open
+Provision the GitHub App OAuth client, numeric account/user allowlists, and session encryption
+key following [authentication](authentication.md). Set `GITHUB_LOGIN_ORIGIN` equal to
+`PRIVATE_BASE_URL`. The API needs outbound HTTPS to GitHub for login and per-request access
+checks. After deployment, open
 `https://PRIVATE_HOSTNAME/dashboard` only from the approved private network.
 
 Keep the environment file at mode `0600`. Create a dedicated secret-reader group, set its numeric
@@ -189,6 +190,6 @@ affected GitHub credentials, and follow the incident rule in [security.md](secur
 - End-to-end test-repository review: blocked by missing VM and external test authority.
 - Production provider operations: implemented and tested without live credentials in #36.
 - Installation sync, policy, and freshness readiness: implemented and tested in #37; first real installation acceptance remains part of #15.
-- GitHub login: planned in #44.
+- GitHub login: implemented in #44; real GitHub App acceptance remains part of #15.
 - Signed immutable release images and manifest: planned in #45.
 - Rollback: documented; real rollback drill blocked.
