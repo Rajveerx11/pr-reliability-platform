@@ -17,6 +17,7 @@ from pr_reliability_workers.sandbox import (
     SandboxCleanupError,
     SandboxLimits,
     SandboxRequest,
+    SandboxRuntimeError,
     SandboxUnavailableError,
 )
 
@@ -340,7 +341,7 @@ def test_workspace_larger_than_tmpfs_is_rejected_before_container_create(
     (tmp_path / "large.bin").write_bytes(b"x" * 1025)
     runtime = ScriptedRuntime(runtime_result(stdout=ENGINE_CAPABILITIES))
 
-    with pytest.raises(ValueError, match="bounded staging"):
+    with pytest.raises(SandboxRuntimeError, match="bounded staging"):
         asyncio.run(
             DockerSandboxRunner(runtime).run(
                 SandboxRequest(

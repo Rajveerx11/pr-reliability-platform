@@ -9,7 +9,12 @@ from .publish import (
     GitHubReviewStaleHead,
 )
 from .review import ActivityOperations, ReviewActivities
-from .sandbox import SandboxRunner, SandboxVerificationOperation, VerificationEvidence
+from .sandbox import (
+    SandboxRunner,
+    SandboxVerificationOperation,
+    VerificationCheckEvidence,
+    VerificationEvidence,
+)
 
 __all__ = [
     "ActivityOperations",
@@ -22,5 +27,6 @@ __all__ = [
     "ReviewActivities",
     "SandboxRunner",
     "SandboxVerificationOperation",
+    "VerificationCheckEvidence",
     "VerificationEvidence",
 ]

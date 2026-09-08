@@ -136,8 +136,8 @@ checks. Emergency publishing shutdown remains an operator action. Only the opera
 
 - Replace the shared reviewer token with GitHub login and owner-scoped sessions (#44).
 - Use only the GitHub permissions required for review comments and Check Runs (#40).
-- Treat future repository check configuration as untrusted. Operator allowlists must constrain
-  images, commands, and limits; configuration cannot grant host mounts, network, or secrets (#41).
+- Keep repository check configuration untrusted. Operator allowlists constrain exact images,
+  commands, and maximum limits; configuration cannot grant host mounts, network, or secrets (#41).
 - Forked pull request checks never receive provider, GitHub, database, or runner secrets.
 - Redact, bound, and expire stored logs and test summaries (#42).
 - Deploy only signed immutable images recorded in a release manifest (#45).

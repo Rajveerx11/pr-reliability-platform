@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import secrets
 import stat
@@ -20,7 +19,7 @@ from ..activities import (
     SandboxVerificationOperation,
 )
 from ..agents import ReviewAgent
-from ..sandbox import DockerSandboxRunner
+from ..sandbox import DockerSandboxRunner, parse_check_allowlist
 from .openai import OpenAIResponsesClient
 from .operations import ConnectionFactory, ProductionOperations
 
@@ -36,7 +35,10 @@ def create_operations() -> ActivityOperations:
     owner_id = _required("OWNER_ID")
     staging_root = _private_directory(Path(_required("SANDBOX_STAGING_DIRECTORY")))
     private_key = _private_key(Path(_required("GITHUB_PRIVATE_KEY_PATH")))
-    sandbox_command = _command(_required("REVIEW_SANDBOX_COMMAND_JSON"))
+    try:
+        check_policy = parse_check_allowlist(_required("REVIEW_CHECK_ALLOWLIST_JSON"))
+    except ValueError as exc:
+        raise RuntimeError("REVIEW_CHECK_ALLOWLIST_JSON is invalid") from exc
 
     connection_factory: ConnectionFactory = lambda: psycopg.connect(database_url)
     repository_id_resolver = _repository_id_resolver(connection_factory, owner_id)
@@ -75,8 +77,7 @@ def create_operations() -> ActivityOperations:
         checkout=checkout,
         reviewer=reviewer,
         workspace_root=staging_root,
-        sandbox_image=_required("REVIEW_SANDBOX_IMAGE"),
-        sandbox_command=sandbox_command,
+        check_policy=check_policy,
         id_factory=_new_ulid,
     )
     verify = SandboxVerificationOperation(
@@ -142,21 +143,6 @@ def _private_key(path: Path) -> bytes:
         return path.read_bytes()
     except OSError as exc:
         raise RuntimeError("GITHUB_PRIVATE_KEY_PATH is unavailable") from exc
-
-
-def _command(raw: str) -> tuple[str, ...]:
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("REVIEW_SANDBOX_COMMAND_JSON must be valid JSON") from exc
-    if (
-        not isinstance(value, list)
-        or not value
-        or len(value) > 256
-        or any(not isinstance(item, str) or not item or "\x00" in item for item in value)
-    ):
-        raise RuntimeError("REVIEW_SANDBOX_COMMAND_JSON must be a non-empty argument list")
-    return tuple(value)
 
 
 def _required(name: str) -> str:

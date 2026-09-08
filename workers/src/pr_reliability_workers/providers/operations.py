@@ -22,7 +22,7 @@ from psycopg import Connection
 from ..activities import VerificationEvidence
 from ..agents import ReviewAgent
 from ..context import select_context
-from ..sandbox import SandboxLimits, SandboxRequest
+from ..sandbox import RepositoryCheckPolicy, VerificationPlan, load_verification_plan
 from ..workflows.types import (
     ModelUsage,
     StageRequest,
@@ -74,8 +74,7 @@ class ProductionOperations:
     checkout: CheckoutProvider
     reviewer: ReviewAgent
     workspace_root: Path
-    sandbox_image: str
-    sandbox_command: tuple[str, ...]
+    check_policy: RepositoryCheckPolicy
     id_factory: IdFactory
     now: Now = lambda: datetime.now(UTC)
 
@@ -135,17 +134,34 @@ class ProductionOperations:
             usage,
         )
 
-    async def prepare_verification(self, request: StageRequest) -> SandboxRequest:
+    async def prepare_verification(self, request: StageRequest) -> VerificationPlan:
         _require_key(request, "verify")
         _require_input_ref(request, "findings")
         run = await asyncio.to_thread(self._load_active_run, request, "verifying")
+        expected_ref = _reference("verification", request)
+        replay = await asyncio.to_thread(self._verification_receipt, request, expected_ref)
+        if replay is not None:
+            result, passed = replay
+            if passed:
+                await asyncio.to_thread(self._mark_awaiting_approval, request)
+            return VerificationPlan(
+                self.workspace_root,
+                (),
+                1,
+                replay_output_ref=result.output_ref,
+                replay_passed=passed,
+            )
         if not await asyncio.to_thread(self._checkout_ready, request):
             await self._materialize_context(request, run)
-        return SandboxRequest(
-            image=self.sandbox_image,
-            workspace=self._checkout_path(request),
-            command=self.sandbox_command,
-            limits=SandboxLimits(),
+        workspace = self._checkout_path(request)
+        changed_paths = _nul_items(
+            await _git_bytes(workspace, "diff", "--name-only", "-z", run.base_sha, run.head_sha)
+        )
+        return await asyncio.to_thread(
+            load_verification_plan,
+            workspace,
+            changed_paths,
+            self.check_policy,
         )
 
     async def record_verification(
@@ -154,14 +170,32 @@ class ProductionOperations:
         evidence: VerificationEvidence,
     ) -> StageResult:
         expected_ref = _reference("verification", request)
-        passed = evidence.sandbox.succeeded and evidence.proof is not None and evidence.proof.passed
+        passed = (
+            evidence.config_error is None
+            and bool(evidence.checks)
+            and all(check.status != "failed" for check in evidence.checks)
+            and evidence.proof is not None
+            and evidence.proof.passed
+        )
         data: dict[str, object] = {
             "output_ref": expected_ref,
-            "sandbox": {
-                "exit_code": evidence.sandbox.exit_code,
-                "timed_out": evidence.sandbox.timed_out,
-                "output_limit_exceeded": evidence.sandbox.output_limit_exceeded,
-            },
+            "conclusion": "passed" if passed else "failed",
+            "configuration": evidence.config_error or "valid",
+            "checks": [
+                {
+                    "name": check.name,
+                    "status": check.status,
+                    "reason_code": check.reason_code,
+                    "error_code": check.error_code,
+                    "exit_code": check.sandbox.exit_code if check.sandbox is not None else None,
+                    "duration_ms": check.sandbox.duration_ms if check.sandbox is not None else None,
+                    "timed_out": check.sandbox.timed_out if check.sandbox is not None else False,
+                    "output_limit_exceeded": (
+                        check.sandbox.output_limit_exceeded if check.sandbox is not None else False
+                    ),
+                }
+                for check in evidence.checks
+            ],
             "proof": {
                 "passed": evidence.proof.passed,
                 "version": evidence.proof.version,
@@ -335,6 +369,30 @@ class ProductionOperations:
         request: StageRequest,
         expected_ref: str,
     ) -> StageResult | None:
+        data = self._stage_event_data(request)
+        if data is None:
+            return None
+        if not isinstance(data, dict) or data.get("output_ref") != expected_ref:
+            raise RuntimeError("activity receipt does not match the request")
+        return StageResult(expected_ref, _usage_from_data(data.get("usage")))
+
+    def _verification_receipt(
+        self,
+        request: StageRequest,
+        expected_ref: str,
+    ) -> tuple[StageResult, bool] | None:
+        data = self._stage_event_data(request)
+        if data is None:
+            return None
+        if (
+            not isinstance(data, dict)
+            or data.get("output_ref") != expected_ref
+            or data.get("conclusion") not in {"passed", "failed"}
+        ):
+            raise RuntimeError("verification receipt does not match the request")
+        return StageResult(expected_ref), data["conclusion"] == "passed"
+
+    def _stage_event_data(self, request: StageRequest) -> object | None:
         with self.connection_factory() as connection:
             row = connection.execute(
                 """
@@ -345,12 +403,7 @@ class ProductionOperations:
                 """,
                 (request.owner_id, request.run_id, request.idempotency_key),
             ).fetchone()
-        if row is None:
-            return None
-        data = row[0]
-        if not isinstance(data, dict) or data.get("output_ref") != expected_ref:
-            raise RuntimeError("activity receipt does not match the request")
-        return StageResult(expected_ref, _usage_from_data(data.get("usage")))
+        return row[0] if row is not None else None
 
     def _record_stage(
         self,

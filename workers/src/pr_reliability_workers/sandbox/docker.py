@@ -341,9 +341,9 @@ async def _stage_workspace(
         output_limit_bytes=_CONTROL_OUTPUT_BYTES,
     )
     if staged.timed_out:
-        raise ValueError("sandbox workspace staging exceeded its time limit")
+        raise SandboxRuntimeError("sandbox workspace staging exceeded its time limit")
     if staged.output_limit_exceeded or staged.return_code != 0:
-        raise ValueError("sandbox workspace failed bounded staging validation")
+        raise SandboxRuntimeError("sandbox workspace failed bounded staging validation")
 
 
 def _require_control_success(result: RuntimeResult, action: str) -> None:

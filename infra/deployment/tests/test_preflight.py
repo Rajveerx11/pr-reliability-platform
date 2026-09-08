@@ -19,7 +19,6 @@ IMAGE_KEYS = (
     "CADDY_IMAGE",
     "OTEL_COLLECTOR_IMAGE",
     "PROMETHEUS_IMAGE",
-    "REVIEW_SANDBOX_IMAGE",
 )
 
 
@@ -50,10 +49,13 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "SANDBOX_ENGINE_UID": "1001",
         "SANDBOX_ENGINE_GID": "1001",
         "SANDBOX_STAGING_DIRECTORY": "/run/user/1001/pr-reliability-sandbox-staging",
-        "REVIEW_SANDBOX_COMMAND_JSON": '["python","-m","pytest","-q"]',
     }
     for index, name in enumerate(IMAGE_KEYS):
         values[name] = f"registry.internal/image-{index}@sha256:{index + 1:064x}"
+    values["REVIEW_CHECK_ALLOWLIST_JSON"] = (
+        '[{"name":"python-tests","image":"registry.internal/checks@sha256:'
+        + f'{99:064x}","command":["python","-m","pytest","-q"]}}]'
+    )
     for name, filename in (
         ("TLS_CERTIFICATE_FILE", "tls.crt"),
         ("TLS_PRIVATE_KEY_FILE", "tls.key"),
@@ -159,6 +161,23 @@ def test_preflight_rejects_public_or_mutable_deployment_input(
         validate_environment(repository, environment_file)
 
 
+def test_preflight_rejects_mutable_or_unknown_repository_check_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment_file, values = _deployment_files(tmp_path)
+    monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
+    values["REVIEW_CHECK_ALLOWLIST_JSON"] = (
+        '[{"name":"tests","image":"python:latest","command":["pytest"]}]'
+    )
+    environment_file.write_text(
+        "\n".join(f"{key}={item}" for key, item in values.items()) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PreflightError, match="valid check policy"):
+        validate_environment(repository, environment_file)
+
+
 def test_preflight_rejects_secret_inside_repository(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -240,6 +259,7 @@ def test_vm_compose_exposes_only_private_tls_and_loopback_monitoring() -> None:
         in compose
     )
     assert compose.count("${SANDBOX_STAGING_DIRECTORY:?SANDBOX_STAGING_DIRECTORY is required}") >= 3
+    assert "REVIEW_CHECK_ALLOWLIST_JSON: ${REVIEW_CHECK_ALLOWLIST_JSON:?" in activity_worker
     assert "OWNER_ID: ${OWNER_ID:?OWNER_ID is required}" in activity_worker
     assert "-mindepth 1 -maxdepth 1 -type d" in entrypoint
     assert "-name 'pr-review-checkout-*'" in entrypoint

@@ -24,14 +24,21 @@ from pr_reliability_workers.activities import (
     GitHubReviewPublishOperation,
     SandboxRunner,
     SandboxVerificationOperation,
+    VerificationCheckEvidence,
     VerificationEvidence,
 )
 from pr_reliability_workers.providers import GitHubAppInstallationTokenProvider
 from pr_reliability_workers.sandbox import (
     DockerSandboxRunner,
+    PlannedCheck,
+    RepositoryCheckConfigError,
     RuntimeResult,
+    SandboxCleanupError,
     SandboxRequest,
     SandboxResult,
+    SandboxRuntimeError,
+    SandboxUnavailableError,
+    VerificationPlan,
 )
 from pr_reliability_workers.worker import load_activity_operations
 from pr_reliability_workers.workflows.types import (
@@ -44,6 +51,15 @@ from temporalio.exceptions import ApplicationError
 
 IMAGE = f"sha256:{'a' * 64}"
 STAGE_REQUEST = StageRequest("owner", "run", "b" * 40, "key", base_sha="a" * 40)
+
+
+def _plan(tmp_path: Path, request: SandboxRequest | None = None) -> VerificationPlan:
+    sandbox_request = request or SandboxRequest(IMAGE, tmp_path, ("true",))
+    return VerificationPlan(
+        tmp_path,
+        (PlannedCheck("tests", "path_match", sandbox_request),),
+        sandbox_request.limits.timeout_seconds,
+    )
 
 
 def test_worker_imports_in_clean_process() -> None:
@@ -126,9 +142,9 @@ def test_failed_result_is_recorded_then_fails_without_retry(tmp_path: Path) -> N
     recorded: list[VerificationEvidence] = []
     failed = SandboxResult(exit_code=137, stdout="", stderr="oom", duration_ms=5)
 
-    async def prepare(request: StageRequest) -> SandboxRequest:
+    async def prepare(request: StageRequest) -> VerificationPlan:
         del request
-        return SandboxRequest(IMAGE, tmp_path, ("true",))
+        return _plan(tmp_path)
 
     async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
         del request
@@ -144,7 +160,11 @@ def test_failed_result_is_recorded_then_fails_without_retry(tmp_path: Path) -> N
     with pytest.raises(ApplicationError) as raised:
         asyncio.run(operation(STAGE_REQUEST))
 
-    assert recorded == [VerificationEvidence(sandbox=failed)]
+    assert recorded == [
+        VerificationEvidence(
+            checks=(VerificationCheckEvidence("tests", "failed", "path_match", failed),)
+        )
+    ]
     assert raised.value.type == "SandboxVerificationFailed"
     assert raised.value.non_retryable
 
@@ -153,9 +173,9 @@ def test_proof_rejection_is_recorded_then_blocks_output(tmp_path: Path) -> None:
     recorded: list[VerificationEvidence] = []
     passed = SandboxResult(exit_code=0, stdout="ok", stderr="", duration_ms=5)
 
-    async def prepare(request: StageRequest) -> SandboxRequest:
+    async def prepare(request: StageRequest) -> VerificationPlan:
         del request
-        return SandboxRequest(IMAGE, tmp_path, ("true",))
+        return _plan(tmp_path)
 
     async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
         del request
@@ -181,9 +201,9 @@ def test_proof_error_is_recorded_then_blocks_output(tmp_path: Path) -> None:
     recorded: list[VerificationEvidence] = []
     passed = SandboxResult(exit_code=0, stdout="ok", stderr="", duration_ms=5)
 
-    async def prepare(request: StageRequest) -> SandboxRequest:
+    async def prepare(request: StageRequest) -> VerificationPlan:
         del request
-        return SandboxRequest(IMAGE, tmp_path, ("true",))
+        return _plan(tmp_path)
 
     async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
         del request
@@ -199,7 +219,12 @@ def test_proof_error_is_recorded_then_blocks_output(tmp_path: Path) -> None:
     with pytest.raises(ApplicationError) as raised:
         asyncio.run(operation(STAGE_REQUEST))
 
-    assert recorded == [VerificationEvidence(sandbox=passed, proof_error="proof gate failed")]
+    assert recorded == [
+        VerificationEvidence(
+            checks=(VerificationCheckEvidence("tests", "passed", "path_match", passed),),
+            proof_error="proof gate failed",
+        )
+    ]
     assert raised.value.type == "ProofGateFailed"
     assert raised.value.non_retryable
 
@@ -208,9 +233,9 @@ def test_proof_request_binds_stage_head_and_base(tmp_path: Path) -> None:
     passed = SandboxResult(exit_code=0, stdout="ok", stderr="", duration_ms=5)
     proof_runner = StaticProofRunner({"passed": True, "reasons": [], "findings": []})
 
-    async def prepare(request: StageRequest) -> SandboxRequest:
+    async def prepare(request: StageRequest) -> VerificationPlan:
         del request
-        return SandboxRequest(IMAGE, tmp_path, ("true",))
+        return _plan(tmp_path)
 
     async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
         del request, result
@@ -228,6 +253,261 @@ def test_proof_request_binds_stage_head_and_base(tmp_path: Path) -> None:
     assert proof_runner.requests == [
         ProofRequest(tmp_path, "b" * 40, base_ref="a" * 40, timeout_seconds=300)
     ]
+
+
+def test_invalid_repository_config_is_recorded_and_not_retried() -> None:
+    recorded: list[VerificationEvidence] = []
+
+    async def prepare(request: StageRequest) -> VerificationPlan:
+        del request
+        raise RepositoryCheckConfigError("invalid")
+
+    async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
+        del request
+        recorded.append(result)
+        return StageResult("must-not-escape")
+
+    operation = SandboxVerificationOperation(
+        prepare,
+        StaticRunner(SandboxResult(0, "", "", 1)),
+        record,
+        _proof_adapter(passed=True),
+    )
+
+    with pytest.raises(ApplicationError) as raised:
+        asyncio.run(operation(STAGE_REQUEST))
+
+    assert recorded == [VerificationEvidence(config_error="invalid")]
+    assert raised.value.type == "RepositoryCheckConfigurationInvalid"
+    assert raised.value.non_retryable
+
+
+def test_multiple_checks_run_with_structured_path_filter_evidence(tmp_path: Path) -> None:
+    recorded: list[VerificationEvidence] = []
+    sandbox_request = SandboxRequest(IMAGE, tmp_path, ("true",))
+    passed = SandboxResult(0, "private", "private", 7)
+
+    async def prepare(request: StageRequest) -> VerificationPlan:
+        del request
+        return VerificationPlan(
+            tmp_path,
+            (
+                PlannedCheck("tests", "path_match", sandbox_request),
+                PlannedCheck("docs", "no_matching_paths", None),
+            ),
+            45,
+        )
+
+    async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
+        del request
+        recorded.append(result)
+        return StageResult("evidence-ref")
+
+    operation = SandboxVerificationOperation(
+        prepare,
+        StaticRunner(passed),
+        record,
+        _proof_adapter(passed=True),
+    )
+
+    assert asyncio.run(operation(STAGE_REQUEST)) == StageResult("evidence-ref")
+    assert [(item.name, item.status, item.reason_code) for item in recorded[0].checks] == [
+        ("tests", "passed", "path_match"),
+        ("docs", "skipped", "no_matching_paths"),
+    ]
+
+
+@pytest.mark.parametrize("passed", [True, False])
+def test_persisted_verification_receipt_never_reruns_checks(tmp_path: Path, passed: bool) -> None:
+    class MustNotRun:
+        async def run(self, request: SandboxRequest) -> SandboxResult:
+            del request
+            raise AssertionError("persisted verification must not rerun")
+
+    async def prepare(request: StageRequest) -> VerificationPlan:
+        del request
+        return VerificationPlan(
+            tmp_path,
+            (),
+            1,
+            replay_output_ref="verification-ref",
+            replay_passed=passed,
+        )
+
+    async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
+        del request, result
+        raise AssertionError("persisted verification must not be recorded again")
+
+    operation = SandboxVerificationOperation(
+        prepare,
+        MustNotRun(),
+        record,
+        _proof_adapter(passed=True),
+    )
+
+    if passed:
+        assert asyncio.run(operation(STAGE_REQUEST)) == StageResult("verification-ref")
+    else:
+        with pytest.raises(ApplicationError) as raised:
+            asyncio.run(operation(STAGE_REQUEST))
+        assert raised.value.type == "VerificationFailed"
+        assert raised.value.non_retryable
+
+
+def test_cancellation_stops_superseded_check_plan_before_next_check(tmp_path: Path) -> None:
+    async def run() -> tuple[int, list[VerificationEvidence]]:
+        started = asyncio.Event()
+        release = asyncio.Event()
+        calls = 0
+        recorded: list[VerificationEvidence] = []
+        sandbox_request = SandboxRequest(IMAGE, tmp_path, ("true",))
+
+        class BlockingRunner:
+            async def run(self, request: SandboxRequest) -> SandboxResult:
+                nonlocal calls
+                del request
+                calls += 1
+                started.set()
+                await release.wait()
+                return SandboxResult(0, "", "", 1)
+
+        async def prepare(request: StageRequest) -> VerificationPlan:
+            del request
+            return VerificationPlan(
+                tmp_path,
+                (
+                    PlannedCheck("tests", "path_match", sandbox_request),
+                    PlannedCheck("lint", "path_match", sandbox_request),
+                ),
+                30,
+            )
+
+        async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
+            del request
+            recorded.append(result)
+            return StageResult("evidence-ref")
+
+        operation = SandboxVerificationOperation(
+            prepare,
+            BlockingRunner(),
+            record,
+            _proof_adapter(passed=True),
+        )
+        task = asyncio.create_task(operation(STAGE_REQUEST))
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return calls, recorded
+
+    calls, recorded = asyncio.run(run())
+
+    assert calls == 1
+    assert recorded == []
+
+
+@pytest.mark.parametrize(
+    ("error", "error_code", "error_type"),
+    [
+        (SandboxUnavailableError("private detail"), "sandbox_unavailable", "SandboxUnavailable"),
+        (SandboxRuntimeError("private detail"), "sandbox_runtime", "SandboxRuntimeFailed"),
+        (
+            SandboxCleanupError("private detail"),
+            "sandbox_cleanup_failed",
+            "SandboxCleanupFailed",
+        ),
+    ],
+)
+def test_sandbox_infrastructure_failures_record_safe_structured_evidence(
+    tmp_path: Path,
+    error: Exception,
+    error_code: str,
+    error_type: str,
+) -> None:
+    recorded: list[VerificationEvidence] = []
+
+    class ErrorRunner:
+        async def run(self, request: SandboxRequest) -> SandboxResult:
+            del request
+            raise error
+
+    async def prepare(request: StageRequest) -> VerificationPlan:
+        del request
+        sandbox_request = SandboxRequest(IMAGE, tmp_path, ("true",))
+        return VerificationPlan(
+            tmp_path,
+            (PlannedCheck("tests", "path_match", sandbox_request),),
+            30,
+        )
+
+    async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
+        del request
+        recorded.append(result)
+        return StageResult("must-not-escape")
+
+    operation = SandboxVerificationOperation(
+        prepare,
+        ErrorRunner(),
+        record,
+        _proof_adapter(passed=True),
+    )
+
+    with pytest.raises(ApplicationError) as raised:
+        asyncio.run(operation(STAGE_REQUEST))
+
+    assert raised.value.type == error_type
+    assert raised.value.non_retryable
+    assert recorded[0].checks[0].status == "failed"
+    assert recorded[0].checks[0].error_code == error_code
+    assert "private detail" not in repr(recorded)
+
+
+def test_later_sandbox_failure_keeps_earlier_check_evidence(tmp_path: Path) -> None:
+    recorded: list[VerificationEvidence] = []
+    sandbox_request = SandboxRequest(IMAGE, tmp_path, ("true",))
+
+    class SecondCheckFails:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def run(self, request: SandboxRequest) -> SandboxResult:
+            del request
+            self.calls += 1
+            if self.calls == 2:
+                raise SandboxRuntimeError("private detail")
+            return SandboxResult(0, "private output", "", 5)
+
+    async def prepare(request: StageRequest) -> VerificationPlan:
+        del request
+        return VerificationPlan(
+            tmp_path,
+            (
+                PlannedCheck("tests", "path_match", sandbox_request),
+                PlannedCheck("lint", "path_match", sandbox_request),
+            ),
+            30,
+        )
+
+    async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
+        del request
+        recorded.append(result)
+        return StageResult("must-not-escape")
+
+    operation = SandboxVerificationOperation(
+        prepare,
+        SecondCheckFails(),
+        record,
+        _proof_adapter(passed=True),
+    )
+
+    with pytest.raises(ApplicationError):
+        asyncio.run(operation(STAGE_REQUEST))
+
+    assert [(item.name, item.status, item.error_code) for item in recorded[0].checks] == [
+        ("tests", "passed", None),
+        ("lint", "failed", "sandbox_runtime"),
+    ]
+    assert "private output" not in repr(recorded[0].checks[1])
 
 
 def test_production_loader_requires_real_docker_runner(
@@ -303,9 +583,9 @@ def _operations(
         del request
         return StageResult("ref")
 
-    async def prepare(request: StageRequest) -> SandboxRequest:
+    async def prepare(request: StageRequest) -> VerificationPlan:
         del request
-        return SandboxRequest(IMAGE, Path.cwd(), ("true",))
+        return _plan(Path.cwd())
 
     async def record(request: StageRequest, result: VerificationEvidence) -> StageResult:
         del request, result
