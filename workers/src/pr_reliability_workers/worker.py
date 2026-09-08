@@ -14,6 +14,8 @@ from temporalio.worker import Worker
 
 from .activities import (
     ActivityOperations,
+    GitHubCheckRunOperation,
+    GitHubRestCheckRunClient,
     GitHubRestReviewClient,
     GitHubReviewPublishOperation,
     ReviewActivities,
@@ -48,6 +50,7 @@ def create_activity_worker(
             activities.verify,
             activities.publish,
             activities.record_terminal,
+            activities.update_check,
         ],
     )
 
@@ -65,6 +68,7 @@ def create_worker(client: Client, task_queue: str, activities: ReviewActivities)
             activities.verify,
             activities.publish,
             activities.record_terminal,
+            activities.update_check,
         ],
     )
 
@@ -123,6 +127,12 @@ def load_activity_operations(factory_path: str) -> ActivityOperations:
         raise TypeError("production publishing must use GitHubRestReviewClient")
     if not operations.publish.client.uses_installation_token_provider:
         raise TypeError("production publishing must use a GitHub App installation token provider")
+    if not isinstance(operations.update_check, GitHubCheckRunOperation):
+        raise TypeError("production checks must use GitHubCheckRunOperation")
+    if type(operations.update_check.client) is not GitHubRestCheckRunClient:
+        raise TypeError("production checks must use GitHubRestCheckRunClient")
+    if not operations.update_check.client.uses_installation_token_provider:
+        raise TypeError("production checks must use a GitHub App installation token provider")
     return operations
 
 

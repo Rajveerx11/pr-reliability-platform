@@ -23,7 +23,7 @@ substitution; only values explicitly listed under a service's `environment` ente
 | `SESSION_ENCRYPTION_KEY` | API | External Fernet key for persisted user access tokens |
 | `GITHUB_INSTALLATION_ID` | API, activities, sync | Required positive installation ID |
 | `GITHUB_WEBHOOK_SECRET` | API | Required HMAC secret |
-| `GITHUB_APP_ID` | Activities, sync | Required positive GitHub App ID |
+| `GITHUB_APP_ID` | API, activities, sync | Required positive App ID; API authenticates Check Run reruns |
 | `GITHUB_PRIVATE_KEY_PATH` | Activities, sync | Absolute path to readable RSA key file; never the key contents |
 | `GITHUB_APP_BOT_USER_ID` | Activities | Numeric bot user ID used to verify publish retries |
 | `HEALTH_CHECK_TIMEOUT_SECONDS` | API | Positive seconds; default `2` per readiness dependency |
@@ -50,6 +50,7 @@ per private deployment. Changing that pair is not an automatic tenant migration.
 | `OPENAI_TIMEOUT_SECONDS` | Positive seconds; default `120` |
 | `GITHUB_API_TIMEOUT_SECONDS` | Positive seconds; default `10` for activity clients |
 | `GITHUB_CHECKOUT_TIMEOUT_SECONDS` | Positive seconds; default `120` |
+| `DASHBOARD_BASE_URL` | Private dashboard URL for Check Run details; HTTPS except localhost |
 | `SANDBOX_STAGING_DIRECTORY` | Existing absolute private directory; no symlink |
 | `REVIEW_CHECK_ALLOWLIST_JSON` | JSON list of operator-approved check names, immutable images, exact command vectors, and optional maximum resources |
 

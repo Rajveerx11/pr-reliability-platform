@@ -30,6 +30,11 @@ window.reviewerSession = (() => {
       login.hidden = false; logout.hidden = true;
       name.textContent = "Sign in to view your repositories.";
     };
+    const pageQuery = new URLSearchParams(location.search);
+    const runId = pageQuery.get("run");
+    if (/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(runId || "")) {
+      login.href = `/auth/login?run=${encodeURIComponent(runId)}`;
+    }
     document.addEventListener("reviewer:signed-out", signedOut);
     logout.addEventListener("click", async () => {
       try {
@@ -40,8 +45,10 @@ window.reviewerSession = (() => {
         location.replace("/dashboard");
       } catch (error) { onError(error); }
     });
-    if (new URLSearchParams(location.search).get("login") === "failed") {
-      history.replaceState(null, "", location.pathname);
+    if (pageQuery.get("login") === "failed") {
+      pageQuery.delete("login");
+      const cleanQuery = pageQuery.toString();
+      history.replaceState(null, "", `${location.pathname}${cleanQuery ? `?${cleanQuery}` : ""}`);
       signedOut(); onError(new Error("GitHub login failed or access was denied. Try again."));
       return;
     }

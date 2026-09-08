@@ -12,6 +12,9 @@ from temporalio.workflow import ActivityCancellationType
 
 from .types import (
     ApprovalSignal,
+    CheckRunConclusion,
+    CheckRunRequest,
+    CheckRunStatus,
     PublishRequest,
     ReviewWorkflowInput,
     ReviewWorkflowResult,
@@ -41,6 +44,7 @@ class PullRequestReviewWorkflow:
         self._approval_wait_started_at = None
         self._approval_wait_ms: int | None = None
         self._usage = None
+        self._checks_enabled = False
 
     @workflow.run
     async def run(self, request: ReviewWorkflowInput) -> ReviewWorkflowResult:
@@ -53,7 +57,11 @@ class PullRequestReviewWorkflow:
             self._supersede = None
         if self._approval is not None and not self._approval_matches(self._approval):
             self._approval = None
+        self._checks_enabled = workflow.patched("github-check-runs-v1")
         try:
+            if self._checks_enabled:
+                await self._update_check(CheckRunStatus.QUEUED)
+                await self._update_check(CheckRunStatus.IN_PROGRESS)
             context = await self._stage("select_context", "selecting_context")
             if result := await self._honor_interrupt():
                 return result
@@ -208,6 +216,37 @@ class PullRequestReviewWorkflow:
             ),
             **self._activity_options("record_terminal"),
         )
+        if self._checks_enabled:
+            try:
+                await self._update_check(
+                    CheckRunStatus.COMPLETED,
+                    _check_conclusion(outcome),
+                )
+            except ActivityError:
+                # The relational outcome is authoritative. An exhausted provider retry must not
+                # strand the workflow or prevent a newer review generation from starting.
+                pass
+
+    async def _update_check(
+        self,
+        status: CheckRunStatus,
+        conclusion: CheckRunConclusion | None = None,
+    ) -> None:
+        request = self._required_input()
+        await workflow.execute_activity(
+            "update_check",
+            CheckRunRequest(
+                owner_id=request.owner_id,
+                run_id=request.run_id,
+                generation=request.generation,
+                repository_id=request.repository_id,
+                pull_request_number=request.pull_request_number,
+                head_sha=request.head_sha,
+                status=status,
+                conclusion=conclusion,
+            ),
+            **self._activity_options(f"check:{status.value}"),
+        )
 
     def _activity_options(self, name: str) -> dict[str, object]:
         request = self._required_input()
@@ -285,3 +324,13 @@ class PullRequestReviewWorkflow:
             state=self._state,
             cancellation_reason=self._cancel_reason,
         )
+
+
+def _check_conclusion(outcome: WorkflowOutcome) -> CheckRunConclusion:
+    return {
+        WorkflowOutcome.PUBLISHED: CheckRunConclusion.SUCCESS,
+        WorkflowOutcome.REJECTED: CheckRunConclusion.ACTION_REQUIRED,
+        WorkflowOutcome.CANCELLED: CheckRunConclusion.CANCELLED,
+        WorkflowOutcome.TIMED_OUT: CheckRunConclusion.TIMED_OUT,
+        WorkflowOutcome.FAILED: CheckRunConclusion.FAILURE,
+    }[outcome]

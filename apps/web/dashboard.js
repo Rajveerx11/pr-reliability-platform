@@ -1,6 +1,11 @@
 "use strict";
 
-const state = { offset: 0, limit: 20, total: 0 };
+const state = {
+  offset: 0,
+  limit: 20,
+  total: 0,
+  pendingRunId: new URLSearchParams(window.location.search).get("run")
+};
 const byId = (id) => document.getElementById(id);
 
 function node(tag, text, className) {
@@ -233,6 +238,11 @@ async function loadDashboard() {
     renderOverview(overview);
     byId("refresh").disabled = false;
     setNotice("Dashboard current. Showing repositories you can access.", "success");
+    if (state.pendingRunId) {
+      const runId = state.pendingRunId;
+      state.pendingRunId = null;
+      await openRun(runId);
+    }
   } catch (error) {
     setNotice(error.message, "error");
   } finally {

@@ -19,6 +19,8 @@ from pr_reliability_proof_adapter import (
 )
 from pr_reliability_workers.activities import (
     ActivityOperations,
+    GitHubCheckRunOperation,
+    GitHubRestCheckRunClient,
     GitHubRestReviewClient,
     GitHubReview,
     GitHubReviewPublishOperation,
@@ -42,6 +44,7 @@ from pr_reliability_workers.sandbox import (
 )
 from pr_reliability_workers.worker import load_activity_operations
 from pr_reliability_workers.workflows.types import (
+    CheckRunRequest,
     PublishRequest,
     StageRequest,
     StageResult,
@@ -594,6 +597,9 @@ def _operations(
     async def terminal(request: TerminalRequest) -> None:
         del request
 
+    async def update_check(request: CheckRunRequest) -> None:
+        del request
+
     return ActivityOperations(
         select_context=stage,
         analyze=stage,
@@ -613,6 +619,16 @@ def _operations(
             lambda: "01J00000000000000000000001",
         ),
         record_terminal=terminal,
+        update_check=GitHubCheckRunOperation(
+            lambda: None,  # type: ignore[arg-type,return-value]
+            GitHubRestCheckRunClient(
+                FakeInstallationTokenProvider(),
+                1,
+                repository_id_resolver=lambda repository: 1,
+            ),
+            "https://reviews.example/dashboard",
+            lambda: "01J00000000000000000000001",
+        ),
     )
 
 

@@ -947,7 +947,7 @@ def test_relational_identity_mismatch_is_rejected(
     assert client.calls == []
 
 
-def test_superseded_generation_is_receipted_without_dispatch(
+def test_superseded_generation_is_dispatched_for_check_lifecycle(
     connection_factory: Callable[[], Connection[object]],
 ) -> None:
     command = seed_command(connection_factory)
@@ -966,43 +966,33 @@ def test_superseded_generation_is_receipted_without_dispatch(
             (public_id(8), OWNER_ID, pull_request_id, BASE_SHA, "c" * 40),
         )
     client = RecordingTemporalClient()
-    event_ids = iter((public_id(6), public_id(7)))
-
     assert asyncio.run(
         dispatch_next_command(
             connection_factory,
             client,
             task_queue=TASK_QUEUE,
-            id_factory=lambda: next(event_ids),
+            id_factory=lambda: public_id(6),
         )
     )
-    assert client.calls == []
+    assert len(client.calls) == 1
+    request, _ = client.calls[0]
+    assert request.run_id == command.run_id
     with connection_factory() as connection:
         run_state = connection.execute(
             "SELECT state FROM runs WHERE public_id = %s", (command.run_id,)
         ).fetchone()[0]
-        events = connection.execute(
+        receipt = connection.execute(
             """
-            SELECT event_type, event_data
+            SELECT event_data
             FROM run_events
-            WHERE event_type IN ('run.cancelled', 'run.command_dispatched')
-            ORDER BY id
+            WHERE event_type = 'run.command_dispatched'
             """
-        ).fetchall()
-    assert run_state == "cancelled"
-    assert events[0] == (
-        "run.cancelled",
-        {
-            "outcome": "cancelled",
-            "reason": "superseded before dispatch",
-            "superseded_by_generation": 2,
-        },
-    )
-    receipt = events[1][1]
+        ).fetchone()[0]
+    assert run_state == "queued"
     assert receipt == {
         "command_id": command.public_id,
-        "reason": "superseded generation",
-        "status": "skipped",
+        "status": "accepted",
+        "workflow_id": workflow_id_for(command),
     }
 
 

@@ -59,9 +59,12 @@ status, timeout, and output-limit facts. Raw output remains ephemeral until issu
 Sandbox unavailable, runtime, and cleanup failures record distinct fixed codes without exception
 text before verification stops.
 
+Each admitted review owns one `PR Reliability review` Check Run
+for its repository, pull request, and head SHA. It moves through queued, in progress, and completed;
+completed results use success, failure, action required, cancelled, or timed out.
+
 ## Approved scope still to deliver
 
-- One GitHub Check Run for each reviewed head SHA.
 - Bounded logs, parsed test summaries, cancellation, and safe reruns.
 - Queue depth, wait time, runner capacity, failure rate, and duration metrics.
 
@@ -77,10 +80,36 @@ text before verification stops.
 
 ## GitHub behavior
 
-[Issue #40](https://github.com/Rajveerx11/pr-reliability-platform/issues/40) adds one Check Run
-linked to the review run. It should move from queued to in progress to a terminal conclusion,
-include a short safe summary, and link to the dashboard. Repeated webhooks must update the same
-check for the same repository, pull request, and head SHA.
+[Issue #40](https://github.com/Rajveerx11/pr-reliability-platform/issues/40) implements one
+persisted Check Run identity per repository, pull request, and head SHA. Activity retries recover
+the remote check by its external identity before creating anything, then update the persisted
+remote ID. A newer head gets a separate check; the old head completes as cancelled. Start commands
+are dispatched in generation order, so a head superseded while queued still reaches that cancelled
+state. A rerun of the same completed head creates a new review generation and resets the existing
+check instead of creating another.
+
+The database terminal outcome remains authoritative. GitHub publication retries are bounded; an
+exhausted terminal update cannot strand the workflow or block a superseding generation, and it
+never substitutes a false conclusion for the last state GitHub accepted.
+
+Safe source locations from approved findings may appear as at most 50 line annotations on a
+successful check. Failed, rejected, cancelled, and timed-out reviews never expose finding claims.
+Paths containing absolute, empty, dot, parent, or backslash segments are rejected. GitHub receives
+the bounded approved claim, not full evidence. The detail URL opens the private dashboard for the exact run.
+
+## GitHub App setup
+
+Configure **Checks: read and write** and subscribe to **Check run** events. Runtime Check Run tokens
+request only `checks: write` and `metadata: read`; checkout and review publication continue using
+their separate least-privilege tokens. Configure `DASHBOARD_BASE_URL` to the private HTTPS dashboard.
+
+## Informational and required modes
+
+Checks are informational by default. To make them required, add the stable
+`PR Reliability review` check name to the repository ruleset or branch-protection required status
+checks. Required mode is a GitHub merge-policy setting; it does not grant this service merge,
+deployment, or workflow-administration authority. Change back to informational mode by removing
+that required-status rule. Existing check reporting and rerun behavior stays identical.
 
 ## Execution rules
 
@@ -97,4 +126,5 @@ check for the same repository, pull request, and head SHA.
 [Issue #42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42) stores bounded output,
 test totals, duration, exit status, truncation, and artifact expiry. Raw source and secrets remain
 forbidden. [Issue #43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43) adds queue
-and runner visibility, alerts, cancellation, and rerun controls.
+and runner visibility, alerts, and operator cancellation controls. GitHub check reruns are already
+supported by issue #40.

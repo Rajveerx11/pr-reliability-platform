@@ -14,6 +14,7 @@ from ..identifiers import new_ulid
 
 SESSION_COOKIE = "__Host-pr-session"
 LOGIN_COOKIE = "__Host-pr-login"
+LOGIN_RETURN_COOKIE = "__Host-pr-login-run"
 
 
 def digest(value):

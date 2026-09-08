@@ -466,6 +466,7 @@
         <div class="entity"><h3>findings</h3><ul><li>run_id, finding_key</li><li>severity, category</li><li>claim, confidence</li><li>evidence (JSON)</li></ul></div>
         <div class="entity"><h3>approvals</h3><ul><li>run_id, finding_id</li><li>actor_id, head_sha</li><li>decision, reason</li><li>decided_at</li></ul></div>
         <div class="entity"><h3>external_actions</h3><ul><li>run_id, action_type, target_sha</li><li>idempotency_key, payload_fingerprint</li><li>status, remote_id</li><li>owner_id, public_id</li></ul></div>
+        <div class="entity"><h3>github_check_runs</h3><ul><li>pull_request_id, current_run_id</li><li>head_sha, check_name, external_id</li><li>remote_id, status, conclusion</li><li>owner_id, public_id</li></ul></div>
         <div class="entity"><h3>run_events</h3><ul><li>run_id, event_key</li><li>event_type, event_data</li><li>occurred_at, id</li><li>owner_id, public_id</li></ul></div>
         <div class="entity"><h3>repository_events</h3><ul><li>owner_id, installation_id</li><li>event_key, event_type</li><li>event_data, occurred_at</li><li>id (internal; append-only)</li></ul></div>
       </div>
@@ -497,7 +498,7 @@
         <div class="phase-label"><strong>Phase 4</strong><span>Foundation merged</span></div>
         <details class="phase"><summary>Evaluation and deployment foundation</summary><div class="phase-body"><ul><li>Frozen ten-task corpus and deterministic replay.</li><li>Telemetry, dashboard, health, backup, restore, and VM runbook.</li><li>Model quality remains unknown until a real provider run.</li></ul><p class="deliverable">Open: real evaluation and Linux acceptance.</p></div></details>
         <div class="phase-label"><strong>Phase 4A</strong><span>Partly merged</span></div>
-        <details class="phase" open><summary>Private production hardening</summary><div class="phase-body"><ul><li>Merged: production provider operations (#36), installation sync and policy (#37).</li><li>Open: GitHub login (#44), with a shared reviewer token used today.</li><li>Check Runs, repository checks, bounded evidence, metrics, and runner operations.</li><li>Repository and PR history dashboard plus signed release artifacts.</li></ul><p class="deliverable">Done when issue #46 has accepted evidence.</p></div></details>
+        <details class="phase" open><summary>Private production hardening</summary><div class="phase-body"><ul><li>Merged: production provider operations (#36), installation sync and policy (#37), GitHub login (#44), and repository checks (#41).</li><li>In review: commit-bound Check Runs (#40).</li><li>Open: bounded evidence, metrics, runner operations, repository and PR history, and signed release artifacts.</li></ul><p class="deliverable">Done when issue #46 has accepted evidence.</p></div></details>
         <div class="phase-label"><strong>Phase 5</strong><span>Later</span></div>
         <details class="phase"><summary>Test specialist agents</summary><div class="phase-body"><ul><li>Compare specialists with the single-agent baseline on the same frozen inputs.</li><li>Ship only when quality improves within cost and latency limits.</li></ul><p class="deliverable">No specialist rollout before measured production baseline.</p></div></details>
       </div>
@@ -535,7 +536,7 @@
     </section>
     <section class="section shell" id="scope">
       <div class="two-col">
-        <article class="card list-card"><div class="kicker">Current core and planned additions</div><h3>One trustworthy AI review path</h3><ul><li>GitHub installation and repository policy.</li><li>Single-agent analysis with bounded context.</li><li>Sandboxed review checks and Proof of Work.</li><li>Human approve or reject.</li><li>Current: run dashboard and basic operational summaries.</li><li>Planned: Check Runs, repository history, complete quality and usage analytics (#38–#40).</li></ul></article>
+        <article class="card list-card"><div class="kicker">Current core and planned additions</div><h3>One trustworthy AI review path</h3><ul><li>GitHub installation and repository policy.</li><li>Single-agent analysis with bounded context.</li><li>Sandboxed review checks and Proof of Work.</li><li>Human approve or reject.</li><li>Current: run dashboard, Check Runs, and basic operational summaries.</li><li>Planned: repository history and complete quality and usage analytics (#38–#39).</li></ul></article>
         <article class="card list-card"><div class="kicker">Not this product</div><h3>No general CI/CD platform</h3><ul><li>No application or infrastructure deployment.</li><li>No GitHub Actions compatibility.</li><li>No marketplace action execution.</li><li>No arbitrary host commands or privileged containers.</li><li>No secrets for forked pull requests.</li><li>No specialist agents before a measured baseline.</li></ul></article>
       </div>
     </section>

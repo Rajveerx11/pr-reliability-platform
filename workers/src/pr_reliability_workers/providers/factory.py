@@ -14,6 +14,8 @@ from pr_reliability_proof_adapter import ProofAdapter
 
 from ..activities import (
     ActivityOperations,
+    GitHubCheckRunOperation,
+    GitHubRestCheckRunClient,
     GitHubRestReviewClient,
     GitHubReviewPublishOperation,
     SandboxVerificationOperation,
@@ -47,8 +49,9 @@ def create_operations() -> ActivityOperations:
     from .checkout import ExactHeadCheckout
     from .github_app import GitHubAppInstallationTokenProvider
 
+    github_app_id = _positive_int("GITHUB_APP_ID")
     tokens = GitHubAppInstallationTokenProvider(
-        _positive_int("GITHUB_APP_ID"),
+        github_app_id,
         _positive_int("GITHUB_INSTALLATION_ID"),
         private_key,
         timeout_seconds=_positive_float("GITHUB_API_TIMEOUT_SECONDS", 10.0),
@@ -91,12 +94,24 @@ def create_operations() -> ActivityOperations:
         client=github,
         id_factory=_new_ulid,
     )
+    checks = GitHubCheckRunOperation(
+        connection_factory=connection_factory,
+        client=GitHubRestCheckRunClient(
+            tokens,
+            github_app_id,
+            repository_id_resolver=repository_id_resolver,
+            timeout_seconds=_positive_float("GITHUB_API_TIMEOUT_SECONDS", 10.0),
+        ),
+        dashboard_base_url=_required("DASHBOARD_BASE_URL"),
+        id_factory=_new_ulid,
+    )
     return ActivityOperations(
         select_context=core.select_context,
         analyze=core.analyze,
         verify=verify,
         publish=publish,
         record_terminal=core.record_terminal,
+        update_check=checks,
     )
 
 

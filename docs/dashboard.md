@@ -59,7 +59,8 @@ error rate, and alert state. This requires issue #43.
 - Installation inventory is synchronized, but a repository/history UI is not yet implemented (#38).
 - Retry, usage, and cost facts are incomplete until issue #39.
 - Test summaries and bounded logs require issue #42.
-- GitHub Check Run state requires issue #40.
+- Check Run detail links open the exact run after private dashboard authentication. Dashboard list
+  columns for Check Run state remain part of repository/history work in issue #38.
 
 ## Operations
 

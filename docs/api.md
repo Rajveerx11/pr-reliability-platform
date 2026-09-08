@@ -29,7 +29,9 @@ contain no private data. See [authentication](authentication.md) for login and s
 | GET | `/approval-inbox` | Human approval interface shell |
 
 Product routes are registered when approval settings are provided; the production environment
-factory requires those settings. No public rerun, repository-sync trigger, or Check Run endpoint is implemented. Use `pr-reliability-repository-sync --once` for an operator sync.
+factory requires those settings. No public rerun or repository-sync trigger endpoint is
+implemented. GitHub Check Run reruns arrive through the signed webhook. Use
+`pr-reliability-repository-sync --once` for an operator sync.
 
 ## Webhook contract
 
@@ -37,6 +39,8 @@ Send `X-Hub-Signature-256`, `X-GitHub-Delivery`, and `X-GitHub-Event`. The signa
 `sha256=<HMAC-SHA256 of exact request bytes>`. Validation happens before JSON decoding.
 
 - `pull_request`: `opened`, `reopened`, `synchronize`, `closed`.
+- `check_run`: `rerequested`, or `requested_action` with identifier `rerun`, only for this App's
+  persisted completed check identity and current pull request head.
 - `installation`: `created`, `deleted`, `suspend`, `unsuspend`, `new_permissions_accepted`.
 - `installation_repositories`: `added`, `removed`.
 

@@ -25,7 +25,7 @@ existing `.env`. Never commit keys, passwords, or filled secret files. See [conf
 ## Start the local control plane
 
 Start PostgreSQL and Temporal separately and configure reachable addresses in `.env`.
-The baseline Compose file does not provide either server. Apply all six migrations:
+The baseline Compose file does not provide either server. Apply all seven migrations:
 
 ```text
 uv run --env-file .env python -m pr_reliability_api.migrate

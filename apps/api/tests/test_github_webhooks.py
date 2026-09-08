@@ -89,7 +89,12 @@ def client(connection_factory: Callable[[], Connection[object]]) -> TestClient:
     app = FastAPI()
     app.include_router(
         create_github_webhook_router(
-            GithubWebhookSettings(owner_id=OWNER_ID, installation_id=71, webhook_secret=SECRET),
+            GithubWebhookSettings(
+                owner_id=OWNER_ID,
+                installation_id=71,
+                webhook_secret=SECRET,
+                app_id=123,
+            ),
             connection_factory,
             id_factory=lambda: next(id_values),
             now=lambda: datetime(2026, 8, 13, tzinfo=UTC),
@@ -148,12 +153,14 @@ def payload(
     return data
 
 
-def headers(body: bytes, *, delivery: str = "delivery-1") -> dict[str, str]:
+def headers(
+    body: bytes, *, delivery: str = "delivery-1", event: str = "pull_request"
+) -> dict[str, str]:
     signature = hmac.new(SECRET, body, hashlib.sha256).hexdigest()
     return {
         "X-Hub-Signature-256": f"sha256={signature}",
         "X-GitHub-Delivery": delivery,
-        "X-GitHub-Event": "pull_request",
+        "X-GitHub-Event": event,
         "Content-Type": "application/json",
     }
 
@@ -161,6 +168,61 @@ def headers(body: bytes, *, delivery: str = "delivery-1") -> dict[str, str]:
 def post(client: TestClient, data: dict[str, object], *, delivery: str = "delivery-1"):
     body = json.dumps(data, separators=(",", ":")).encode()
     return client.post("/webhooks/github", content=body, headers=headers(body, delivery=delivery))
+
+
+def post_check_run(
+    client: TestClient, data: dict[str, object], *, delivery: str = "check-delivery-1"
+):
+    body = json.dumps(data, separators=(",", ":")).encode()
+    return client.post(
+        "/webhooks/github",
+        content=body,
+        headers=headers(body, delivery=delivery, event="check_run"),
+    )
+
+
+def check_run_payload(*, app_id: int = 123, action: str = "requested_action"):
+    result: dict[str, object] = {
+        "action": action,
+        "installation": {"id": 71},
+        "repository": {"id": 91, "full_name": "owner/repository"},
+        "check_run": {
+            "id": 501,
+            "name": "PR Reliability review",
+            "head_sha": HEAD_SHA,
+            "external_id": f"pr-reliability:01J00000000000000000000011:{HEAD_SHA}",
+            "app": {"id": app_id},
+        },
+    }
+    if action == "requested_action":
+        result["requested_action"] = {"identifier": "rerun"}
+    return result
+
+
+def seed_completed_check(connection_factory: Callable[[], Connection[object]]) -> None:
+    with connection_factory() as connection, connection.transaction():
+        pull_request_id, pull_request_public_id = connection.execute(
+            "SELECT id, public_id FROM pull_requests"
+        ).fetchone()
+        assert pull_request_public_id == "01J00000000000000000000011"
+        run_id = connection.execute("SELECT id FROM runs").fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO github_check_runs (
+                public_id, owner_id, pull_request_id, current_run_id, head_sha,
+                check_name, external_id, remote_id, status, conclusion, completed_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, 501, 'completed', 'success', now())
+            """,
+            (
+                "01J99999999999999999999999",
+                OWNER_ID,
+                pull_request_id,
+                run_id,
+                HEAD_SHA,
+                "PR Reliability review",
+                f"pr-reliability:{pull_request_public_id}:{HEAD_SHA}",
+            ),
+        )
 
 
 def scalar(factory: Callable[[], Connection[object]], sql: str) -> int:
@@ -468,3 +530,81 @@ def test_raw_payload_and_secret_are_not_logged(client: TestClient, caplog) -> No
     log_text = caplog.text
     assert marker not in log_text
     assert SECRET.decode() not in log_text
+
+
+@pytest.mark.parametrize("action", ["requested_action", "rerequested"])
+def test_owned_completed_check_rerun_creates_one_new_generation(
+    client: TestClient,
+    connection_factory: Callable[[], Connection[object]],
+    action: str,
+) -> None:
+    assert post(client, payload(), delivery=f"opened-{action}").status_code == 200
+    seed_completed_check(connection_factory)
+
+    rerun = post_check_run(
+        client,
+        check_run_payload(action=action),
+        delivery=f"rerun-{action}",
+    )
+
+    assert rerun.status_code == 200
+    assert rerun.json()["command_id"] is not None
+    with connection_factory() as connection:
+        generations = connection.execute(
+            "SELECT generation FROM runs ORDER BY generation"
+        ).fetchall()
+        commands = connection.execute(
+            "SELECT count(*) FROM run_events WHERE event_type = 'run.command_created'"
+        ).fetchone()[0]
+    assert generations == [(1,), (2,)]
+    assert commands == 2
+
+
+def test_check_rerun_delivery_and_generation_are_idempotent(
+    client: TestClient,
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    post(client, payload(), delivery="opened-for-idempotency")
+    seed_completed_check(connection_factory)
+    data = check_run_payload()
+
+    first = post_check_run(client, data, delivery="rerun-once")
+    duplicate = post_check_run(client, data, delivery="rerun-once")
+    second_delivery = post_check_run(client, data, delivery="rerun-again-too-soon")
+
+    assert first.json()["command_id"] is not None
+    assert duplicate.json() == {"accepted": True, "duplicate": True, "command_id": None}
+    assert second_delivery.json() == {
+        "accepted": True,
+        "duplicate": False,
+        "command_id": None,
+    }
+    assert scalar(connection_factory, "SELECT count(*) FROM runs") == 2
+
+
+def test_check_rerun_rejects_another_app_and_unknown_action(
+    client: TestClient,
+    connection_factory: Callable[[], Connection[object]],
+) -> None:
+    post(client, payload(), delivery="opened-for-check-auth")
+    seed_completed_check(connection_factory)
+
+    other_app = post_check_run(
+        client,
+        check_run_payload(app_id=999),
+        delivery="other-app",
+    )
+    unknown = check_run_payload()
+    unknown["requested_action"] = {"identifier": "deploy"}
+    unknown_action = post_check_run(client, unknown, delivery="unknown-action")
+    routine_event = post_check_run(
+        client,
+        check_run_payload(action="completed"),
+        delivery="completed-check-event",
+    )
+
+    assert other_app.json()["command_id"] is None
+    assert unknown_action.status_code == 422
+    assert routine_event.status_code == 200
+    assert routine_event.json()["command_id"] is None
+    assert scalar(connection_factory, "SELECT count(*) FROM runs") == 1

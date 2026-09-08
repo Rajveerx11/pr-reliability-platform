@@ -94,6 +94,7 @@ def create_app_from_environment() -> FastAPI:
         owner_id=_required_environment("OWNER_ID"),
         installation_id=int(_required_environment("GITHUB_INSTALLATION_ID")),
         webhook_secret=_required_environment("GITHUB_WEBHOOK_SECRET").encode(),
+        app_id=int(_required_environment("GITHUB_APP_ID")),
     )
     approval_settings = ApprovalInboxSettings(
         owner_id=settings.owner_id,

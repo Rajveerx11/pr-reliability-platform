@@ -24,6 +24,7 @@ _MIN_TOKEN_LIFETIME = timedelta(seconds=30)
 _MAX_TOKEN_LIFETIME = timedelta(minutes=65)
 
 CHECKOUT_PERMISSIONS = {"contents": "read", "metadata": "read"}
+CHECK_RUN_PERMISSIONS = {"checks": "write", "metadata": "read"}
 REVIEW_PERMISSIONS = {
     "contents": "read",
     "metadata": "read",

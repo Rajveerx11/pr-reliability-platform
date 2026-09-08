@@ -37,6 +37,8 @@ OWNED_TABLES = (
     "findings",
     "approvals",
     "external_actions",
+    "github_check_runs",
+    "github_check_rerun_deliveries",
     "run_events",
 )
 
@@ -117,7 +119,7 @@ def test_loads_numbered_migrations_with_stable_checksum() -> None:
         migration.version for migration in migrations
     )
     assert [migration.version for migration in migrations][:2] == ["0001", "0002"]
-    assert [migration.version for migration in migrations][-1] == "0006"
+    assert [migration.version for migration in migrations][-1] == "0007"
     assert all(re.fullmatch(r"[0-9a-f]{64}", migration.checksum) for migration in migrations)
 
 

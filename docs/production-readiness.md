@@ -13,7 +13,7 @@ that a live service or measured model baseline exists. [Current status](status.m
 |---|---|---|
 | #38 | Repository and PR history dashboard | #37 merged |
 | #39 | Durable analytics, usage, retry, and cost facts | #36 merged |
-| #40 | Commit-bound GitHub Check Runs | #12 and #36 merged |
+| #40 | Commit-bound GitHub Check Runs | Implemented; live acceptance pending |
 | #41 | Repository-defined sandbox verification checks | #37 merged |
 | #42 | Retained bounded logs and test summaries | Requires #41 |
 | #43 | Runner capacity, queue visibility, and alert delivery | Requires #39 and #41 |
@@ -23,8 +23,8 @@ that a live service or measured model baseline exists. [Current status](status.m
 | #15 | Private Linux VM end-to-end and recovery acceptance | Remaining release gates must pass |
 
 The full dependency map is in [plan/v1.md](../plan/v1.md#github-issue-map). Work on unblocked
-issues; do not bypass dependencies. Prioritize individual access (#44), Check Runs (#40), and
-repository checks (#41), then complete evidence, metrics, history, runner operations, and releases.
+issues; do not bypass dependencies. Prioritize individual access (#44) and repository checks (#41),
+then complete evidence, metrics, history, runner operations, and releases.
 Finish real evaluation and VM acceptance before any production claim.
 
 ## Production exit checklist
@@ -52,6 +52,7 @@ is missing or expired. See [repository policy](repository-policy.md) and [deploy
 
 Policy changes govern new admissions and queued dispatch. They do not cancel running reviews.
 Blocked webhook deliveries are recorded without deferred execution; a new PR event is needed
-after recovery. Individual GitHub sessions replace the shared reviewer token in #44; live login acceptance remains part of #15. GitHub Check Runs are not yet implemented;
-after #40 ships, start them in informational mode before considering required-check enforcement.
+after recovery. Individual GitHub sessions replace the shared reviewer token; live login acceptance
+remains part of #15. Start GitHub Check Runs in informational mode before considering required-check
+enforcement.
 This product does not replace general CI/CD or deploy customer applications.

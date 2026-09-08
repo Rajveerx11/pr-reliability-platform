@@ -1,15 +1,15 @@
 # Current status
 
-Verified: 2026-09-07. Code baseline: `675257ade505d4116c6078147a68c35bafc8f424` on `main`.
+Verified: 2026-09-08.
 
 The review core, production OpenAI/GitHub operations, and repository installation sync and
-policy are merged. Private production rollout is still unaccepted. GitHub login, repository
-history UI, Check Runs, complete analytics, additional verification checks, signed releases,
-real-provider evaluation, and Linux VM recovery evidence remain open.
+policy are merged, and commit-bound Check Runs are implemented. Private production rollout is
+still unaccepted. Repository history UI, complete analytics, bounded check artifacts, signed
+releases, real-provider evaluation, and Linux VM recovery evidence remain open.
 
 ## Implemented
 
-- Strict versioned contracts and five checksummed PostgreSQL migrations.
+- Strict versioned contracts and seven checksummed PostgreSQL migrations.
 - Signed, installation-bound PR and installation lifecycle webhooks, with delivery deduplication.
 - Initial and periodic installation inventory, owner-scoped policy API, and append-only audit.
 - Admission and queued-dispatch checks for access, pause state, base branch, budgets, and sync age.
@@ -17,7 +17,8 @@ real-provider evaluation, and Linux VM recovery evidence remain open.
 - Bounded context selection, OpenAI structured findings, and provider-reported usage facts.
 - Exact-head GitHub checkout, disposable Linux sandbox, and Proof of Work verification.
 - Human approval and idempotent, commit-bound GitHub review publication.
-- Private run dashboard and approval inbox using a shared reviewer token.
+- Idempotent Check Runs with safe annotations, exact-run dashboard links, and authenticated reruns.
+- Private run dashboard and approval inbox using individual revocable GitHub sessions.
 - Telemetry and readiness for PostgreSQL, Temporal, and installation sync freshness.
 - Frozen ten-task corpus, deterministic evaluation replay, and private VM deployment tools.
 
