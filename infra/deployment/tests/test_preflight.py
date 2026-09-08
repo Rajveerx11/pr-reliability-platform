@@ -299,3 +299,15 @@ def test_postgres_initialization_separates_runtime_and_backup_roles() -> None:
     assert "GRANT pr_reliability, temporal TO backup_operator" in init
     assert '"--username=backup_operator"' in database
     assert '"--username=pr_reliability"' not in database
+
+
+def test_login_rate_limit_proxy_boundary_is_private_and_overwrites_forwarding():
+    deployment = Path(__file__).parents[1]
+    compose = (deployment / "compose.vm.yaml").read_text(encoding="utf-8")
+    api = compose.split("  api:", 1)[1].split("  repository-sync:", 1)[0]
+    assert "ports:" not in api
+    assert "networks: [private, egress]" in api
+    assert '      - "*"' in api
+    assert "header_up X-Forwarded-For {remote_host}" in (deployment / "Caddyfile").read_text()
+    development = (deployment.parent / "compose" / "compose.yaml").read_text()
+    assert "--forwarded-allow-ips" not in development

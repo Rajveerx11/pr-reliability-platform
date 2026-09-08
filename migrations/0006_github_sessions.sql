@@ -29,3 +29,10 @@ CREATE TABLE github_login_attempts (
     expires_at timestamptz NOT NULL
 );
 CREATE INDEX github_login_attempts_expiry ON github_login_attempts (expires_at);
+
+CREATE TABLE github_login_limits (
+    client_hash text PRIMARY KEY,
+    attempts integer NOT NULL CHECK (attempts > 0),
+    expires_at timestamptz NOT NULL
+);
+CREATE INDEX github_login_limits_expiry ON github_login_limits (expires_at);

@@ -33,8 +33,11 @@ def create_login_router(sessions):
     router = APIRouter()
 
     @router.get("/auth/login")
-    def login():
-        state, browser, verifier = sessions.begin()
+    def login(request: Request):
+        # Use the ASGI peer, never parse caller-supplied forwarding headers here.
+        state, browser, verifier = sessions.begin(
+            request.client.host if request.client else "unknown"
+        )
         challenge = (
             base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
             .decode()

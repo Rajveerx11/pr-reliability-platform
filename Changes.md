@@ -11,6 +11,8 @@
   user's live GitHub access; audit records include stable GitHub identity.
 - Updated browser login/logout flows, external assets, migration 0006, Linux/API environment,
   egress, callback logging policy, operator documentation, and regression tests.
+- Addressed review findings with durable per-client login throttling, atomic last-administrator
+  protection, in-flight GitHub check coalescing, and trusted proxy client-address handling.
 - Added `plan/issue-44.md` for acceptance, checks, and delivery evidence. Live GitHub and Linux
   acceptance remain outside repository-only verification.
 

@@ -27,15 +27,16 @@ scoped commit, push, and PR; merge needs a separate request.
 ## Local delivery evidence
 
 - Ruff check and format pass; JavaScript syntax checks pass.
-- `uv run pytest apps/api/tests packages/contracts/tests infra/deployment/tests -q`: 200 passed,
+- `uv run pytest apps/api/tests packages/contracts/tests infra/deployment/tests -q`: 209 passed,
   2 skipped on Windows with an isolated PostgreSQL 18 instance. Skips cover POSIX-only file rules.
 - `uv run pytest --ignore=workers/tests -q`: 437 passed, 17 skipped, one known Windows Git-pack
   cleanup PermissionError in an imported production-operations test. The exact failing test also
   fails on unchanged main `5788388`; no worker implementation changed. Linux CI remains required.
 - `uv build --wheel` and both Compose configuration validations pass.
-- Playwright with a local TLS server, PostgreSQL, and fake GitHub boundary passed seven scenarios:
+- Playwright with a local TLS server, PostgreSQL, and fake GitHub boundary passed eight scenarios:
   login/callback, cookie/storage controls, repository and CSRF denial, individual approval,
-  mobile layout, outage-safe logout after reload, and session expiry. Zero browser page errors.
+  mobile layout, outage-safe logout after reload, session expiry, and actual Caddy/Uvicorn
+  forwarding-header spoof resistance with client rate-limit enforcement. Zero browser page errors.
   The completed logout request is reported as aborted when its handler navigates; cookie deletion
   and subsequent unauthorized reads were verified. Screenshots were inspected at desktop/mobile.
 - Independent review found one outage/logout problem, which was fixed and verified. Final fresh
@@ -43,3 +44,13 @@ scoped commit, push, and PR; merge needs a separate request.
   unresolved findings.
 - Live GitHub App authorization and Linux recovery are still #15 acceptance, not claimed by these
   local tests. Required next delivery gate: all five configured Quality jobs on the PR commit.
+
+
+## Review follow-up
+
+Greptile identified final-administrator lockout, single-client pending-login exhaustion, and
+redundant overlapping GitHub checks. Fixed with serialized administrator revocation and actor
+revalidation, durable 20-per-five-minute client limits plus trusted proxy address handling, and
+in-flight-only coalescing. Concurrency, failure, expiry, spoofing, and fresh-permission tests pass.
+Independent re-review found no important unresolved issues. Actual Caddy 2.11.4 (publisher SHA-512
+verified) and Uvicorn passed the eight browser scenarios with no page errors.

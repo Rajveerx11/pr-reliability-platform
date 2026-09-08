@@ -1,6 +1,9 @@
 """Bounded GitHub App user authorization. Never expose provider error bodies."""
 
+import hashlib
+from concurrent.futures import Future
 from dataclasses import dataclass, field
+from threading import Lock
 
 import httpx
 from fastapi import HTTPException
@@ -23,6 +26,8 @@ class GitHubIdentity:
     def __init__(self, settings, *, transport=None):
         self.settings = settings
         self.transport = transport
+        self._lock = Lock()
+        self._inflight: dict[str, Future[Access]] = {}
 
     def _request(self, method, url, **kwargs):
         try:
@@ -66,6 +71,29 @@ class GitHubIdentity:
         return Token(value, min(expiry, 28800))
 
     def access(self, token):
+        # Only overlapping checks share a result. Completed permissions are never cached.
+        key = hashlib.sha256(token.encode()).hexdigest()
+        with self._lock:
+            pending = self._inflight.get(key)
+            leader = pending is None
+            if leader:
+                pending = self._inflight[key] = Future()
+        if not leader:
+            return pending.result()
+        try:
+            result = self._access(token)
+        except BaseException as error:
+            with self._lock:
+                del self._inflight[key]
+                pending.set_exception(error)
+            raise
+        else:
+            with self._lock:
+                del self._inflight[key]
+                pending.set_result(result)
+            return result
+
+    def _access(self, token):
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",

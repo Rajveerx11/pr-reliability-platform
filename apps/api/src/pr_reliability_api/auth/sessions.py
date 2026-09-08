@@ -38,15 +38,31 @@ class Sessions:
         self.now = now or (lambda: datetime.now(UTC))
         self.cipher = Fernet(settings.session_key.encode())
 
-    def begin(self):
+    def begin(self, client_host):
         state, browser, verifier = (secrets.token_urlsafe(32) for _ in range(3))
+        client_hash = hmac.new(
+            self.settings.session_key.encode(), client_host.encode(), hashlib.sha256
+        ).hexdigest()
         with self.connection_factory() as connection:
+            # Serialize admission and rate accounting across every API process.
+            connection.execute("SELECT pg_advisory_xact_lock(440006)")
             connection.execute(
                 "DELETE FROM github_login_attempts WHERE expires_at <= %s", (self.now(),)
             )
             connection.execute("DELETE FROM browser_sessions WHERE expires_at <= %s", (self.now(),))
-            # Bound unauthenticated persistent work across all API processes.
-            connection.execute("SELECT pg_advisory_xact_lock(440006)")
+            connection.execute(
+                "DELETE FROM github_login_limits WHERE expires_at <= %s", (self.now(),)
+            )
+            attempts = connection.execute(
+                """INSERT INTO github_login_limits VALUES (%s, 1, %s)
+                   ON CONFLICT (client_hash) DO UPDATE
+                   SET attempts = github_login_limits.attempts + 1 RETURNING attempts""",
+                (client_hash, self.now() + timedelta(minutes=5)),
+            ).fetchone()[0]
+            if attempts > 20:
+                raise HTTPException(
+                    429, "Too many login attempts from this client", headers={"Retry-After": "300"}
+                )
             count = connection.execute("SELECT count(*) FROM github_login_attempts").fetchone()[0]
             if count >= 1000:
                 raise HTTPException(429, "Too many pending logins; try again later")
@@ -192,6 +208,25 @@ class Sessions:
 
     def revoke(self, principal, user_id, enabled):
         with self.connection_factory() as connection:
+            # Concurrent cross-revocations must not remove the final administrator.
+            connection.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f"user-access:{self.settings.owner_id}",),
+            )
+            actor = connection.execute(
+                """SELECT enabled FROM github_users WHERE owner_id = %s AND github_user_id = %s""",
+                (self.settings.owner_id, principal.github_user_id),
+            ).fetchone()
+            if actor is None or not actor[0]:
+                raise HTTPException(403, "Administrator access revoked")
+            if not enabled and user_id in self.settings.admin_ids:
+                remaining = connection.execute(
+                    """SELECT 1 FROM github_users WHERE owner_id = %s AND enabled
+                         AND github_user_id = ANY(%s) AND github_user_id <> %s LIMIT 1""",
+                    (self.settings.owner_id, list(self.settings.admin_ids), user_id),
+                ).fetchone()
+                if remaining is None:
+                    raise HTTPException(409, "At least one enabled administrator must remain")
             row = connection.execute(
                 """UPDATE github_users SET enabled = %s WHERE owner_id = %s
                    AND github_user_id = %s RETURNING actor_id""",

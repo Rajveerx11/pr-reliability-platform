@@ -95,7 +95,8 @@ services:
       - "8000"
       - --proxy-headers
       - --forwarded-allow-ips
-      - caddy
+      # No API port is published. Only trusted services can reach this upstream.
+      - "*"
     expose: ["8000"]
     environment:
       GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:?GITHUB_OAUTH_CLIENT_ID is required}

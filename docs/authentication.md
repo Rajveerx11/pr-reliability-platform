@@ -23,11 +23,21 @@ is no production bearer fallback or environment switch.
 5. Apply migration 0006, complete installation sync, and restart the API with the new configuration.
    Open `/dashboard`, select **Sign in with GitHub**, then inspect the displayed login and role.
 
+The VM API trusts forwarding headers only within its unpublished Docker upstream. Caddy replaces
+all incoming `X-Forwarded-For` values with the immediate client's address before forwarding.
+This lets Uvicorn provide a trustworthy ASGI client address for login rate limits. Do not publish
+the API port or admit untrusted services to its Docker networks. Development's direct HTTP API
+does not enable wildcard forwarding trust. See [Uvicorn proxy settings](https://www.uvicorn.org/settings/)
+and [Caddy forwarding behavior](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).
+
 The API now needs outbound HTTPS to `github.com` and `api.github.com`. It still receives no
 GitHub App private key, model credential, or Docker socket. Follow GitHub's
 [GitHub App user authorization flow](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app).
 The implementation uses state bound to a separate browser cookie and S256 PKCE. State expires
-after five minutes and is consumed once. No access token or session bearer is placed in a URL.
+after five minutes and is consumed once. Login admission permits 20 attempts per client address
+in a five-minute fixed window across API processes, with a separate 1,000-pending-attempt global
+limit. Successful callbacks do not reset the client budget. Only an HMAC of the address is stored.
+Clients sharing a VPN/NAT address share this budget. No access token or session bearer is placed in a URL.
 GitHub's short-lived authorization code necessarily arrives on the callback query; access logs
 are disabled in the shipped Uvicorn commands and callback responses immediately redirect to
 a clean URL. Do not enable query-string logging in an upstream proxy.
@@ -39,7 +49,9 @@ user role, live GitHub user identity, matching installation account, and live re
 accessible to that user through the installation. Results are intersected with active, freshly
 synchronized local repository access. Filtering happens before counts, pagination, detail reads,
 and writes. Inaccessible details return 404. A GitHub access denial returns 403; an unavailable
-provider returns 503. No stale provider allowlist is used as a fallback.
+provider returns 503. Overlapping checks for the same provider token share one in-flight request
+per API process. The result is removed atomically on completion; later requests always recheck
+GitHub. No completed permission snapshot or stale provider allowlist is used as a fallback.
 
 Reviewers may read their repositories and record approval decisions. Administrators may also
 replace policy and revoke/re-enable individual users. Administrators still need repository access.
@@ -75,7 +87,9 @@ All state-changing browser requests require the exact configured `Origin` and `X
 Webhooks retain their separate HMAC authentication. To revoke a person, an administrator sends
 the access request from the signed-in private origin. Revocation deletes all of that person's
 sessions and blocks later login. Re-enabling permits a fresh login; deleted sessions never return.
-The person's ID must also remain in the operator allowlist. There is no user-management UI yet.
+The person's ID must also remain in the operator allowlist. Revocation serializes administrator
+changes, rechecks the acting administrator, and rejects removal of the final enabled
+administrator with 409, including concurrent cross-revocations. There is no user-management UI yet.
 
 ## Local TLS and verification
 
