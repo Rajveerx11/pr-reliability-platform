@@ -76,3 +76,7 @@ packages = [
 "apps/web/dashboard.html" = "pr_reliability_api/_web/dashboard.html"
 "apps/web/dashboard.css" = "pr_reliability_api/_web/dashboard.css"
 "apps/web/dashboard.js" = "pr_reliability_api/_web/dashboard.js"
+
+"apps/web/auth.js" = "pr_reliability_api/_web/auth.js"
+"apps/web/approval_inbox.js" = "pr_reliability_api/_web/approval_inbox.js"
+"apps/web/approval_inbox.css" = "pr_reliability_api/_web/approval_inbox.css"

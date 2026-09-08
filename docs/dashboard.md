@@ -5,12 +5,11 @@ production pages are listed separately below.
 
 ## Current access
 
-Enter the same `APPROVAL_REVIEWER_TOKEN` used by the approval inbox. The token stays in memory
-for the browser tab and is sent only to same-origin APIs. It is not stored in cookies, local
-storage, or session storage.
-
-This shared token is temporary. Production access must use GitHub login and owner-scoped sessions
-from [issue #44](https://github.com/Rajveerx11/pr-reliability-platform/issues/44).
+Select **Sign in with GitHub** on the private HTTPS origin. The dashboard shows your login and
+reviewer/admin role. Data is limited to repositories you can currently access through the
+configured installation. Sessions use Secure, HttpOnly cookies; no credential is entered into
+or stored by the page. **Sign out** deletes the local session, including during a GitHub outage.
+See [authentication](authentication.md) for operator configuration and revocation.
 
 ## Current dashboard
 

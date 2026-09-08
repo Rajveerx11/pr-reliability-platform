@@ -27,6 +27,7 @@ def create_app(
     connection_factory: Callable[[], Connection[object]],
     approval_settings: ApprovalInboxSettings | None = None,
     *,
+    sessions=None,
     workflow_health_check: WorkflowHealthCheck | None = None,
     database_health_check: DatabaseHealthCheck | None = None,
     repository_health_check: DatabaseHealthCheck | None = None,
@@ -35,6 +36,10 @@ def create_app(
     """Create the API with explicit production or test dependencies."""
 
     app = FastAPI(title="PR Reliability API")
+    if sessions is not None:
+        from .auth.routes import create_login_router
+
+        app.include_router(create_login_router(sessions))
     app.include_router(
         create_health_router(
             database_health_check or _unconfigured_database_health,
@@ -45,10 +50,16 @@ def create_app(
     )
     app.include_router(create_github_webhook_router(settings, connection_factory))
     if approval_settings is not None:
-        app.include_router(create_approval_inbox_router(approval_settings, connection_factory))
-        app.include_router(create_dashboard_router(approval_settings, connection_factory))
         app.include_router(
-            create_repository_router(approval_settings, settings, connection_factory)
+            create_approval_inbox_router(approval_settings, connection_factory, sessions=sessions)
+        )
+        app.include_router(
+            create_dashboard_router(approval_settings, connection_factory, sessions=sessions)
+        )
+        app.include_router(
+            create_repository_router(
+                approval_settings, settings, connection_factory, sessions=sessions
+            )
         )
 
     @app.middleware("http")
@@ -61,6 +72,9 @@ def create_app(
             attributes={"http.request.method": request.method, "url.path": request.url.path},
         ) as span:
             response = await call_next(request)
+            if request.url.path.startswith(("/auth/", "/api/")):
+                response.headers["Cache-Control"] = "no-store"
+                response.headers["Referrer-Policy"] = "no-referrer"
             span.set_attribute("http.response.status_code", response.status_code)
             span_context = span.get_span_context()
             if span_context.is_valid:
@@ -83,8 +97,16 @@ def create_app_from_environment() -> FastAPI:
     )
     approval_settings = ApprovalInboxSettings(
         owner_id=settings.owner_id,
-        actor_id=_required_environment("APPROVAL_ACTOR_ID"),
-        reviewer_token=_required_environment("APPROVAL_REVIEWER_TOKEN"),
+        actor_id=settings.owner_id,
+        reviewer_token="disabled-production-bearer",
+    )
+    from .auth.github import GitHubIdentity
+    from .auth.sessions import Sessions
+    from .auth.settings import from_environment
+
+    login = from_environment(settings.owner_id, settings.installation_id, os.environ)
+    sessions = Sessions(
+        login, lambda: psycopg.connect(database_url, connect_timeout=5), GitHubIdentity(login)
     )
     with psycopg.connect(database_url) as connection:
         apply_migrations(connection)
@@ -100,6 +122,7 @@ def create_app_from_environment() -> FastAPI:
             connect_timeout=max(1, math.ceil(health_check_timeout_seconds)),
         ),
         approval_settings,
+        sessions=sessions,
         workflow_health_check=workflow_health_check,
         database_health_check=_database_health_check(
             database_url,

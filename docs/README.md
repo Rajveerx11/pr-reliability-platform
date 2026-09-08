@@ -25,3 +25,5 @@ Verified against merged `main` at `675257a` on 2026-09-07. Start with [current s
 
 Plans live in `plan/`; operational documentation lives here. Planned behavior is labelled and
 linked to its issue. GitHub issue #46 tracks the remaining production gate.
+
+- [GitHub authentication](authentication.md) - login, roles, sessions, revocation, and TLS setup.

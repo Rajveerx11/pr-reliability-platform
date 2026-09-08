@@ -1,5 +1,21 @@
 # Changes
 
+## 2026-09-08 — Individual GitHub access (#44)
+
+- Issue: [#44](https://github.com/Rajveerx11/pr-reliability-platform/issues/44).
+- Decisions: [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write)
+  and [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout).
+- Replaced production shared-token login with GitHub App authorization, durable encrypted user
+  credentials, hashed expiring/rotating sessions, CSRF, roles, and individual revocation.
+- Scoped dashboard counts, pages, details, approval decisions, and repository policy to each
+  user's live GitHub access; audit records include stable GitHub identity.
+- Updated browser login/logout flows, external assets, migration 0006, Linux/API environment,
+  egress, callback logging policy, operator documentation, and regression tests.
+- Addressed review findings with durable per-client login throttling, atomic last-administrator
+  protection, in-flight GitHub check coalescing, and trusted proxy client-address handling.
+- Added `plan/issue-44.md` for acceptance, checks, and delivery evidence. Live GitHub and Linux
+  acceptance remain outside repository-only verification.
+
 This file records repository changes. Each entry links changes to the decision that caused
 them and names the affected files.
 

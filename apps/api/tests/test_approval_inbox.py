@@ -134,8 +134,8 @@ def test_browser_shell_contains_required_review_fields(client: TestClient) -> No
     response = client.get("/approval-inbox")
 
     assert response.status_code == 200, response.text
-    assert "Commit" in response.text
-    assert "Reported cost" in response.text
+    assert "/auth/assets/approval_inbox.js" in response.text
+    assert "Sign in with GitHub" in response.text
     assert "Decisions never publish from this page" in response.text
 
 
@@ -238,6 +238,8 @@ def test_decision_is_bound_to_finding_and_head_without_external_write(
             "approval.decision_recorded",
             {
                 "approval_id": receipt["approval_id"],
+                "actor_id": ACTOR_ID,
+                "github_user_id": None,
                 "decision": value,
                 "finding_id": finding_id,
                 "head_sha": HEAD_SHA,

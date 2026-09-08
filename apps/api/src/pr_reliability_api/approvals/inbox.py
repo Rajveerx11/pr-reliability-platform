@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from pr_reliability_contracts import (
     ApprovalCommand,
@@ -25,7 +25,7 @@ from pr_reliability_contracts import (
 from psycopg import Connection
 
 from ..identifiers import new_ulid
-from ..reviewer import authorize_reviewer
+from ..reviewer import request_reviewer
 
 ConnectionFactory = Callable[[], Connection[Any]]
 IdFactory = Callable[[], str]
@@ -53,6 +53,7 @@ def create_approval_inbox_router(
     settings: ApprovalInboxSettings,
     connection_factory: ConnectionFactory,
     *,
+    sessions=None,
     id_factory: IdFactory = new_ulid,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> APIRouter:
@@ -62,13 +63,16 @@ def create_approval_inbox_router(
 
     @router.get("/approval-inbox", response_class=HTMLResponse, include_in_schema=False)
     def approval_inbox_page() -> HTMLResponse:
-        return HTMLResponse(_WEB_PAGE.read_text(encoding="utf-8"))
+        from ..dashboard.routes import _SECURITY_HEADERS
+
+        return HTMLResponse(_WEB_PAGE.read_text(encoding="utf-8"), headers=_SECURITY_HEADERS)
 
     @router.get("/api/approval-inbox", response_model=list[ApprovalInboxItem])
     def list_approval_inbox(
-        authorization: str | None = Header(default=None, alias="Authorization"),
+        http_request: Request,
     ) -> list[ApprovalInboxItem]:
-        authorize_reviewer(authorization, settings.reviewer_token)
+        principal = request_reviewer(http_request, settings, sessions)
+        scope = principal.repository_ids
         with connection_factory() as connection:
             rows = connection.execute(
                 """
@@ -89,11 +93,12 @@ def create_approval_inbox_router(
                   ON approval.finding_id = finding.id
                  AND approval.owner_id = finding.owner_id
                 WHERE finding.owner_id = %s
+                  AND (%s::bigint[] IS NULL OR pull_request.repository_id = ANY(%s))
                   AND run.state = 'awaiting_approval'
                   AND pull_request.head_sha = run.head_sha
                 ORDER BY run.created_at, finding.id
                 """,
-                (settings.owner_id,),
+                (settings.owner_id, scope, scope),
             ).fetchall()
         return [_inbox_item(row) for row in rows]
 
@@ -104,9 +109,10 @@ def create_approval_inbox_router(
     def record_approval_decision(
         finding_id: str,
         request: ApprovalDecisionRequest,
-        authorization: str | None = Header(default=None, alias="Authorization"),
+        http_request: Request,
     ) -> ApprovalDecisionReceipt:
-        authorize_reviewer(authorization, settings.reviewer_token)
+        principal = request_reviewer(http_request, settings, sessions)
+        scope = principal.repository_ids
         decided_at = now().astimezone(UTC)
         with connection_factory() as connection, connection.transaction():
             row = connection.execute(
@@ -126,9 +132,10 @@ def create_approval_inbox_router(
                   ON approval.finding_id = finding.id
                  AND approval.owner_id = finding.owner_id
                 WHERE finding.owner_id = %s AND finding.public_id = %s
+                  AND (%s::bigint[] IS NULL OR pull_request.repository_id = ANY(%s))
                 FOR UPDATE OF finding, run, pull_request
                 """,
-                (settings.owner_id, finding_id),
+                (settings.owner_id, finding_id, scope, scope),
             ).fetchone()
             if row is None:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "finding not found")
@@ -153,7 +160,7 @@ def create_approval_inbox_router(
                 raise HTTPException(status.HTTP_409_CONFLICT, "finding is not awaiting approval")
             if existing_approval_id is not None:
                 if (
-                    existing_actor_id == settings.actor_id
+                    existing_actor_id == principal.actor_id
                     and existing_decision == request.decision.value
                     and existing_reason == request.reason
                 ):
@@ -181,7 +188,7 @@ def create_approval_inbox_router(
                     settings.owner_id,
                     internal_run_id,
                     internal_finding_id,
-                    settings.actor_id,
+                    principal.actor_id,
                     request.decision.value,
                     request.reason,
                     run_head_sha,
@@ -195,7 +202,7 @@ def create_approval_inbox_router(
                 run_id=public_run_id,
                 head_sha=run_head_sha,
                 finding_id=public_finding_id,
-                actor_id=settings.actor_id,
+                actor_id=principal.actor_id,
                 decision=request.decision,
                 reason=request.reason,
                 decided_at=decided_at,
@@ -234,6 +241,8 @@ def create_approval_inbox_router(
                             "finding_id": public_finding_id,
                             "head_sha": run_head_sha,
                             "decision": request.decision.value,
+                            "actor_id": principal.actor_id,
+                            "github_user_id": principal.github_user_id,
                         }
                     ),
                     decided_at,

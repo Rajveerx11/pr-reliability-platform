@@ -1,6 +1,6 @@
 "use strict";
 
-const state = { token: "", offset: 0, limit: 20, total: 0 };
+const state = { offset: 0, limit: 20, total: 0 };
 const byId = (id) => document.getElementById(id);
 
 function node(tag, text, className) {
@@ -10,20 +10,18 @@ function node(tag, text, className) {
   return element;
 }
 
-function authHeaders() {
-  return { Authorization: `Bearer ${state.token}` };
-}
-
-async function getJson(path, authenticated = true) {
+async function getJson(path) {
   const response = await fetch(path, {
     cache: "no-store",
-    credentials: "same-origin",
-    headers: authenticated ? authHeaders() : {}
+    credentials: "same-origin"
   });
   let body;
   try { body = await response.json(); } catch { body = null; }
   if (!response.ok) {
     const error = new Error(body?.detail || body?.status || `Request failed (${response.status})`);
+    if (response.status === 401 || response.status === 403) {
+      document.dispatchEvent(new Event("reviewer:signed-out"));
+    }
     error.status = response.status;
     error.body = body;
     throw error;
@@ -228,34 +226,29 @@ async function openRun(runId) {
 }
 
 async function loadDashboard() {
-  if (!state.token) return;
-  const connect = byId("connect");
-  connect.disabled = true;
-  connect.textContent = "Loading…";
   byId("metric-grid").classList.add("loading");
   byId("metric-grid").setAttribute("aria-busy", "true");
   try {
     const [overview] = await Promise.all([getJson("/api/dashboard/overview"), loadRuns(), loadHealth()]);
     renderOverview(overview);
     byId("refresh").disabled = false;
-    setNotice("Dashboard current. Private data loaded for this tab only.", "success");
+    setNotice("Dashboard current. Showing repositories you can access.", "success");
   } catch (error) {
-    if (error.status === 401) state.token = "";
     setNotice(error.message, "error");
   } finally {
-    connect.disabled = false;
-    connect.textContent = "Connect";
     byId("metric-grid").classList.remove("loading");
     byId("metric-grid").setAttribute("aria-busy", "false");
   }
 }
 
-byId("access-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  state.token = byId("token").value;
-  state.offset = 0;
-  loadDashboard();
+document.addEventListener("reviewer:signed-out", () => {
+  byId("run-dialog").close();
+  byId("run-detail").replaceChildren();
+  byId("run-rows").replaceChildren();
+  for (const value of document.querySelectorAll(".metric-card strong")) value.textContent = "\u2014";
+  byId("refresh").disabled = true;
 });
+reviewerSession.start(loadDashboard, (error) => setNotice(error.message, "error"));
 byId("refresh").addEventListener("click", loadDashboard);
 byId("filters").addEventListener("submit", (event) => {
   event.preventDefault();

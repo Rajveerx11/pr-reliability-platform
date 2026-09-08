@@ -25,16 +25,18 @@ existing `.env`. Never commit keys, passwords, or filled secret files. See [conf
 ## Start the local control plane
 
 Start PostgreSQL and Temporal separately and configure reachable addresses in `.env`.
-The baseline Compose file does not provide either server. Apply all five migrations:
+The baseline Compose file does not provide either server. Apply all six migrations:
 
 ```text
 uv run --env-file .env python -m pr_reliability_api.migrate
 ```
 
+Browser login requires a trusted HTTPS proxy in front of the HTTP API upstream. Configure the
+test GitHub App callback and allowlists using [authentication](authentication.md#local-tls-and-verification).
 Each long-running process below runs in its own terminal:
 
 ```text
-uv run --env-file .env uvicorn --factory pr_reliability_api.app:create_app_from_environment --host 127.0.0.1 --port 8000
+uv run --env-file .env uvicorn --no-access-log --factory pr_reliability_api.app:create_app_from_environment --host 127.0.0.1 --port 8000
 uv run --env-file .env pr-reliability-repository-sync
 uv run --env-file .env pr-reliability-command-dispatcher
 uv run --env-file .env pr-reliability-workflow-worker
@@ -54,7 +56,7 @@ Wait for successful sync before sending test PRs. `/health/ready` returns 503 un
 Temporal, and fresh installation inventory are available. `/health/live` only proves process
 liveness. See [repository policy](repository-policy.md) and [API reference](api.md).
 
-Open `http://127.0.0.1:8000/dashboard` or `/approval-inbox` and enter the configured reviewer token.
+Open `/dashboard` or `/approval-inbox` through `GITHUB_LOGIN_ORIGIN` and sign in with GitHub.
 Repository policy is an authenticated API today; the repository/history UI remains #38.
 
 ## Production activity process

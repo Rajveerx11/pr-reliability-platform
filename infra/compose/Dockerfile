@@ -20,4 +20,4 @@ RUN uv sync --frozen --no-dev --no-editable
 
 USER app
 
-CMD ["uvicorn", "--factory", "pr_reliability_api.app:create_app_from_environment", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "--no-access-log", "--factory", "pr_reliability_api.app:create_app_from_environment", "--host", "0.0.0.0", "--port", "8000"]

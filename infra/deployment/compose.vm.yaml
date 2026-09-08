@@ -83,8 +83,10 @@ services:
 
   api:
     <<: *app
+    networks: [private, egress]
     command:
       - uvicorn
+      - --no-access-log
       - --factory
       - pr_reliability_api.app:create_app_from_environment
       - --host
@@ -93,11 +95,17 @@ services:
       - "8000"
       - --proxy-headers
       - --forwarded-allow-ips
-      - caddy
+      # No API port is published. Only trusted services can reach this upstream.
+      - "*"
     expose: ["8000"]
     environment:
-      APPROVAL_ACTOR_ID: ${APPROVAL_ACTOR_ID:?APPROVAL_ACTOR_ID is required}
-      APPROVAL_REVIEWER_TOKEN: ${APPROVAL_REVIEWER_TOKEN:?APPROVAL_REVIEWER_TOKEN is required}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:?GITHUB_OAUTH_CLIENT_ID is required}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:?GITHUB_OAUTH_CLIENT_SECRET is required}
+      SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:?SESSION_ENCRYPTION_KEY is required}
+      GITHUB_LOGIN_ORIGIN: ${GITHUB_LOGIN_ORIGIN:?GITHUB_LOGIN_ORIGIN is required}
+      GITHUB_ALLOWED_ACCOUNT_ID: ${GITHUB_ALLOWED_ACCOUNT_ID:?GITHUB_ALLOWED_ACCOUNT_ID is required}
+      GITHUB_ADMIN_IDS: ${GITHUB_ADMIN_IDS:?GITHUB_ADMIN_IDS is required}
+      GITHUB_REVIEWER_IDS: ${GITHUB_REVIEWER_IDS:-}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:?GITHUB_INSTALLATION_ID is required}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:?GITHUB_WEBHOOK_SECRET is required}

@@ -5,11 +5,11 @@ running application's exact request and response schemas. Keep the service on it
 
 ## Authorization
 
-Product APIs require `Authorization: Bearer <APPROVAL_REVIEWER_TOKEN>`. Configuration binds the
-token to one owner and actor; clients cannot choose a different owner in a request. Missing or
-invalid credentials return 401. Cross-owner lookups return no data or 404. The page shells are
-public within the private origin, but finding and repository data require authorization.
-Individual GitHub login and sessions remain issue #44.
+Product APIs require a GitHub session cookie. Mutations also require the exact configured
+`Origin` and `X-CSRF-Token`; the client obtains CSRF proof from `/auth/session`. Missing or expired
+sessions return 401. Disallowed users return 403. Cross-owner or inaccessible repository lookups
+return no data or 404. Policy changes and user revocation require an administrator. Page shells
+contain no private data. See [authentication](authentication.md) for login and session routes.
 
 ## Routes
 
@@ -29,8 +29,7 @@ Individual GitHub login and sessions remain issue #44.
 | GET | `/approval-inbox` | Human approval interface shell |
 
 Product routes are registered when approval settings are provided; the production environment
-factory requires those settings. No public rerun, repository-sync trigger, Check Run, or GitHub
-login endpoint is implemented. Use `pr-reliability-repository-sync --once` for an operator sync.
+factory requires those settings. No public rerun, repository-sync trigger, or Check Run endpoint is implemented. Use `pr-reliability-repository-sync --once` for an operator sync.
 
 ## Webhook contract
 
