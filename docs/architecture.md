@@ -24,14 +24,13 @@ flowchart LR
   T --> D[Dashboard history and metrics]
 ```
 
-The diagram includes the production target. Provider operations (#36) and installation inventory
-and policy (#37) are implemented. Check Runs (#40), repository-defined checks (#41), complete
-history/analytics (#38/#39) and release artifacts (#45) remain planned. GitHub sessions are
-implemented in #44; see [authentication](authentication.md).
-Today verification uses the operator-configured `default` sandbox profile.
+The diagram includes the production target. Provider operations (#36), installation inventory
+and policy (#37), repository-defined checks (#41), and GitHub sessions (#44) are implemented.
+Check Runs (#40), complete history/analytics (#38/#39), and release artifacts (#45) remain
+planned. See [authentication](authentication.md).
 
 Installation state, repository policy, and repository audit records are persisted now. Planned
-records include Check Runs, additional verification checks, retained artifacts, runner heartbeats,
+records include Check Runs, retained artifacts, runner heartbeats,
 and complete metric facts. See [production readiness](production-readiness.md).
 
 ## Main components
@@ -236,6 +235,16 @@ The production activity loader accepts only the fixed Docker CLI runner. Before 
 the runner requires a Linux engine that reports memory, swap, CPU-quota, and PID-limit support.
 Failed command evidence is recorded, then verification raises a typed non-retryable failure; a
 failed sandbox command can never advance to approval.
+
+The exact-head `.pr-reliability.json` file defines selected checks, path filters, timeouts, and
+resources. Trusted operator policy fixes allowed names, immutable images, exact commands, and
+maximum resources. Unknown fields, duplicate keys, unsafe paths, unapproved values, or missing
+configuration fail closed. Path decisions and bounded result facts are stored in the verification
+event for later reviewer and Check Run consumers. New-head supersession cancels the current
+Temporal activity; Docker cleanup remains cancellation-resistant.
+Selected checks have a 15-minute aggregate command-time cap. A two-hour verification activity cap
+bounds aggregate commands, container control, exact-head preparation, one Proof run, and cleanup.
+Persisted pass or failure receipts short-circuit retries before any command reruns.
 
 ## Write boundary
 

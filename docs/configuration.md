@@ -51,11 +51,12 @@ per private deployment. Changing that pair is not an automatic tenant migration.
 | `GITHUB_API_TIMEOUT_SECONDS` | Positive seconds; default `10` for activity clients |
 | `GITHUB_CHECKOUT_TIMEOUT_SECONDS` | Positive seconds; default `120` |
 | `SANDBOX_STAGING_DIRECTORY` | Existing absolute private directory; no symlink |
-| `REVIEW_SANDBOX_IMAGE` | Approved immutable image digest or full local image ID |
-| `REVIEW_SANDBOX_COMMAND_JSON` | Nonempty JSON argument vector, for example `["python","-m","pytest","-q"]` |
+| `REVIEW_CHECK_ALLOWLIST_JSON` | JSON list of operator-approved check names, immutable images, exact command vectors, and optional maximum resources |
 
-The sandbox image must already contain runtimes and dependencies; sandbox network is disabled.
-The `default` repository verification profile uses these operator-controlled image/command values.
+Each allowlist image must already contain its runtime and dependencies. Repository configuration
+can select only exact allowlisted names, images, and commands and cannot exceed operator or platform
+limits. Sandbox network stays disabled and no credentials enter check containers. See
+[review checks](review-checks.md) for schema and path-filter behavior.
 Per-repository branch and token/cost policy is set through the [policy API](repository-policy.md),
 not environment variables. Defaults are a 100,000-token budget and 1,000,000 USD millionths.
 OpenAI token counts are recorded when returned; unavailable billed cost stays unknown.

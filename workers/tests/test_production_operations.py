@@ -18,7 +18,7 @@ from pr_reliability_api.db import apply_migrations
 from pr_reliability_contracts import ModelUsage as ContractUsage
 from pr_reliability_contracts import UsageCoverage
 from pr_reliability_proof_adapter import ProofVerdict
-from pr_reliability_workers.activities import VerificationEvidence
+from pr_reliability_workers.activities import VerificationCheckEvidence, VerificationEvidence
 from pr_reliability_workers.agents import ModelRequest, ModelResponse, ReviewAgent
 from pr_reliability_workers.providers.operations import (
     ProductionOperations,
@@ -28,7 +28,7 @@ from pr_reliability_workers.providers.operations import (
     _usage_data,
     _usage_from_data,
 )
-from pr_reliability_workers.sandbox import SandboxResult
+from pr_reliability_workers.sandbox import CONFIG_FILE_NAME, SandboxResult, parse_check_allowlist
 from pr_reliability_workers.workflows.types import (
     ModelUsage,
     StageRequest,
@@ -44,6 +44,22 @@ RUN_ID = "01J00000000000000000000004"
 BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
 SANDBOX_IMAGE = f"sha256:{'c' * 64}"
+SANDBOX_COMMAND = ("python", "-m", "pytest", "-q")
+SANDBOX_RESOURCES = {
+    "cpu_count": 1,
+    "memory_bytes": 128 * 1024 * 1024,
+    "pids": 64,
+    "workspace_bytes": 64 * 1024 * 1024,
+    "workspace_entries": 10_000,
+    "temp_bytes": 32 * 1024 * 1024,
+    "output_bytes": 64 * 1024,
+}
+
+
+def _check_policy():
+    return parse_check_allowlist(
+        json.dumps([{"name": "python-tests", "image": SANDBOX_IMAGE, "command": SANDBOX_COMMAND}])
+    )
 
 
 def test_usage_receipt_round_trip_preserves_total_tokens() -> None:
@@ -260,7 +276,25 @@ def _fixture_repository(tmp_path: Path) -> tuple[Path, str, str]:
         ("git", "config", "user.email", "test@example.invalid"), cwd=repository, check=True
     )
     (repository / "example.py").write_text("def value():\n    return 1\n", encoding="utf-8")
-    subprocess.run(("git", "add", "example.py"), cwd=repository, check=True)
+    (repository / CONFIG_FILE_NAME).write_text(
+        json.dumps(
+            {
+                "schema_version": "1",
+                "checks": [
+                    {
+                        "name": "python-tests",
+                        "image": SANDBOX_IMAGE,
+                        "command": SANDBOX_COMMAND,
+                        "paths": ["**/*.py"],
+                        "timeout_seconds": 60,
+                        "resources": SANDBOX_RESOURCES,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    subprocess.run(("git", "add", "example.py", CONFIG_FILE_NAME), cwd=repository, check=True)
     subprocess.run(("git", "commit", "--quiet", "-m", "base"), cwd=repository, check=True)
     base = subprocess.run(
         ("git", "rev-parse", "HEAD"), cwd=repository, check=True, capture_output=True, text=True
@@ -329,8 +363,7 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
             checkout=checkout,
             reviewer=ReviewAgent(model),
             workspace_root=staging,
-            sandbox_image=SANDBOX_IMAGE,
-            sandbox_command=("python", "-m", "pytest", "-q"),
+            check_policy=_check_policy(),
             id_factory=lambda: f"01J{uuid4().int % 10**23:023d}",
         )
         global BASE_SHA, HEAD_SHA
@@ -354,15 +387,33 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
         await operations.record_verification(
             _request("verify", base_sha=actual_base, input_ref=analysis.output_ref),
             VerificationEvidence(
-                sandbox=SandboxResult(
-                    exit_code=0,
-                    stdout="private sandbox output",
-                    stderr="private sandbox error",
-                    duration_ms=10,
+                checks=(
+                    VerificationCheckEvidence(
+                        "python-tests",
+                        "passed",
+                        "path_match",
+                        SandboxResult(
+                            exit_code=0,
+                            stdout="private sandbox output",
+                            stderr="private sandbox error",
+                            duration_ms=10,
+                        ),
+                    ),
                 ),
                 proof=ProofVerdict(1, True, ("private proof reason",), ("rule-a",), "0.2.0"),
             ),
         )
+        with connection_factory() as connection:
+            connection.execute(
+                "UPDATE runs SET state = 'verifying' WHERE public_id = %s",
+                (RUN_ID,),
+            )
+            connection.commit()
+        verification_replay = await operations.prepare_verification(
+            _request("verify", base_sha=actual_base, input_ref=analysis.output_ref)
+        )
+        assert verification_replay.replay_output_ref == f"verification:{RUN_ID}:{actual_head}"
+        assert verification_replay.replay_passed is True
         await operations.record_terminal(
             TerminalRequest(
                 owner_id=OWNER_ID,
@@ -406,6 +457,10 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
         assert "private proof reason" not in persisted
         assert "user supplied secret" not in persisted
         assert '"reason_code": "cancelled"' in persisted
+        assert '"name": "python-tests"' in persisted
+        assert '"conclusion": "passed"' in persisted
+        assert '"status": "passed"' in persisted
+        assert '"reason_code": "path_match"' in persisted
         assert '"total_tokens": 17' in persisted
         assert not any(staging.iterdir())
 

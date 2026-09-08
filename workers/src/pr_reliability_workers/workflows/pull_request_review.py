@@ -24,6 +24,7 @@ from .types import (
 )
 
 _MAX_ACTIVITY_ATTEMPTS = 3
+_VERIFICATION_ACTIVITY_TIMEOUT_SECONDS = 2 * 60 * 60
 
 
 @workflow.defn
@@ -210,10 +211,18 @@ class PullRequestReviewWorkflow:
 
     def _activity_options(self, name: str) -> dict[str, object]:
         request = self._required_input()
+        start_to_close_seconds = request.activity_timeout_seconds
+        if name == "verify":
+            # Cover the bounded aggregate check, container-control, Proof, and
+            # exact-head preparation limits while retaining one outer hard stop.
+            start_to_close_seconds = max(
+                start_to_close_seconds,
+                _VERIFICATION_ACTIVITY_TIMEOUT_SECONDS,
+            )
         return {
             "activity_id": self._key(name),
             "schedule_to_start_timeout": timedelta(seconds=request.activity_timeout_seconds),
-            "start_to_close_timeout": timedelta(seconds=request.activity_timeout_seconds),
+            "start_to_close_timeout": timedelta(seconds=start_to_close_seconds),
             "heartbeat_timeout": timedelta(seconds=1),
             "retry_policy": RetryPolicy(
                 initial_interval=timedelta(seconds=1),

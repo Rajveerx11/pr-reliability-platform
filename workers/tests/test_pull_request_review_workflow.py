@@ -22,7 +22,12 @@ from pr_reliability_workers.activities import (
     VerificationEvidence,
 )
 from pr_reliability_workers.dispatch import dispatch_start_run, workflow_id_for
-from pr_reliability_workers.sandbox import SandboxRequest, SandboxResult
+from pr_reliability_workers.sandbox import (
+    PlannedCheck,
+    SandboxRequest,
+    SandboxResult,
+    VerificationPlan,
+)
 from pr_reliability_workers.worker import (
     create_activity_worker,
     create_worker,
@@ -41,6 +46,7 @@ from pr_reliability_workers.workflows.types import (
     StageResult,
     TerminalRequest,
 )
+from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
@@ -125,11 +131,16 @@ class RecordingOperations:
     async def verify(self, request: StageRequest) -> StageResult:
         return self._complete("verify", request, "verification-ref")
 
-    async def prepare_verification(self, request: StageRequest) -> SandboxRequest:
-        return SandboxRequest(
+    async def prepare_verification(self, request: StageRequest) -> VerificationPlan:
+        sandbox_request = SandboxRequest(
             image=SANDBOX_IMAGE,
             workspace=Path.cwd(),
             command=("true", request.idempotency_key),
+        )
+        return VerificationPlan(
+            Path.cwd(),
+            (PlannedCheck("tests", "path_match", sandbox_request),),
+            sandbox_request.limits.timeout_seconds,
         )
 
     async def record_verification(
@@ -137,7 +148,8 @@ class RecordingOperations:
         request: StageRequest,
         result: VerificationEvidence,
     ) -> StageResult:
-        assert result.sandbox.succeeded
+        assert result.checks[0].sandbox is not None
+        assert result.checks[0].sandbox.succeeded
         assert result.proof is not None and result.proof.passed
         return await self.verify(request)
 
@@ -336,6 +348,13 @@ def test_retry_uses_stable_keys_and_history_replays() -> None:
         assert len(analyze_keys) == 2
         assert len(set(analyze_keys)) == 1
         assert len(operations.completed_keys) == 5
+        verify_scheduled = next(
+            event.activity_task_scheduled_event_attributes
+            for event in history.events
+            if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+            and event.activity_task_scheduled_event_attributes.activity_type.name == "verify"
+        )
+        assert verify_scheduled.start_to_close_timeout.ToTimedelta().total_seconds() == 2 * 60 * 60
         replay = await Replayer(workflows=[PullRequestReviewWorkflow]).replay_workflow(history)
         assert replay.replay_failure is None
 

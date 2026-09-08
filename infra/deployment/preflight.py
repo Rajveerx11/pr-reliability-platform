@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
-import json
 import os
 import re
 import stat
+import sys
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlparse
+
+# Keep the documented plain-Python command usable from a clean source checkout.
+_WORKER_SOURCE = Path(__file__).resolve().parents[2] / "workers" / "src"
+if str(_WORKER_SOURCE) not in sys.path:
+    sys.path.insert(0, str(_WORKER_SOURCE))
+
+# The import follows the clean-checkout source-path setup above.
+from pr_reliability_workers.sandbox import parse_check_allowlist
 
 _DIGEST_IMAGE = re.compile(r"^[A-Za-z0-9._/-]+@sha256:[0-9a-f]{64}$")
 _IMAGE_KEYS = (
@@ -20,7 +28,6 @@ _IMAGE_KEYS = (
     "CADDY_IMAGE",
     "OTEL_COLLECTOR_IMAGE",
     "PROMETHEUS_IMAGE",
-    "REVIEW_SANDBOX_IMAGE",
 )
 _SECRET_FILE_KEYS = (
     "TLS_CERTIFICATE_FILE",
@@ -54,7 +61,7 @@ _REQUIRED_VALUES = (
     "SANDBOX_ENGINE_UID",
     "SANDBOX_ENGINE_GID",
     "SANDBOX_STAGING_DIRECTORY",
-    "REVIEW_SANDBOX_COMMAND_JSON",
+    "REVIEW_CHECK_ALLOWLIST_JSON",
 )
 
 
@@ -119,15 +126,11 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
         if not values[name].isdigit() or int(values[name]) < 1:
             raise PreflightError(f"{name} must be positive")
     try:
-        sandbox_command = json.loads(values["REVIEW_SANDBOX_COMMAND_JSON"])
-    except json.JSONDecodeError as exc:
-        raise PreflightError("REVIEW_SANDBOX_COMMAND_JSON must be valid JSON") from exc
-    if (
-        not isinstance(sandbox_command, list)
-        or not sandbox_command
-        or any(not isinstance(item, str) or not item for item in sandbox_command)
-    ):
-        raise PreflightError("REVIEW_SANDBOX_COMMAND_JSON must be an argument list")
+        check_policy = parse_check_allowlist(values["REVIEW_CHECK_ALLOWLIST_JSON"])
+    except ValueError as exc:
+        raise PreflightError("REVIEW_CHECK_ALLOWLIST_JSON must be a valid check policy") from exc
+    for check in check_policy.checks:
+        _require_release_image(f"check {check.name} image", check.image)
 
     try:
         bind_address = ipaddress.ip_address(values.get("PRIVATE_BIND_ADDRESS", ""))

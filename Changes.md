@@ -21,6 +21,23 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added repository-defined sandbox verification checks
+
+- Issue: [#41](https://github.com/Rajveerx11/pr-reliability-platform/issues/41).
+- Decisions: [DEC-008](plan/v1.md#dec-008--run-untrusted-commands-inside-a-real-sandbox)
+  and [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
+- Added strict version `1` `.pr-reliability.json` parsing for allowlisted lint, test, type-check,
+  and build commands with immutable images, path filters, timeouts, and resource limits.
+- Added operator check policy validation, deterministic run/skip reasons, sequential disposable
+  sandbox execution, an aggregate timeout, structured safe evidence, and non-retryable
+  configuration or sandbox-infrastructure failure codes.
+- Added a bounded outer verification timeout and retry-safe pass/failure receipts so committed
+  evidence is reused instead of rerunning commands with different durations.
+- Preserved default-denied network, credential-free check containers, exact-head execution,
+  supersession cancellation, and cancellation-resistant cleanup.
+- Updated activity, provider, deployment, configuration, architecture, security, and sandbox tests.
+- Kept the documented deployment preflight command importable from a clean source checkout.
+
 ### Refreshed documentation against merged main (2026-09-07)
 
 - Scope: the release checklist in [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46).
