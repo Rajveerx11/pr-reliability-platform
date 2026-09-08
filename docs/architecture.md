@@ -25,8 +25,9 @@ flowchart LR
 ```
 
 The diagram includes the production target. Provider operations (#36), installation inventory
-and policy (#37), and repository-defined checks (#41) are implemented. Check Runs (#40), complete
-history/analytics (#38/#39), GitHub login (#44), and release artifacts (#45) remain planned.
+and policy (#37), repository-defined checks (#41), and GitHub sessions (#44) are implemented.
+Check Runs (#40), complete history/analytics (#38/#39), and release artifacts (#45) remain
+planned. See [authentication](authentication.md).
 
 Installation state, repository policy, and repository audit records are persisted now. Planned
 records include Check Runs, retained artifacts, runner heartbeats,
@@ -261,7 +262,8 @@ No worker may bypass this path.
 ## Approval inbox boundary
 
 The browser serves a public shell but receives no finding data until an API request presents the
-reviewer bearer token. Server configuration binds that token to one owner and actor. Inbox queries
+GitHub session. The API maps the stable GitHub user ID to an individual actor and checks current
+repository access on each request. Mutations require exact Origin and CSRF proof. Inbox queries
 remain owner-scoped and show only current pull request heads in `awaiting_approval` state.
 
 Each decision names one finding and repeats the shown head SHA. The API locks the finding, run, and

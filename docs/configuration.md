@@ -14,8 +14,13 @@ substitution; only values explicitly listed under a service's `environment` ente
 |---|---|---|
 | `DATABASE_URL` | API, migration, dispatcher, activities, sync | Required PostgreSQL URL |
 | `OWNER_ID` | API, activities, sync | Required stable owner ULID |
-| `APPROVAL_ACTOR_ID` | API | Stable reviewer identity; use a ULID in deployment |
-| `APPROVAL_REVIEWER_TOKEN` | API | Required bearer secret; deployment preflight requires at least 32 characters |
+| `GITHUB_OAUTH_CLIENT_ID` | API | GitHub App OAuth client ID |
+| `GITHUB_OAUTH_CLIENT_SECRET` | API | External GitHub App OAuth client secret |
+| `GITHUB_LOGIN_ORIGIN` | API | Exact private HTTPS origin, no trailing slash |
+| `GITHUB_ALLOWED_ACCOUNT_ID` | API | Numeric user/organization ID owning the installation |
+| `GITHUB_ADMIN_IDS` | API | Required comma-separated numeric administrator IDs |
+| `GITHUB_REVIEWER_IDS` | API | Optional comma-separated numeric reviewer IDs |
+| `SESSION_ENCRYPTION_KEY` | API | External Fernet key for persisted user access tokens |
 | `GITHUB_INSTALLATION_ID` | API, activities, sync | Required positive installation ID |
 | `GITHUB_WEBHOOK_SECRET` | API | Required HMAC secret |
 | `GITHUB_APP_ID` | Activities, sync | Required positive GitHub App ID |
@@ -23,6 +28,8 @@ substitution; only values explicitly listed under a service's `environment` ente
 | `GITHUB_APP_BOT_USER_ID` | Activities | Numeric bot user ID used to verify publish retries |
 | `HEALTH_CHECK_TIMEOUT_SECONDS` | API | Positive seconds; default `2` per readiness dependency |
 
+See [GitHub login](authentication.md) for provisioning, sessions, revocation, and local TLS.
+The production API no longer reads `APPROVAL_ACTOR_ID` or `APPROVAL_REVIEWER_TOKEN`.
 The API receives no GitHub private key. Sync receives no model key or Docker socket.
 Inventory runs every 60 seconds with a 120-second whole-sync timeout and a 15-minute freshness
 limit. These are code constants, not environment settings. One owner/installation pair is configured

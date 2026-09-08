@@ -252,7 +252,7 @@ def test_dashboard_shell_is_local_and_hardened(client: TestClient) -> None:
     assert "default-src 'self'" in page.headers["content-security-policy"]
     assert page.headers["x-frame-options"] == "DENY"
     assert page.headers["cache-control"] == "no-store"
-    assert "Reviewer token" in page.text
+    assert "Sign in with GitHub" in page.text
     assert "localStorage" not in script.text
 
 

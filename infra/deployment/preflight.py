@@ -7,9 +7,16 @@ import ipaddress
 import os
 import re
 import stat
+import sys
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlparse
 
+# Keep the documented plain-Python command usable from a clean source checkout.
+_WORKER_SOURCE = Path(__file__).resolve().parents[2] / "workers" / "src"
+if str(_WORKER_SOURCE) not in sys.path:
+    sys.path.insert(0, str(_WORKER_SOURCE))
+
+# The import follows the clean-checkout source-path setup above.
 from pr_reliability_workers.sandbox import parse_check_allowlist
 
 _DIGEST_IMAGE = re.compile(r"^[A-Za-z0-9._/-]+@sha256:[0-9a-f]{64}$")
@@ -32,8 +39,12 @@ _SECRET_FILE_KEYS = (
     "GITHUB_PRIVATE_KEY_FILE",
 )
 _REQUIRED_VALUES = (
-    "APPROVAL_ACTOR_ID",
-    "APPROVAL_REVIEWER_TOKEN",
+    "GITHUB_OAUTH_CLIENT_ID",
+    "GITHUB_OAUTH_CLIENT_SECRET",
+    "SESSION_ENCRYPTION_KEY",
+    "GITHUB_LOGIN_ORIGIN",
+    "GITHUB_ALLOWED_ACCOUNT_ID",
+    "GITHUB_ADMIN_IDS",
     "DATABASE_URL",
     "OWNER_ID",
     "GITHUB_APP_ID",
@@ -94,12 +105,16 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
         "replace-"
     ):
         raise PreflightError("GITHUB_WEBHOOK_SECRET must be a non-example secret")
-    if len(values["APPROVAL_REVIEWER_TOKEN"]) < 32 or values["APPROVAL_REVIEWER_TOKEN"].startswith(
-        "replace-"
-    ):
-        raise PreflightError("APPROVAL_REVIEWER_TOKEN must be a non-example secret")
-    if re.fullmatch(r"[0-7][0-9A-HJKMNP-TV-Z]{25}", values["APPROVAL_ACTOR_ID"]) is None:
-        raise PreflightError("APPROVAL_ACTOR_ID must be a ULID")
+    from pr_reliability_api.auth.settings import from_environment
+
+    try:
+        from_environment(values["OWNER_ID"], int(values["GITHUB_INSTALLATION_ID"]), values)
+    except (ValueError, TypeError):
+        raise PreflightError("invalid GitHub login configuration") from None
+    if len(values["GITHUB_OAUTH_CLIENT_SECRET"]) < 20 or values[
+        "GITHUB_OAUTH_CLIENT_SECRET"
+    ].startswith("replace-"):
+        raise PreflightError("GITHUB_OAUTH_CLIENT_SECRET must be a non-example secret")
     if values["MODEL_PROVIDER"] == "openai" and (
         len(values.get("OPENAI_API_KEY", "")) < 20
         or values["OPENAI_API_KEY"].startswith("replace-")
@@ -200,6 +215,8 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
             engine_uid,
             engine_gid,
         )
+    if values["GITHUB_LOGIN_ORIGIN"] != values.get("PRIVATE_BASE_URL"):
+        raise PreflightError("GITHUB_LOGIN_ORIGIN must match PRIVATE_BASE_URL")
     return values
 
 

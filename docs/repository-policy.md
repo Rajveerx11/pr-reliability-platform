@@ -35,8 +35,8 @@ The next periodic sync confirms the current GitHub state.
 
 ## Private API
 
-Use the existing reviewer bearer token. `GET /api/repositories?limit=50&after=<cursor>` returns
-only the configured owner's repositories, with stable public IDs and `next_cursor`. The maximum
+Use a GitHub session; policy mutations require an administrator, exact Origin, and CSRF token. `GET /api/repositories?limit=50&after=<cursor>` returns
+only the configured owner's repositories that the user can currently access, with stable public IDs and `next_cursor`. The maximum
 page size is 100. Inventory includes access state, installation state, default branch, enabled
 flag, policy, last sync, last webhook, and last admitted review time.
 
@@ -61,7 +61,7 @@ the existing operator-selected sandbox image and command. Policy never accepts s
 
 Set `enabled` to false to pause reviews. GitHub removal and suspension override this flag.
 Reconciliation preserves policy, including pauses, through removal and restoration. Policy changes
-record the configured reviewer actor and complete new policy in an append-only owner-scoped audit.
+record the individual actor, stable GitHub user ID, and complete new policy in an append-only owner-scoped audit.
 Repeated identical policy replacements and webhook deliveries do not create duplicate changes.
 
 ## Admission and rollout

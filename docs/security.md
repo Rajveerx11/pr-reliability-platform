@@ -15,7 +15,7 @@ their GitHub signature is verified.
 - Block network access by default inside the sandbox.
 - Apply CPU, memory, process, output, filesystem, and time limits.
 - Bind all findings and actions to one head SHA.
-- Authenticate approval API calls with a dedicated reviewer token and server-bound actor identity.
+- Authenticate approval API calls with GitHub sessions, CSRF, live repository access, and individual actor identity.
 - Require human approval before every external write.
 - Make publish actions idempotent.
 - Fail closed when validation, sandboxing, tests, or Proof of Work fails.
@@ -52,6 +52,7 @@ Allowed:
 - Run status, timings, token counts, and exact reported cost
 - Approval, publishing, installation, and repository-policy audit events
 - Repository identity, default branch, access state, policy, and synchronization timestamps
+- Encrypted GitHub user access tokens, hashed sessions, and stable individual GitHub identities
 
 Not allowed:
 
@@ -64,8 +65,10 @@ Not allowed:
 
 ## Approval data access
 
-The approval page never stores its reviewer token in browser storage. API queries scope every row
-to the configured owner. A decision transaction locks the pull request row, so a concurrent head
+The approval page uses an HttpOnly session cookie and an in-memory CSRF token. API queries scope
+every row to the configured owner and the reviewer's live repository access. User access tokens
+are encrypted in PostgreSQL with an API-only Fernet key; session bearers are stored only as hashes.
+See [authentication](authentication.md) for expiry, revocation, role boundaries, and logout. A decision transaction locks the pull request row, so a concurrent head
 update cannot race a stale approval into storage. The approval endpoint records audit and durable
 workflow-signal events but performs no external write.
 
@@ -88,8 +91,8 @@ workflow-signal events but performs no external write.
 Signed lifecycle events are bound to the configured owner and installation. Removal and suspension
 revoke immediately; delayed additions/restorations never grant access without a fresh GitHub read.
 Revision checks prevent an in-flight snapshot from overwriting a concurrent lifecycle change.
-Repository policy changes use the reviewer bearer token and record its configured actor.
-Queries, writes, and audit records stay owner-scoped. The shared token is not individual GitHub identity.
+Repository policy changes require an administrator GitHub session and record both actor and
+GitHub user IDs. Queries, writes, and audit records stay owner- and repository-scoped.
 
 Intake and queued dispatch reject unknown, inactive, paused, or stale access and enforce exact
 base-branch filters and budgets. Sync expires after 15 minutes and production readiness then fails.
@@ -134,7 +137,7 @@ checks. Emergency publishing shutdown remains an operator action. Only the opera
 
 ## Production controls still required
 
-- Replace the shared reviewer token with GitHub login and owner-scoped sessions (#44).
+- Exercise the implemented GitHub sessions and per-user revocation with the real App during #15.
 - Use only the GitHub permissions required for review comments and Check Runs (#40).
 - Keep repository check configuration untrusted. Operator allowlists constrain exact images,
   commands, and maximum limits; configuration cannot grant host mounts, network, or secrets (#41).

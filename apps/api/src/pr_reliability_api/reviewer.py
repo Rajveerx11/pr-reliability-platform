@@ -23,3 +23,16 @@ def authorize_reviewer(authorization: str | None, expected_token: str) -> None:
             "reviewer authorization required",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def request_reviewer(request, settings, sessions=None, *, admin=False):
+    """Production sessions; explicit legacy settings remain an embedding/test dependency."""
+    if sessions is not None:
+        principal = sessions.authorize(request, admin=admin)
+        if principal.owner_id != settings.owner_id:
+            raise HTTPException(403, "Owner access denied")
+        return principal
+    authorize_reviewer(request.headers.get("Authorization"), settings.reviewer_token)
+    from .auth.sessions import Principal
+
+    return Principal(settings.owner_id, settings.actor_id, None, "test reviewer", "admin", None)

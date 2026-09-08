@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import os
 import socket
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 
 from infra.deployment import preflight
 from infra.deployment.preflight import PreflightError, validate_environment
@@ -22,14 +25,33 @@ IMAGE_KEYS = (
 )
 
 
+def test_preflight_module_imports_from_a_clean_checkout() -> None:
+    repository = Path(__file__).parents[3]
+
+    result = subprocess.run(
+        [sys.executable, "-S", "-m", "infra.deployment.preflight", "--help"],
+        cwd=repository,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "environment_file" in result.stdout
+
+
 def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     repository = tmp_path / "repository"
     repository.mkdir()
     secrets = tmp_path / "secrets"
     secrets.mkdir(mode=0o700)
     values = {
-        "APPROVAL_ACTOR_ID": "01J00000000000000000000002",
-        "APPROVAL_REVIEWER_TOKEN": "r" * 32,
+        "GITHUB_OAUTH_CLIENT_ID": "test-client",
+        "GITHUB_OAUTH_CLIENT_SECRET": "r" * 32,
+        "SESSION_ENCRYPTION_KEY": Fernet.generate_key().decode(),
+        "GITHUB_LOGIN_ORIGIN": "https://reviews.internal.example",
+        "GITHUB_ALLOWED_ACCOUNT_ID": "1",
+        "GITHUB_ADMIN_IDS": "1",
         "PRIVATE_BIND_ADDRESS": "10.20.30.40",
         "PRIVATE_HOSTNAME": "reviews.internal.example",
         "PRIVATE_BASE_URL": "https://reviews.internal.example",
@@ -138,8 +160,8 @@ def test_preflight_rejects_placeholder_registries_with_valid_looking_digests(
             "postgresql://pr_reliability:wrong@postgres:5432/pr_reliability",
             "must match",
         ),
-        ("APPROVAL_REVIEWER_TOKEN", "short", "non-example secret"),
-        ("APPROVAL_ACTOR_ID", "not-a-ulid", "must be a ULID"),
+        ("GITHUB_OAUTH_CLIENT_SECRET", "short", "non-example secret"),
+        ("GITHUB_ADMIN_IDS", "invalid", "invalid GitHub login"),
     ],
 )
 def test_preflight_rejects_public_or_mutable_deployment_input(
@@ -265,11 +287,13 @@ def test_vm_compose_exposes_only_private_tls_and_loopback_monitoring() -> None:
     assert "-name 'pr-review-checkout-*'" in entrypoint
     assert "-mindepth 1 -maxdepth 1 -type f" in entrypoint
     assert "-name 'pr-review-checkout-*.lock'" in entrypoint
-    assert "APPROVAL_ACTOR_ID: ${APPROVAL_ACTOR_ID:?APPROVAL_ACTOR_ID is required}" in compose
+    assert "APPROVAL_REVIEWER_TOKEN" not in compose
     assert (
-        "APPROVAL_REVIEWER_TOKEN: "
-        "${APPROVAL_REVIEWER_TOKEN:?APPROVAL_REVIEWER_TOKEN is required}" in compose
+        "GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:?GITHUB_OAUTH_CLIENT_SECRET is required}"
+        in compose
     )
+    assert "--no-access-log" in compose
+
     assert (
         '    user: "${SANDBOX_ENGINE_UID:?SANDBOX_ENGINE_UID is required}:'
         '${SANDBOX_ENGINE_GID:?SANDBOX_ENGINE_GID is required}"' in compose
@@ -312,3 +336,15 @@ def test_postgres_initialization_separates_runtime_and_backup_roles() -> None:
     assert "GRANT pr_reliability, temporal TO backup_operator" in init
     assert '"--username=backup_operator"' in database
     assert '"--username=pr_reliability"' not in database
+
+
+def test_login_rate_limit_proxy_boundary_is_private_and_overwrites_forwarding():
+    deployment = Path(__file__).parents[1]
+    compose = (deployment / "compose.vm.yaml").read_text(encoding="utf-8")
+    api = compose.split("  api:", 1)[1].split("  repository-sync:", 1)[0]
+    assert "ports:" not in api
+    assert "networks: [private, egress]" in api
+    assert '      - "*"' in api
+    assert "header_up X-Forwarded-For {remote_host}" in (deployment / "Caddyfile").read_text()
+    development = (deployment.parent / "compose" / "compose.yaml").read_text()
+    assert "--forwarded-allow-ips" not in development

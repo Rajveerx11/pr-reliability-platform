@@ -15,5 +15,7 @@
 		-Server
 	}
 
-	reverse_proxy api:8000
+	reverse_proxy api:8000 {
+		header_up X-Forwarded-For {remote_host}
+	}
 }
