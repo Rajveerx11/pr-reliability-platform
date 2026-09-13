@@ -21,6 +21,25 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added Codex CLI provider for trusted pilot repositories
+
+- Issue: [#55](https://github.com/Rajveerx11/pr-reliability-platform/issues/55).
+- Decisions: [DEC-012](plan/v1.md#dec-012--start-with-openai-behind-a-provider-neutral-interface)
+  and [DEC-013](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation).
+- Added `CodexCliModelClient` in `workers/src/pr_reliability_workers/agents/codex_client.py`.
+  Implements the existing `ModelClient` protocol. Runs the Codex CLI non-interactively as a
+  subprocess, extracts structured JSON output, and records token usage when the CLI reports it.
+  Credentials are never logged; errors never expose context, instruction, or key material.
+- Extended `workers/src/pr_reliability_workers/providers/factory.py` to select between
+  `openai` (default) and `codex` providers via `MODEL_PROVIDER`. Unknown values are rejected at
+  startup. `CODEX_TIMEOUT_SECONDS` and `CODEX_EXECUTABLE` are optional; `OPENAI_API_KEY` is not
+  required when `MODEL_PROVIDER=codex`.
+- Documented `MODEL_PROVIDER=codex`, `CODEX_TIMEOUT_SECONDS`, and `CODEX_EXECUTABLE` in
+  `docs/configuration.md` and `.env.example`. Restricted use to trusted private pilot repositories.
+- Added 25 unit tests in `workers/tests/test_codex_client.py` covering construction, prompt
+  building, JSON extraction, usage parsing, subprocess interaction, timeout, missing-CLI, usage
+  propagation, and security (no credential or context leakage).
+
 ### Added repository-defined sandbox verification checks
 
 - Issue: [#41](https://github.com/Rajveerx11/pr-reliability-platform/issues/41).

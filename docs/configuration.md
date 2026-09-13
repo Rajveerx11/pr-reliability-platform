@@ -43,11 +43,13 @@ per private deployment. Changing that pair is not an automatic tenant migration.
 | `TEMPORAL_NAMESPACE` | Default `default` |
 | `TEMPORAL_TASK_QUEUE` | Default `pr-review`; workflow, activity, and dispatcher must agree |
 | `REVIEW_ACTIVITY_OPERATIONS_FACTORY` | `pr_reliability_workers.providers:create_operations` |
-| `MODEL_PROVIDER` | Required `openai` for the built-in production factory |
-| `OPENAI_API_KEY` | Required provider secret |
-| `OPENAI_MODEL` | Required explicitly selected model; no automatic model choice |
+| `MODEL_PROVIDER` | `openai` (default) or `codex`; controls which model client is built |
+| `OPENAI_API_KEY` | Required when `MODEL_PROVIDER=openai` |
+| `OPENAI_MODEL` | Required when `MODEL_PROVIDER=openai`; no automatic model choice |
 | `OPENAI_MAX_OUTPUT_TOKENS` | Positive integer; default `4096` |
 | `OPENAI_TIMEOUT_SECONDS` | Positive seconds; default `120` |
+| `CODEX_TIMEOUT_SECONDS` | Positive seconds; default `180`; only used when `MODEL_PROVIDER=codex` |
+| `CODEX_EXECUTABLE` | Path or name of the Codex CLI binary; default `codex` |
 | `GITHUB_API_TIMEOUT_SECONDS` | Positive seconds; default `10` for activity clients |
 | `GITHUB_CHECKOUT_TIMEOUT_SECONDS` | Positive seconds; default `120` |
 | `DASHBOARD_BASE_URL` | Private dashboard URL for Check Run details; HTTPS except localhost |
@@ -61,6 +63,14 @@ limits. Sandbox network stays disabled and no credentials enter check containers
 Per-repository branch and token/cost policy is set through the [policy API](repository-policy.md),
 not environment variables. Defaults are a 100,000-token budget and 1,000,000 USD millionths.
 OpenAI token counts are recorded when returned; unavailable billed cost stays unknown.
+
+### Codex CLI provider
+
+Set `MODEL_PROVIDER=codex` only for trusted private pilot repositories where the activity-worker
+host has the Codex CLI installed and authenticated with a ChatGPT subscription. This mode does not
+require `OPENAI_API_KEY`. The CLI manages its own authentication. Usage facts are recorded when the
+CLI reports them; cost is always unknown because the Codex CLI does not expose per-call cost.
+Do not use this mode with fork pull requests or public repositories.
 
 ## Telemetry and tests
 
