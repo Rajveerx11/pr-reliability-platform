@@ -131,21 +131,22 @@ def test_parse_usage_returns_partial_when_some_tokens_present() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_result(stdout: str = '{"findings":[]}', returncode: int = 0) -> MagicMock:
-    result = MagicMock(spec=subprocess.CompletedProcess)
-    result.stdout = stdout
-    result.returncode = returncode
-    return result
+def _make_proc(stdout: str = '{"findings":[]}', returncode: int = 0) -> MagicMock:
+    proc = MagicMock()
+    proc.communicate.return_value = (stdout, "")
+    proc.returncode = returncode
+    proc.poll.return_value = returncode
+    return proc
 
 
 def test_complete_returns_model_response_on_success() -> None:
-    with patch("subprocess.run", return_value=_make_result()) as mock_run:
+    with patch("subprocess.Popen", return_value=_make_proc()) as mock_popen:
         client = CodexCliModelClient()
         response = client.complete(_request())
 
     assert response.output_json == '{"findings":[]}'
     assert response.usage.coverage is UsageCoverage.UNKNOWN
-    call_args = mock_run.call_args
+    call_args = mock_popen.call_args
     cmd = call_args[0][0]
     assert cmd[0] == "codex"
     assert "--approval-mode" in cmd
@@ -154,45 +155,47 @@ def test_complete_returns_model_response_on_success() -> None:
 
 
 def test_complete_uses_custom_executable_and_timeout() -> None:
-    with patch("subprocess.run", return_value=_make_result()) as mock_run:
+    with patch("subprocess.Popen", return_value=_make_proc()) as mock_popen:
         CodexCliModelClient(timeout_seconds=30.0, codex_executable="my-codex").complete(
             _request()
         )
-    cmd = mock_run.call_args[0][0]
+    cmd = mock_popen.call_args[0][0]
     assert cmd[0] == "my-codex"
-    assert mock_run.call_args[1]["timeout"] == 30.0
+    proc = mock_popen.return_value
+    assert proc.communicate.call_args[1]["timeout"] == 30.0
 
 
 def test_complete_raises_on_non_zero_exit() -> None:
-    with patch("subprocess.run", return_value=_make_result(returncode=1)):
+    with patch("subprocess.Popen", return_value=_make_proc(returncode=1)):
         with pytest.raises(RuntimeError, match="non-zero status"):
             CodexCliModelClient().complete(_request())
 
 
 def test_complete_raises_on_no_json_output() -> None:
-    with patch("subprocess.run", return_value=_make_result(stdout="no json here")):
+    with patch("subprocess.Popen", return_value=_make_proc(stdout="no json here")):
         with pytest.raises(RuntimeError, match="no valid JSON output"):
             CodexCliModelClient().complete(_request())
 
 
 def test_complete_raises_timeout_on_subprocess_timeout() -> None:
-    with patch(
-        "subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd=["codex"], timeout=10),
-    ):
+    proc = MagicMock()
+    proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=10)
+    with patch("subprocess.Popen", return_value=proc):
         with pytest.raises(RuntimeError, match="timed out"):
             CodexCliModelClient().complete(_request())
+    proc.kill.assert_called_once()
+    proc.wait.assert_called_once()
 
 
 def test_complete_raises_when_executable_not_found() -> None:
-    with patch("subprocess.run", side_effect=FileNotFoundError):
+    with patch("subprocess.Popen", side_effect=FileNotFoundError):
         with pytest.raises(RuntimeError, match="not available"):
             CodexCliModelClient().complete(_request())
 
 
 def test_complete_captures_usage_when_reported() -> None:
     output = '{"findings":[]}\n{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}'
-    with patch("subprocess.run", return_value=_make_result(stdout=output)):
+    with patch("subprocess.Popen", return_value=_make_proc(stdout=output)):
         response = CodexCliModelClient().complete(_request())
     assert response.usage.prompt_tokens == 10
     assert response.usage.completion_tokens == 5
@@ -207,7 +210,7 @@ def test_complete_captures_usage_when_reported() -> None:
 
 def test_error_does_not_expose_context_or_credentials() -> None:
     """RuntimeError messages must never include the review context or any key material."""
-    with patch("subprocess.run", return_value=_make_result(returncode=1)):
+    with patch("subprocess.Popen", return_value=_make_proc(returncode=1)):
         try:
             CodexCliModelClient().complete(_request())
         except RuntimeError as exc:
@@ -218,10 +221,9 @@ def test_error_does_not_expose_context_or_credentials() -> None:
 
 
 def test_error_does_not_expose_prompt_on_timeout() -> None:
-    with patch(
-        "subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd=["codex"], timeout=10),
-    ):
+    proc = MagicMock()
+    proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=10)
+    with patch("subprocess.Popen", return_value=proc):
         try:
             CodexCliModelClient().complete(_request())
         except RuntimeError as exc:

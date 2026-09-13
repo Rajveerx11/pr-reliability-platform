@@ -60,29 +60,37 @@ class CodexCliModelClient:
             "--",
             prompt,
         ]
+        proc = None
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=self._timeout,
                 env=_safe_env(),
             )
+            stdout, _ = proc.communicate(timeout=self._timeout)
         except subprocess.TimeoutExpired:
+            if proc is not None:
+                proc.kill()
+                proc.wait()
             raise RuntimeError("Codex CLI timed out") from None
         except (OSError, FileNotFoundError):
             raise RuntimeError("Codex CLI is not available") from None
-        except Exception:  # noqa: BLE001 -- subprocess may raise arbitrary errors
+        except BaseException:
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+                proc.wait()
             raise RuntimeError("Codex CLI failed to start") from None
 
-        if result.returncode != 0:
+        if proc.returncode != 0:
             raise RuntimeError("Codex CLI exited with a non-zero status") from None
 
-        output_text = _extract_json(result.stdout)
+        output_text = _extract_json(stdout)
         if output_text is None:
             raise RuntimeError("Codex CLI produced no valid JSON output") from None
 
-        usage = _parse_usage(result.stdout)
+        usage = _parse_usage(stdout)
         return ModelResponse(output_json=output_text, usage=usage)
 
 
@@ -213,16 +221,21 @@ def _nonneg_int(value: Any) -> int | None:
 
 
 def _safe_env() -> dict[str, str]:
-    """Return the host environment minus any API keys set for other providers.
+    """Return an execution environment stripped of sensitive platform credentials.
 
-    The Codex CLI reads its own credentials (OPENAI_API_KEY or similar) from
-    the environment.  We strip the platform-level OPENAI_API_KEY only if
-    MODEL_PROVIDER is ``codex`` so that it cannot cross-contaminate the CLI
-    invocation with credentials intended for the direct API provider.
+    Removes platform database credentials, GitHub App private keys/tokens, and
+    direct provider API keys so they cannot be accessed by Codex prompts.
     """
     env = dict(os.environ)
-    # The codex CLI manages its own auth; remove direct-API keys to prevent
-    # accidental cross-use.  Never log or surface these key names in errors.
-    for key in ("OPENAI_API_KEY",):
-        env.pop(key, None)
+    sensitive_prefixes = ("DATABASE_", "POSTGRES_", "GITHUB_PRIVATE_", "GITHUB_APP_")
+    sensitive_keys = {
+        "OPENAI_API_KEY",
+        "DATABASE_URL",
+        "GITHUB_PRIVATE_KEY",
+        "GITHUB_PRIVATE_KEY_PATH",
+    }
+    for key in list(env.keys()):
+        if key in sensitive_keys or any(key.startswith(p) for p in sensitive_prefixes):
+            env.pop(key, None)
     return env
+
