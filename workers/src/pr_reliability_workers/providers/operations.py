@@ -520,6 +520,8 @@ class ProductionOperations:
                 event_data,
                 self.now(),
             )
+            _write_run_metrics(connection, request.owner_id, run.internal_id, state, request)
+
 
     def _locked_run(self, connection: Connection[Any], request) -> _Run:
         row = connection.execute(
@@ -622,6 +624,69 @@ def _usage_from_data(value: object) -> ModelUsage | None:
         output_tokens=value.get("output_tokens"),
         cost_usd_micros=value.get("cost_usd_micros"),
         total_tokens=value.get("total_tokens"),
+    )
+
+
+def _write_run_metrics(
+    connection: Connection[Any],
+    owner_id: str,
+    run_internal_id: int,
+    outcome: str,
+    request: TerminalRequest,
+) -> None:
+    """Insert or replace a run_metrics row for a completed run.
+
+    Missing values remain NULL; they are never stored as zero or estimated.
+    This function runs inside the terminal transaction, so the row is written
+    exactly once even if the terminal record is replayed.
+    """
+    usage = request.usage
+    input_tokens = usage.input_tokens if usage is not None else None
+    output_tokens = usage.output_tokens if usage is not None else None
+    total_tokens = usage.total_tokens if usage is not None else None
+    cost_usd_micros = usage.cost_usd_micros if usage is not None else None
+    if usage is not None:
+        known = sum(
+            v is not None for v in (input_tokens, output_tokens, total_tokens)
+        )
+        usage_coverage = (
+            "unknown" if known == 0 else "full" if known == 3 else "partial"
+        )
+    else:
+        usage_coverage = None
+
+    connection.execute(
+        """
+        INSERT INTO run_metrics (
+            owner_id, run_id, outcome,
+            total_ms, approval_wait_ms,
+            input_tokens, output_tokens, total_tokens, cost_usd_micros,
+            usage_coverage
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (run_id) DO UPDATE SET
+            outcome          = EXCLUDED.outcome,
+            total_ms         = EXCLUDED.total_ms,
+            approval_wait_ms = EXCLUDED.approval_wait_ms,
+            input_tokens     = EXCLUDED.input_tokens,
+            output_tokens    = EXCLUDED.output_tokens,
+            total_tokens     = EXCLUDED.total_tokens,
+            cost_usd_micros  = EXCLUDED.cost_usd_micros,
+            usage_coverage   = EXCLUDED.usage_coverage,
+            recorded_at      = now()
+        """,
+        (
+            owner_id,
+            run_internal_id,
+            outcome,
+            request.run_duration_ms,
+            request.approval_wait_ms,
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            cost_usd_micros,
+            usage_coverage,
+        ),
     )
 
 

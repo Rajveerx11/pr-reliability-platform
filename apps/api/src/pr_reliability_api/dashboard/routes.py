@@ -147,7 +147,25 @@ def create_dashboard_router(
                 """,
                 (settings.owner_id, scope, scope),
             ).fetchone()[0]
+            metrics_row = connection.execute(
+                """
+                SELECT
+                    count(*) FILTER (WHERE usage_coverage = 'full')::integer,
+                    count(*) FILTER (WHERE usage_coverage = 'partial')::integer,
+                    count(*) FILTER (WHERE usage_coverage = 'unknown'
+                                     OR usage_coverage IS NULL)::integer,
+                    sum(cost_usd_micros) FILTER (WHERE usage_coverage = 'full')
+                FROM run_metrics AS m
+                JOIN runs AS r ON r.id = m.run_id
+                WHERE m.owner_id = %s
+                  AND (%s::bigint[] IS NULL OR r.pull_request_id IN (
+                      SELECT id FROM pull_requests WHERE owner_id = %s
+                        AND repository_id = ANY(%s)))
+                """,
+                (settings.owner_id, scope, settings.owner_id, scope),
+            ).fetchone()
         total_runs, active, awaiting, failed, published, p50, p95 = row
+        usage_complete, usage_partial, usage_unknown, exact_cost = metrics_row or (0, 0, 0, None)
         return DashboardOverview(
             schema_version="1",
             total_runs=total_runs,
@@ -159,10 +177,10 @@ def create_dashboard_router(
             p50_duration_ms=_optional_int(p50),
             p95_duration_ms=_optional_int(p95),
             activity_retry_count=None,
-            usage_complete_runs=0,
-            usage_partial_runs=0,
-            usage_unknown_runs=total_runs,
-            exact_known_cost_usd_micros=None,
+            usage_complete_runs=usage_complete or 0,
+            usage_partial_runs=usage_partial or 0,
+            usage_unknown_runs=usage_unknown or 0,
+            exact_known_cost_usd_micros=_optional_int(exact_cost),
         )
 
     @router.get("/api/dashboard/runs", response_model=DashboardRunPage)

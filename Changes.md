@@ -21,6 +21,22 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added complete review metrics and analytics persistence
+
+- Issue: [#39](https://github.com/Rajveerx11/pr-reliability-platform/issues/39).
+- Decisions: [DEC-005](plan/v1.md#dec-005--select-pr-context-under-a-fixed-token-budget)
+  and [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
+- Added `migrations/0008_run_metrics.sql` creating the `run_metrics` table to durably store
+  review run durations, approval wait times, attempt/retry counts, token usage, cost, and
+  usage coverage. Missing facts remain `NULL` and are never stored as zero or estimated.
+- Updated `workers/src/pr_reliability_workers/providers/operations.py` to write structured metrics
+  via `_write_run_metrics` inside the terminal run transaction in `_record_terminal`.
+- Updated `apps/api/src/pr_reliability_api/dashboard/routes.py` (`GET /api/dashboard/overview`)
+  to replace hardcoded usage placeholders with live SQL queries against `run_metrics`.
+- Added unit tests in `workers/tests/test_run_metrics.py` and updated migration assertions in
+  `apps/api/tests/test_migrations.py`.
+
+
 ### Added repository-defined sandbox verification checks
 
 - Issue: [#41](https://github.com/Rajveerx11/pr-reliability-platform/issues/41).
