@@ -88,7 +88,7 @@ def test_write_run_metrics_full_coverage_executes_upsert() -> None:
         approval_wait_ms=1200,
     )
     _write_run_metrics(connection, "O" * 26, 1, "published", request)
-    connection.execute.assert_called_once()
+    assert connection.execute.call_count == 2
     sql, args = connection.execute.call_args[0]
     assert "run_metrics" in sql
     assert "ON CONFLICT" in sql
@@ -129,7 +129,44 @@ def test_write_run_metrics_null_duration_stays_null() -> None:
     request = _terminal_request(run_duration_ms=None, approval_wait_ms=None)
     _write_run_metrics(connection, "O" * 26, 1, "failed", request)
     sql, args = connection.execute.call_args[0]
-    owner_id, run_internal_id, outcome, total_ms, approval_wait_ms = args[:5]
-    assert total_ms is None
-    assert approval_wait_ms is None
+    owner_id, run_internal_id, outcome, q, c, m, v, app, pub, total = args[:10]
+    assert total is None
+    assert app is None
+    assert q is None
+    assert c is None
+    assert m is None
+    assert v is None
+    assert pub is None
+
+
+def test_write_run_metrics_derives_stage_durations_from_events() -> None:
+    """Per-stage durations are computed from run_events timestamps."""
+    from datetime import datetime, timedelta, timezone
+
+    t0 = datetime(2026, 9, 13, 12, 0, 0, tzinfo=timezone.utc)
+    events = [
+        ("run.command_created", t0),
+        ("run.command_dispatched", t0 + timedelta(milliseconds=150)),
+        ("activity.select_context.completed", t0 + timedelta(milliseconds=650)),
+        ("activity.analyze.completed", t0 + timedelta(milliseconds=2650)),
+        ("activity.verify.completed", t0 + timedelta(milliseconds=4650)),
+        ("approval.decision_recorded", t0 + timedelta(milliseconds=5000)),
+        ("activity.publish.completed", t0 + timedelta(milliseconds=5500)),
+    ]
+    connection = MagicMock()
+    connection.execute.return_value.fetchall.return_value = events
+
+    request = _terminal_request(run_duration_ms=6000, approval_wait_ms=350)
+    _write_run_metrics(connection, "O" * 26, 1, "published", request)
+
+    sql, args = connection.execute.call_args[0]
+    owner_id, run_id, outcome, q, c, m, v, app, pub, total = args[:10]
+    assert q == 150
+    assert c == 500
+    assert m == 2000
+    assert v == 2000
+    assert app == 350
+    assert pub == 500
+    assert total == 6000
+
 

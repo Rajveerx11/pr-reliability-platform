@@ -655,19 +655,59 @@ def _write_run_metrics(
     else:
         usage_coverage = None
 
+    # Derive per-stage durations from recorded run_events
+    events = connection.execute(
+        """
+        SELECT event_type, occurred_at
+        FROM run_events
+        WHERE owner_id = %s AND run_id = %s
+        ORDER BY occurred_at, id
+        """,
+        (owner_id, run_internal_id),
+    ).fetchall()
+
+    event_map: dict[str, Any] = {}
+    for event_type, occurred_at in events:
+        if event_type not in event_map:
+            event_map[event_type] = occurred_at
+
+    queued_at = event_map.get("run.command_created")
+    dispatched_at = event_map.get("run.command_dispatched")
+    context_done = event_map.get("activity.select_context.completed")
+    analyze_done = event_map.get("activity.analyze.completed")
+    verify_done = event_map.get("activity.verify.completed")
+    publish_done = event_map.get("activity.publish.completed")
+
+    def _diff_ms(t0, t1) -> int | None:
+        if t0 is None or t1 is None:
+            return None
+        return max(0, round((t1 - t0).total_seconds() * 1000))
+
+    queue_wait_ms = _diff_ms(queued_at, dispatched_at)
+    context_ms = _diff_ms(dispatched_at, context_done)
+    model_ms = _diff_ms(context_done, analyze_done)
+    verification_ms = _diff_ms(analyze_done, verify_done)
+    publish_ms = _diff_ms(event_map.get("approval.decision_recorded"), publish_done)
+
     connection.execute(
         """
         INSERT INTO run_metrics (
             owner_id, run_id, outcome,
-            total_ms, approval_wait_ms,
+            queue_wait_ms, context_ms, model_ms, verification_ms,
+            approval_wait_ms, publish_ms, total_ms,
             input_tokens, output_tokens, total_tokens, cost_usd_micros,
             usage_coverage
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (run_id) DO UPDATE SET
             outcome          = EXCLUDED.outcome,
-            total_ms         = EXCLUDED.total_ms,
+            queue_wait_ms    = EXCLUDED.queue_wait_ms,
+            context_ms       = EXCLUDED.context_ms,
+            model_ms         = EXCLUDED.model_ms,
+            verification_ms  = EXCLUDED.verification_ms,
             approval_wait_ms = EXCLUDED.approval_wait_ms,
+            publish_ms       = EXCLUDED.publish_ms,
+            total_ms         = EXCLUDED.total_ms,
             input_tokens     = EXCLUDED.input_tokens,
             output_tokens    = EXCLUDED.output_tokens,
             total_tokens     = EXCLUDED.total_tokens,
@@ -679,8 +719,13 @@ def _write_run_metrics(
             owner_id,
             run_internal_id,
             outcome,
-            request.run_duration_ms,
+            queue_wait_ms,
+            context_ms,
+            model_ms,
+            verification_ms,
             request.approval_wait_ms,
+            publish_ms,
+            request.run_duration_ms,
             input_tokens,
             output_tokens,
             total_tokens,
