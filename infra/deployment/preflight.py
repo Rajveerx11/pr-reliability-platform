@@ -115,12 +115,17 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
         "GITHUB_OAUTH_CLIENT_SECRET"
     ].startswith("replace-"):
         raise PreflightError("GITHUB_OAUTH_CLIENT_SECRET must be a non-example secret")
-    if values["MODEL_PROVIDER"] == "openai" and (
-        len(values.get("OPENAI_API_KEY", "")) < 20
-        or values["OPENAI_API_KEY"].startswith("replace-")
+    if values["MODEL_PROVIDER"] == "codex":
+        raise PreflightError(
+            "Codex provider requires a dedicated isolated runner and fork validation"
+        )
+    if values["MODEL_PROVIDER"] != "openai":
+        raise PreflightError("MODEL_PROVIDER must be openai")
+    if len(values.get("OPENAI_API_KEY", "")) < 20 or values["OPENAI_API_KEY"].startswith(
+        "replace-"
     ):
         raise PreflightError("OPENAI_API_KEY must be configured outside source")
-    if values["MODEL_PROVIDER"] == "openai" and not values.get("OPENAI_MODEL", "").strip():
+    if not values.get("OPENAI_MODEL", "").strip():
         raise PreflightError("OPENAI_MODEL must be configured")
     for name in ("GITHUB_APP_ID", "GITHUB_APP_BOT_USER_ID", "GITHUB_INSTALLATION_ID"):
         if not values[name].isdigit() or int(values[name]) < 1:

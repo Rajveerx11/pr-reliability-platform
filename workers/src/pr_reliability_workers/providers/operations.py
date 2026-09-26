@@ -11,16 +11,18 @@ import signal
 import stat
 import subprocess
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from pr_reliability_contracts import ReviewCommand
+from pr_reliability_contracts import ReviewCommand, ReviewResult
 from psycopg import Connection
 
 from ..activities import VerificationEvidence
 from ..agents import ReviewAgent
+from ..agents.codex_client import CodexCliModelClient, CodexInvocation, codex_invocation
 from ..context import select_context
 from ..sandbox import RepositoryCheckPolicy, VerificationPlan, load_verification_plan
 from ..workflows.types import (
@@ -39,6 +41,13 @@ _TERMINAL_STATES = {"published", "rejected", "failed", "cancelled"}
 _MAX_REPOSITORY_FILES = 50_000
 _MAX_REPOSITORY_BYTES = 64 * 1024 * 1024
 _MAX_FILE_BYTES = 2 * 1024 * 1024
+
+
+def _review_with_invocation(
+    reviewer: ReviewAgent, command: ReviewCommand, context: str, invocation: CodexInvocation
+) -> ReviewResult:
+    with codex_invocation(invocation):
+        return reviewer.review(command, context)
 
 
 class CheckoutProvider(Protocol):
@@ -114,7 +123,10 @@ class ProductionOperations:
             head_sha=request.head_sha,
             result_public_id=request.run_id,
         )
-        result = await asyncio.to_thread(self.reviewer.review, command, context)
+        if not isinstance(self.reviewer._client, CodexCliModelClient):
+            result = await asyncio.to_thread(self.reviewer.review, command, context)
+        else:
+            result = await self._review_codex(command, context)
         usage = ModelUsage(
             input_tokens=result.usage.prompt_tokens,
             output_tokens=result.usage.completion_tokens,
@@ -133,6 +145,28 @@ class ProductionOperations:
             data,
             usage,
         )
+
+    async def _review_codex(self, command: ReviewCommand, context: str) -> ReviewResult:
+        invocation = CodexInvocation()
+        review_task = asyncio.create_task(
+            asyncio.to_thread(_review_with_invocation, self.reviewer, command, context, invocation)
+        )
+        try:
+            return await asyncio.shield(review_task)
+        except asyncio.CancelledError:
+            invocation.cancel()
+            # asyncio.to_thread cannot stop a running thread. Wait for its subprocess to be
+            # killed and reaped before allowing Temporal to finish cancellation.
+            while not review_task.done():
+                try:
+                    await asyncio.shield(review_task)
+                except asyncio.CancelledError:
+                    invocation.cancel()
+                except Exception:  # noqa: BLE001 - thread finished with a sanitized error
+                    break
+            with suppress(Exception):
+                await asyncio.shield(review_task)
+            raise
 
     async def prepare_verification(self, request: StageRequest) -> VerificationPlan:
         _require_key(request, "verify")

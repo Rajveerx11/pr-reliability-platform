@@ -577,31 +577,34 @@ def test_terminal_check_failure_does_not_block_superseding_generation() -> None:
         operations = RecordingOperations(fail_terminal_check=True)
         environment, worker = await start_environment(operations)
         async with environment, worker:
-            first = start_command(
-                public_id="01J00000000000000000000020",
-                run_id=RUN_ID,
-                head_sha=HEAD_SHA,
-            )
-            replacement = start_command(
-                public_id="01J00000000000000000000021",
-                run_id=NEXT_RUN_ID,
-                head_sha=NEXT_HEAD_SHA,
-                generation=2,
-            )
-            handle = await dispatch_start_run(environment.client, first, task_queue=TASK_QUEUE)
-            await wait_for_status(handle, "awaiting_approval")
-            await dispatch_start_run(environment.client, replacement, task_queue=TASK_QUEUE)
-            await wait_for_status(
-                handle,
-                "awaiting_approval",
-                head_sha=NEXT_HEAD_SHA,
-                run_id=NEXT_RUN_ID,
-            )
-            await handle.signal(
-                PullRequestReviewWorkflow.approve,
-                ApprovalSignal(NEXT_RUN_ID, NEXT_HEAD_SHA, False),
-            )
-            result = await handle.result()
+            with environment.auto_time_skipping_disabled():
+                # A terminal Check Run retries before Continue-As-New. Do not let the test server
+                # jump over the replacement's approval wait while the query is in flight.
+                first = start_command(
+                    public_id="01J00000000000000000000020",
+                    run_id=RUN_ID,
+                    head_sha=HEAD_SHA,
+                )
+                replacement = start_command(
+                    public_id="01J00000000000000000000021",
+                    run_id=NEXT_RUN_ID,
+                    head_sha=NEXT_HEAD_SHA,
+                    generation=2,
+                )
+                handle = await dispatch_start_run(environment.client, first, task_queue=TASK_QUEUE)
+                await wait_for_status(handle, "awaiting_approval")
+                await dispatch_start_run(environment.client, replacement, task_queue=TASK_QUEUE)
+                await wait_for_status(
+                    handle,
+                    "awaiting_approval",
+                    head_sha=NEXT_HEAD_SHA,
+                    run_id=NEXT_RUN_ID,
+                )
+                await handle.signal(
+                    PullRequestReviewWorkflow.approve,
+                    ApprovalSignal(NEXT_RUN_ID, NEXT_HEAD_SHA, False),
+                )
+                result = await handle.result()
 
         assert result.run_id == NEXT_RUN_ID
         assert result.outcome is WorkflowOutcome.REJECTED

@@ -43,11 +43,13 @@ per private deployment. Changing that pair is not an automatic tenant migration.
 | `TEMPORAL_NAMESPACE` | Default `default` |
 | `TEMPORAL_TASK_QUEUE` | Default `pr-review`; workflow, activity, and dispatcher must agree |
 | `REVIEW_ACTIVITY_OPERATIONS_FACTORY` | `pr_reliability_workers.providers:create_operations` |
-| `MODEL_PROVIDER` | Required `openai` for the built-in production factory |
-| `OPENAI_API_KEY` | Required provider secret |
-| `OPENAI_MODEL` | Required explicitly selected model; no automatic model choice |
+| `MODEL_PROVIDER` | `openai`; `codex` is rejected at startup pending isolated execution and fork validation |
+| `OPENAI_API_KEY` | Required when `MODEL_PROVIDER=openai` |
+| `OPENAI_MODEL` | Required when `MODEL_PROVIDER=openai`; no automatic model choice |
 | `OPENAI_MAX_OUTPUT_TOKENS` | Positive integer; default `4096` |
 | `OPENAI_TIMEOUT_SECONDS` | Positive seconds; default `120` |
+| `CODEX_TIMEOUT_SECONDS` | Positive seconds; default `180`; only used when `MODEL_PROVIDER=codex` |
+| `CODEX_EXECUTABLE` | Path or name of the Codex CLI binary; default `codex` |
 | `GITHUB_API_TIMEOUT_SECONDS` | Positive seconds; default `10` for activity clients |
 | `GITHUB_CHECKOUT_TIMEOUT_SECONDS` | Positive seconds; default `120` |
 | `DASHBOARD_BASE_URL` | Private dashboard URL for Check Run details; HTTPS except localhost |
@@ -61,6 +63,16 @@ limits. Sandbox network stays disabled and no credentials enter check containers
 Per-repository branch and token/cost policy is set through the [policy API](repository-policy.md),
 not environment variables. Defaults are a 100,000-token budget and 1,000,000 USD millionths.
 OpenAI token counts are recorded when returned; unavailable billed cost stays unknown.
+
+### Codex CLI provider
+
+`MODEL_PROVIDER=codex` is currently rejected at startup. The CLI's read-only sandbox prevents
+writes but still allows reads of activity-worker files and secrets; a repository prompt can request
+those reads. The platform also does not persist the PR head repository identity needed to reject
+forks. The adapter remains for review, but production must not run it until an operator-approved
+dedicated isolated runner and fail-closed repository/fork checks are implemented. The two Compose
+activity-worker templates pass `CODEX_TIMEOUT_SECONDS` and `CODEX_EXECUTABLE` through for future
+configuration; neither enables the provider.
 
 ## Telemetry and tests
 
