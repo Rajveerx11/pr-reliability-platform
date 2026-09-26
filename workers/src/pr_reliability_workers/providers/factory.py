@@ -34,6 +34,12 @@ def create_operations() -> ActivityOperations:
     model_provider = _required("MODEL_PROVIDER")
     if model_provider not in ("openai", "codex"):
         raise RuntimeError("MODEL_PROVIDER must be openai or codex")
+    if model_provider == "codex":
+        # The activity worker holds credentials and can read private repositories. CLI read-only
+        # permits host reads, and fork head identity is not stored. Never launch it here.
+        raise RuntimeError(
+            "Codex provider requires a dedicated isolated runner and fork validation"
+        )
     database_url = _required("DATABASE_URL")
     owner_id = _required("OWNER_ID")
     staging_root = _private_directory(Path(_required("SANDBOX_STAGING_DIRECTORY")))
@@ -69,20 +75,12 @@ def create_operations() -> ActivityOperations:
         timeout_seconds=_positive_float("GITHUB_CHECKOUT_TIMEOUT_SECONDS", 120.0),
     )
 
-    if model_provider == "codex":
-        from ..agents import CodexCliModelClient
-
-        model_client = CodexCliModelClient(
-            timeout_seconds=_positive_float("CODEX_TIMEOUT_SECONDS", 180.0),
-            codex_executable=os.environ.get("CODEX_EXECUTABLE", "codex"),
-        )
-    else:
-        model_client = OpenAIResponsesClient(
-            _required("OPENAI_API_KEY"),
-            _required("OPENAI_MODEL"),
-            max_output_tokens=_positive_int("OPENAI_MAX_OUTPUT_TOKENS", 4_096),
-            timeout_seconds=_positive_float("OPENAI_TIMEOUT_SECONDS", 120.0),
-        )
+    model_client = OpenAIResponsesClient(
+        _required("OPENAI_API_KEY"),
+        _required("OPENAI_MODEL"),
+        max_output_tokens=_positive_int("OPENAI_MAX_OUTPUT_TOKENS", 4_096),
+        timeout_seconds=_positive_float("OPENAI_TIMEOUT_SECONDS", 120.0),
+    )
 
     reviewer = ReviewAgent(model_client)
     core = ProductionOperations(
@@ -123,7 +121,6 @@ def create_operations() -> ActivityOperations:
         record_terminal=core.record_terminal,
         update_check=checks,
     )
-
 
 
 def _repository_id_resolver(

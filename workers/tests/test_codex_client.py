@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,9 +12,12 @@ from pr_reliability_contracts import UsageCoverage
 from pr_reliability_workers.agents import ModelRequest
 from pr_reliability_workers.agents.codex_client import (
     CodexCliModelClient,
+    CodexInvocation,
     _build_prompt,
     _extract_json,
     _parse_usage,
+    _safe_env,
+    codex_invocation,
 )
 
 
@@ -131,14 +134,22 @@ def test_parse_usage_returns_partial_when_some_tokens_present() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _mock_process_group_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Mocked Popen never owns a real process group; prevent an accidental kill of the test runner.
+    if os.name == "posix":
+        monkeypatch.setattr(os, "killpg", MagicMock())
+
+
 def _make_proc(stdout: str = '{"findings":[]}', returncode: int = 0) -> MagicMock:
-    proc = MagicMock()
+    proc = MagicMock(pid=12345)
     proc.communicate.return_value = (stdout, "")
     proc.returncode = returncode
     proc.poll.return_value = returncode
     return proc
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_complete_returns_model_response_on_success() -> None:
     with patch("subprocess.Popen", return_value=_make_proc()) as mock_popen:
         client = CodexCliModelClient()
@@ -149,50 +160,81 @@ def test_complete_returns_model_response_on_success() -> None:
     call_args = mock_popen.call_args
     cmd = call_args[0][0]
     assert cmd[0] == "codex"
-    assert "--approval-mode" in cmd
-    assert "full-auto" in cmd
-    assert "--quiet" in cmd
+    assert cmd[1:4] == ["exec", "--sandbox", "read-only"]
+    assert "full-auto" not in cmd
+    assert call_args.kwargs["start_new_session"] is True
+    os.killpg.assert_called_once_with(12345, 9)
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_complete_uses_custom_executable_and_timeout() -> None:
     with patch("subprocess.Popen", return_value=_make_proc()) as mock_popen:
-        CodexCliModelClient(timeout_seconds=30.0, codex_executable="my-codex").complete(
-            _request()
-        )
+        CodexCliModelClient(timeout_seconds=30.0, codex_executable="my-codex").complete(_request())
     cmd = mock_popen.call_args[0][0]
     assert cmd[0] == "my-codex"
     proc = mock_popen.return_value
-    assert proc.communicate.call_args[1]["timeout"] == 30.0
+    assert 0 < proc.communicate.call_args[1]["timeout"] <= 0.1
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_complete_raises_on_non_zero_exit() -> None:
-    with patch("subprocess.Popen", return_value=_make_proc(returncode=1)):
-        with pytest.raises(RuntimeError, match="non-zero status"):
-            CodexCliModelClient().complete(_request())
+    with (
+        patch("subprocess.Popen", return_value=_make_proc(returncode=1)),
+        pytest.raises(RuntimeError, match="non-zero status"),
+    ):
+        CodexCliModelClient().complete(_request())
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_complete_raises_on_no_json_output() -> None:
-    with patch("subprocess.Popen", return_value=_make_proc(stdout="no json here")):
-        with pytest.raises(RuntimeError, match="no valid JSON output"):
-            CodexCliModelClient().complete(_request())
+    with (
+        patch("subprocess.Popen", return_value=_make_proc(stdout="no json here")),
+        pytest.raises(RuntimeError, match="no valid JSON output"),
+    ):
+        CodexCliModelClient().complete(_request())
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_complete_raises_timeout_on_subprocess_timeout() -> None:
-    proc = MagicMock()
-    proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=10)
-    with patch("subprocess.Popen", return_value=proc):
-        with pytest.raises(RuntimeError, match="timed out"):
-            CodexCliModelClient().complete(_request())
-    proc.kill.assert_called_once()
+    proc = MagicMock(pid=12345)
+    proc.poll.return_value = None
+    proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=0.01)
+    with (
+        patch("subprocess.Popen", return_value=proc),
+        patch("os.killpg") as kill_group,
+        pytest.raises(RuntimeError, match="timed out"),
+    ):
+        CodexCliModelClient(timeout_seconds=0.01).complete(_request())
+    kill_group.assert_called_once_with(12345, 9)
     proc.wait.assert_called_once()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
+def test_exited_cli_with_escaped_pipe_holder_has_bounded_timeout() -> None:
+    proc = MagicMock(pid=12345)
+    proc.poll.return_value = 0
+    proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=0.01)
+    with (
+        patch("subprocess.Popen", return_value=proc),
+        patch("os.killpg") as kill_group,
+        pytest.raises(RuntimeError, match="timed out"),
+    ):
+        CodexCliModelClient(timeout_seconds=0.01).complete(_request())
+    assert proc.communicate.call_count == 2
+    assert 0 <= proc.communicate.call_args_list[1].kwargs["timeout"] <= 0.01
+    assert kill_group.call_count >= 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_complete_raises_when_executable_not_found() -> None:
-    with patch("subprocess.Popen", side_effect=FileNotFoundError):
-        with pytest.raises(RuntimeError, match="not available"):
-            CodexCliModelClient().complete(_request())
+    with (
+        patch("subprocess.Popen", side_effect=FileNotFoundError),
+        pytest.raises(RuntimeError, match="not available"),
+    ):
+        CodexCliModelClient().complete(_request())
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_complete_captures_usage_when_reported() -> None:
     output = '{"findings":[]}\n{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}'
     with patch("subprocess.Popen", return_value=_make_proc(stdout=output)):
@@ -208,6 +250,7 @@ def test_complete_captures_usage_when_reported() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_error_does_not_expose_context_or_credentials() -> None:
     """RuntimeError messages must never include the review context or any key material."""
     with patch("subprocess.Popen", return_value=_make_proc(returncode=1)):
@@ -220,10 +263,11 @@ def test_error_does_not_expose_context_or_credentials() -> None:
             assert "analyze" not in error_text  # idempotency key fragment
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_error_does_not_expose_prompt_on_timeout() -> None:
-    proc = MagicMock()
+    proc = MagicMock(pid=12345)
     proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=10)
-    with patch("subprocess.Popen", return_value=proc):
+    with patch("subprocess.Popen", return_value=proc), patch("os.killpg"):
         try:
             CodexCliModelClient().complete(_request())
         except RuntimeError as exc:
@@ -232,14 +276,12 @@ def test_error_does_not_expose_prompt_on_timeout() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Factory wiring: MODEL_PROVIDER=codex must not require OPENAI_API_KEY
+# Production factory must fail closed before reading credentials or opening a checkout
 # ---------------------------------------------------------------------------
 
 
 def test_factory_rejects_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     """create_operations must reject any provider other than openai or codex."""
-    import os
-
     monkeypatch.setenv("MODEL_PROVIDER", "anthropic")
     monkeypatch.setenv("DATABASE_URL", "postgresql://x")
     monkeypatch.setenv("OWNER_ID", "O" * 26)
@@ -251,3 +293,89 @@ def test_factory_rejects_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> No
 
     with pytest.raises(RuntimeError, match="MODEL_PROVIDER must be openai or codex"):
         create_operations()
+
+
+def test_factory_disables_codex_before_accessing_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pr_reliability_workers.providers.factory import create_operations
+
+    monkeypatch.setenv("MODEL_PROVIDER", "codex")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with (
+        patch("subprocess.Popen") as spawn,
+        pytest.raises(RuntimeError, match="dedicated isolated runner and fork validation"),
+    ):
+        create_operations()
+    spawn.assert_not_called()
+
+
+def test_non_posix_host_does_not_spawn_codex() -> None:
+    with (
+        patch("pr_reliability_workers.agents.codex_client.os.name", "nt"),
+        patch("subprocess.Popen") as spawn,
+        pytest.raises(RuntimeError, match="POSIX runner"),
+    ):
+        CodexCliModelClient().complete(_request())
+    spawn.assert_not_called()
+
+
+def test_safe_env_does_not_forward_unexpected_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", "/bin")
+    monkeypatch.setenv("CODEX_HOME", "/isolated/auth")
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    monkeypatch.setenv("UNEXPECTED_API_KEY", "secret")
+    assert _safe_env()["CODEX_HOME"] == "/isolated/auth"
+    assert _safe_env()["PATH"] == "/bin"
+    assert "GITHUB_TOKEN" not in _safe_env()
+    assert "UNEXPECTED_API_KEY" not in _safe_env()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
+def test_cancel_before_spawn_never_launches_child() -> None:
+    invocation = CodexInvocation()
+    invocation.cancel()
+    with (
+        codex_invocation(invocation),
+        patch("subprocess.Popen") as spawn,
+        pytest.raises(RuntimeError, match="cancelled"),
+    ):
+        CodexCliModelClient().complete(_request())
+    spawn.assert_not_called()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
+def test_cancel_during_spawn_kills_only_registered_child() -> None:
+    first = CodexInvocation()
+    other = CodexInvocation()
+    proc = _make_proc()
+    proc.pid = 23456
+
+    def spawn(*args, **kwargs):
+        first.cancel()
+        return proc
+
+    with (
+        codex_invocation(first),
+        patch("subprocess.Popen", side_effect=spawn),
+        patch("os.killpg") as kill_group,
+        pytest.raises(RuntimeError, match="cancelled"),
+    ):
+        CodexCliModelClient().complete(_request())
+    assert kill_group.call_count >= 1
+    assert all(call.args == (23456, 9) for call in kill_group.call_args_list)
+    assert not other.cancelled
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
+def test_interrupt_terminates_and_reaps_process_group() -> None:
+    proc = MagicMock(pid=23456)
+    proc.communicate.side_effect = KeyboardInterrupt()
+    with (
+        patch("subprocess.Popen", return_value=proc),
+        patch("os.killpg") as kill_group,
+        pytest.raises(KeyboardInterrupt),
+    ):
+        CodexCliModelClient().complete(_request())
+    kill_group.assert_called_once_with(23456, 9)
+    proc.wait.assert_called_once()

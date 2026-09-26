@@ -21,7 +21,25 @@ them and names the affected files.
 
 ## Unreleased
 
-### Added Codex CLI provider for trusted pilot repositories
+### Codex CLI pilot safety and CI follow-up
+
+- Issue: [#55](https://github.com/Rajveerx11/pr-reliability-platform/issues/55).
+- Disabled `MODEL_PROVIDER=codex` at startup: the activity-worker has credentials, and Codex
+  read-only mode can still read host files; PR head repository identity is not persisted for fork
+  validation. A dedicated isolated runner and fail-closed repository/fork checks need approval
+  before enabling this provider. This is not a ready-to-deploy Codex pilot.
+- Removed full-auto CLI invocation, reduced forwarded child environment to an allowlist, and
+  terminate/reap the POSIX subprocess group on timeout or Temporal activity cancellation.
+  Cancellation is scoped to one review and waits for its thread even after repeat cancellation;
+  output draining stays bounded when descendants retain pipes. An isolated runner is still needed
+  to contain descendants that escape the process group.
+- Deployment preflight now rejects unknown providers as well as disabled Codex before startup.
+- Confirmed both Compose activity-worker templates already pass Codex timeout and executable;
+  updated `.env.example` and `docs/configuration.md` to state the provider is disabled, fixed CI
+  lint failures, and protected the terminal Check Run retry test from time-skipping past the
+  replacement approval wait.
+
+### Added Codex CLI provider for trusted pilot repositories (initial PR implementation)
 
 - Issue: [#55](https://github.com/Rajveerx11/pr-reliability-platform/issues/55).
 - Decisions: [DEC-012](plan/v1.md#dec-012--start-with-openai-behind-a-provider-neutral-interface)
@@ -31,11 +49,10 @@ them and names the affected files.
   subprocess, extracts structured JSON output, and records token usage when the CLI reports it.
   Credentials are never logged; errors never expose context, instruction, or key material.
 - Extended `workers/src/pr_reliability_workers/providers/factory.py` to select between
-  `openai` (default) and `codex` providers via `MODEL_PROVIDER`. Unknown values are rejected at
-  startup. `CODEX_TIMEOUT_SECONDS` and `CODEX_EXECUTABLE` are optional; `OPENAI_API_KEY` is not
-  required when `MODEL_PROVIDER=codex`.
+  `openai` (default) and initially `codex` providers via `MODEL_PROVIDER`. The follow-up above
+  disables Codex until an isolated runner and fork validation are available.
 - Documented `MODEL_PROVIDER=codex`, `CODEX_TIMEOUT_SECONDS`, and `CODEX_EXECUTABLE` in
-  `docs/configuration.md` and `.env.example`. Restricted use to trusted private pilot repositories.
+  `docs/configuration.md` and `.env.example`; the follow-up above supersedes deployment guidance.
 - Added 25 unit tests in `workers/tests/test_codex_client.py` covering construction, prompt
   building, JSON extraction, usage parsing, subprocess interaction, timeout, missing-CLI, usage
   propagation, and security (no credential or context leakage).

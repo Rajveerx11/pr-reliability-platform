@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -62,7 +63,9 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "GITHUB_INSTALLATION_ID": "2",
         "GITHUB_WEBHOOK_SECRET": "w" * 32,
         "REVIEW_ACTIVITY_OPERATIONS_FACTORY": "provider:create",
-        "MODEL_PROVIDER": "test",
+        "MODEL_PROVIDER": "openai",
+        "OPENAI_API_KEY": "o" * 32,
+        "OPENAI_MODEL": "test-model",
         "BACKUP_DIRECTORY": str(tmp_path / "backups"),
         "DEPLOYMENT_SECRET_GID": str(os.getgid()) if os.name == "posix" else "2001",
         "POSTGRES_DB": "postgres",
@@ -336,6 +339,47 @@ def test_postgres_initialization_separates_runtime_and_backup_roles() -> None:
     assert "GRANT pr_reliability, temporal TO backup_operator" in init
     assert '"--username=backup_operator"' in database
     assert '"--username=pr_reliability"' not in database
+
+
+def test_preflight_rejects_unknown_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment_file, values = _deployment_files(tmp_path)
+    monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
+    values["MODEL_PROVIDER"] = "unexpected"
+    environment_file.write_text(
+        "\n".join(f"{name}={value}" for name, value in values.items()) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PreflightError, match="MODEL_PROVIDER must be openai"):
+        validate_environment(repository, environment_file)
+
+
+def test_preflight_rejects_disabled_codex_before_missing_openai_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository, environment_file, values = _deployment_files(tmp_path)
+    monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
+    values["MODEL_PROVIDER"] = "codex"
+    environment_file.write_text(
+        "\n".join(f"{name}={value}" for name, value in values.items()) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PreflightError, match="dedicated isolated runner and fork validation"):
+        validate_environment(repository, environment_file)
+
+
+def test_codex_settings_reach_both_compose_activity_workers() -> None:
+    infra = Path(__file__).parents[2]
+    for manifest in (infra / "compose" / "compose.yaml", infra / "deployment" / "compose.vm.yaml"):
+        text = manifest.read_text(encoding="utf-8")
+        activity = re.split(
+            r"\n  [a-z][\w-]*:", text.split("  activity-worker:\n", 1)[1], maxsplit=1
+        )[0]
+        assert "CODEX_TIMEOUT_SECONDS: ${CODEX_TIMEOUT_SECONDS:-180}" in activity
+        assert "CODEX_EXECUTABLE: ${CODEX_EXECUTABLE:-codex}" in activity
 
 
 def test_login_rate_limit_proxy_boundary_is_private_and_overwrites_forwarding():

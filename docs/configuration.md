@@ -43,7 +43,7 @@ per private deployment. Changing that pair is not an automatic tenant migration.
 | `TEMPORAL_NAMESPACE` | Default `default` |
 | `TEMPORAL_TASK_QUEUE` | Default `pr-review`; workflow, activity, and dispatcher must agree |
 | `REVIEW_ACTIVITY_OPERATIONS_FACTORY` | `pr_reliability_workers.providers:create_operations` |
-| `MODEL_PROVIDER` | `openai` (default) or `codex`; controls which model client is built |
+| `MODEL_PROVIDER` | `openai`; `codex` is rejected at startup pending isolated execution and fork validation |
 | `OPENAI_API_KEY` | Required when `MODEL_PROVIDER=openai` |
 | `OPENAI_MODEL` | Required when `MODEL_PROVIDER=openai`; no automatic model choice |
 | `OPENAI_MAX_OUTPUT_TOKENS` | Positive integer; default `4096` |
@@ -66,11 +66,13 @@ OpenAI token counts are recorded when returned; unavailable billed cost stays un
 
 ### Codex CLI provider
 
-Set `MODEL_PROVIDER=codex` only for trusted private pilot repositories where the activity-worker
-host has the Codex CLI installed and authenticated with a ChatGPT subscription. This mode does not
-require `OPENAI_API_KEY`. The CLI manages its own authentication. Usage facts are recorded when the
-CLI reports them; cost is always unknown because the Codex CLI does not expose per-call cost.
-Do not use this mode with fork pull requests or public repositories.
+`MODEL_PROVIDER=codex` is currently rejected at startup. The CLI's read-only sandbox prevents
+writes but still allows reads of activity-worker files and secrets; a repository prompt can request
+those reads. The platform also does not persist the PR head repository identity needed to reject
+forks. The adapter remains for review, but production must not run it until an operator-approved
+dedicated isolated runner and fail-closed repository/fork checks are implemented. The two Compose
+activity-worker templates pass `CODEX_TIMEOUT_SECONDS` and `CODEX_EXECUTABLE` through for future
+configuration; neither enables the provider.
 
 ## Telemetry and tests
 

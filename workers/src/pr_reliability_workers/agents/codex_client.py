@@ -1,9 +1,8 @@
 """Codex CLI adapter for the provider-neutral model boundary.
 
 Runs the Codex CLI non-interactively in a subprocess and returns structured
-JSON output.  Suitable only for trusted private pilot repositories where the
-operator has a ChatGPT subscription and the Codex CLI is installed on the
-activity-worker host.
+JSON output. This adapter is not enabled in the production worker: CLI read-only
+mode cannot prevent untrusted prompts from reading host secrets.
 
 See docs/configuration.md for deployment constraints.
 """
@@ -12,23 +11,71 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
+import threading
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from pr_reliability_contracts import ModelUsage, UsageCoverage
 
-from .model_client import ModelClient, ModelRequest, ModelResponse
+from .model_client import ModelRequest, ModelResponse
 
 _DEFAULT_TIMEOUT = 180.0
+
+
+class CodexInvocation:
+    """One review's cancellation state, never shared with another invocation."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._process: subprocess.Popen[str] | None = None
+        self._cancelled = False
+
+    def register(self, process: subprocess.Popen[str]) -> None:
+        with self._lock:
+            self._process = process
+            if self._cancelled:
+                _kill_group(process)
+
+    def cancel(self) -> None:
+        with self._lock:
+            self._cancelled = True
+            if self._process is not None:
+                _kill_group(self._process)
+
+    @property
+    def cancelled(self) -> bool:
+        with self._lock:
+            return self._cancelled
+
+    def clear(self) -> None:
+        with self._lock:
+            self._process = None
+
+
+_INVOCATION: ContextVar[CodexInvocation | None] = ContextVar("codex_invocation", default=None)
+
+
+@contextmanager
+def codex_invocation(invocation: CodexInvocation) -> Iterator[None]:
+    """Bind cancellation to just this review in the worker thread."""
+    token = _INVOCATION.set(invocation)
+    try:
+        yield
+    finally:
+        _INVOCATION.reset(token)
 
 
 class CodexCliModelClient:
     """Non-interactive, ephemeral Codex CLI execution.
 
-    The client passes the instruction and context to ``codex`` as a single
-    read-only prompt and parses its JSON output.  No conversation state is
-    retained between calls.  Credentials are read from the environment by the
-    CLI itself; this class never reads or logs them.
+    The client passes instruction and context to ``codex`` and parses JSON output.
+    No conversation state is retained. The CLI can read authentication files and
+    other host files, so the production factory must refuse to create this adapter.
     """
 
     def __init__(
@@ -51,16 +98,24 @@ class CodexCliModelClient:
         The error message never includes the context, instruction, or any
         credential material.
         """
+        if os.name != "posix":
+            raise RuntimeError("Codex CLI requires an isolated POSIX runner")
         prompt = _build_prompt(request)
         cmd = [
             self._executable,
-            "--approval-mode", "full-auto",
-            "--quiet",
-            "--no-git",
+            "exec",
+            "--sandbox",
+            "read-only",
+            "--ignore-user-config",
+            "--ephemeral",
+            "--skip-git-repo-check",
             "--",
             prompt,
         ]
         proc = None
+        invocation = _INVOCATION.get()
+        if invocation is not None and invocation.cancelled:
+            raise RuntimeError("Codex CLI review was cancelled")
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -68,21 +123,48 @@ class CodexCliModelClient:
                 stderr=subprocess.PIPE,
                 text=True,
                 env=_safe_env(),
+                start_new_session=True,
             )
-            stdout, _ = proc.communicate(timeout=self._timeout)
+            if invocation is not None:
+                invocation.register(proc)
+            deadline = time.monotonic() + self._timeout
+            while True:
+                try:
+                    stdout, _ = proc.communicate(
+                        timeout=min(0.1, max(0, deadline - time.monotonic()))
+                    )
+                    break
+                except subprocess.TimeoutExpired:
+                    # A descendant may hold the output pipes after the CLI itself exits.
+                    if proc.poll() is not None:
+                        _terminate_group(proc)
+                        stdout, _ = proc.communicate(timeout=max(0, deadline - time.monotonic()))
+                        break
+                    if time.monotonic() >= deadline:
+                        raise
+            _terminate_group(proc)
         except subprocess.TimeoutExpired:
             if proc is not None:
-                proc.kill()
-                proc.wait()
+                _terminate_group(proc)
             raise RuntimeError("Codex CLI timed out") from None
-        except (OSError, FileNotFoundError):
+        except OSError:
+            if proc is not None:
+                _terminate_group(proc)
             raise RuntimeError("Codex CLI is not available") from None
+        except Exception:  # noqa: BLE001 - sanitize arbitrary subprocess errors
+            if proc is not None:
+                _terminate_group(proc)
+            raise RuntimeError("Codex CLI failed") from None
         except BaseException:
-            if proc is not None and proc.poll() is None:
-                proc.kill()
-                proc.wait()
-            raise RuntimeError("Codex CLI failed to start") from None
+            if proc is not None:
+                _terminate_group(proc)
+            raise
+        finally:
+            if invocation is not None:
+                invocation.clear()
 
+        if invocation is not None and invocation.cancelled:
+            raise RuntimeError("Codex CLI review was cancelled")
         if proc.returncode != 0:
             raise RuntimeError("Codex CLI exited with a non-zero status") from None
 
@@ -92,6 +174,21 @@ class CodexCliModelClient:
 
         usage = _parse_usage(stdout)
         return ModelResponse(output_json=output_text, usage=usage)
+
+
+def _kill_group(proc: subprocess.Popen[str]) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def _terminate_group(proc: subprocess.Popen[str]) -> None:
+    """Stop descendants even if the CLI itself exited, then reap the direct child."""
+    try:
+        _kill_group(proc)
+    finally:
+        proc.wait()
 
 
 def _build_prompt(request: ModelRequest) -> str:
@@ -221,21 +318,12 @@ def _nonneg_int(value: Any) -> int | None:
 
 
 def _safe_env() -> dict[str, str]:
-    """Return an execution environment stripped of sensitive platform credentials.
+    """Pass only executable lookup, locale, and CLI authentication location.
 
-    Removes platform database credentials, GitHub App private keys/tokens, and
-    direct provider API keys so they cannot be accessed by Codex prompts.
+    This does not isolate the host filesystem; production creation remains disabled.
     """
-    env = dict(os.environ)
-    sensitive_prefixes = ("DATABASE_", "POSTGRES_", "GITHUB_PRIVATE_", "GITHUB_APP_")
-    sensitive_keys = {
-        "OPENAI_API_KEY",
-        "DATABASE_URL",
-        "GITHUB_PRIVATE_KEY",
-        "GITHUB_PRIVATE_KEY_PATH",
+    return {
+        key: os.environ[key]
+        for key in ("PATH", "HOME", "CODEX_HOME", "LANG", "LC_ALL", "SSL_CERT_FILE")
+        if key in os.environ
     }
-    for key in list(env.keys()):
-        if key in sensitive_keys or any(key.startswith(p) for p in sensitive_prefixes):
-            env.pop(key, None)
-    return env
-
