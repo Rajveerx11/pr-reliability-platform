@@ -44,7 +44,8 @@ them and names the affected files.
   when retries occurred; without retries terminal timeouts and zero timeouts are known.
   The finalization activity itself is excluded because its attempts are not yet observable.
 - Left the already-applied migration 0008 bytes unchanged. Added history, database finalization,
-  dashboard, and publish-recovery regression tests.
+  dashboard, and publish-recovery regression tests. Temporal integration tests use a real local
+  clock so time skipping does not expire a replacement generation during finalization.
 
 
 ### Added repository-defined sandbox verification checks

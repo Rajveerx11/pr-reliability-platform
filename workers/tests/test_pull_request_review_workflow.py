@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from collections import Counter
 from pathlib import Path
 
@@ -288,13 +287,13 @@ def start_command(
 
 
 async def start_temporal_environment() -> WorkflowEnvironment:
-    if sys.platform == "win32":
-        # Windows time-skipping server can stall queries while Continue-As-New changes runs.
-        return await WorkflowEnvironment.start_local()
-    return await WorkflowEnvironment.start_time_skipping()
+    # A metrics-finalization history fetch adds a real activity between generations.
+    # Time skipping can expire the next generation's approval wait while a test
+    # queries the transition; use the production-like clock on every platform.
+    return await WorkflowEnvironment.start_local()
 
 
-def test_windows_temporal_environment_uses_local_server(
+def test_temporal_environment_uses_local_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     selected = object()
@@ -303,9 +302,8 @@ def test_windows_temporal_environment_uses_local_server(
         return selected
 
     async def fail_time_skipping():
-        raise AssertionError("Windows must not use the time-skipping server")
+        raise AssertionError("integration tests must not use the time-skipping server")
 
-    monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(WorkflowEnvironment, "start_local", staticmethod(start_local))
     monkeypatch.setattr(
         WorkflowEnvironment, "start_time_skipping", staticmethod(fail_time_skipping)
