@@ -30,6 +30,7 @@ from pr_reliability_workers.providers.operations import (
 )
 from pr_reliability_workers.sandbox import CONFIG_FILE_NAME, SandboxResult, parse_check_allowlist
 from pr_reliability_workers.workflows.types import (
+    FinalMetricsRequest,
     ModelUsage,
     StageRequest,
     TerminalRequest,
@@ -425,6 +426,25 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
                 usage=analysis.usage,
             )
         )
+
+        final_counts = FinalMetricsRequest(
+            OWNER_ID,
+            RUN_ID,
+            actual_head,
+            activity_attempts=6,
+            activity_retries=1,
+            activity_timeouts=None,
+        )
+        await operations.finalize_metrics(final_counts)
+        await operations.finalize_metrics(final_counts)  # an activity retry cannot double-count
+        with pytest.raises(RuntimeError, match="conflicts with stored counts"):
+            await operations.finalize_metrics(
+                FinalMetricsRequest(OWNER_ID, RUN_ID, actual_head, 7, 2, None)
+            )
+        with connection_factory() as connection:
+            assert connection.execute(
+                "SELECT activity_attempts, activity_retries, activity_timeouts FROM run_metrics"
+            ).fetchone() == (6, 1, None)
 
         with pytest.raises(RuntimeError, match="review run is terminal"):
             operations._record_stage(

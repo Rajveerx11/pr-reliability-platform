@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
+
 import pytest
 from pr_reliability_workers.providers.operations import (
     _usage_data,
@@ -9,7 +12,6 @@ from pr_reliability_workers.providers.operations import (
     _write_run_metrics,
 )
 from pr_reliability_workers.workflows.types import ModelUsage, TerminalRequest, WorkflowOutcome
-
 
 # ---------------------------------------------------------------------------
 # _usage_data / _usage_from_data round-trip
@@ -76,9 +78,6 @@ def _terminal_request(
     )
 
 
-from unittest.mock import MagicMock
-
-
 def test_write_run_metrics_full_coverage_executes_upsert() -> None:
     """full coverage: all three token fields known."""
     connection = MagicMock()
@@ -101,7 +100,7 @@ def test_write_run_metrics_partial_coverage() -> None:
     connection = MagicMock()
     request = _terminal_request(usage=ModelUsage(input_tokens=50))
     _write_run_metrics(connection, "O" * 26, 1, "failed", request)
-    sql, args = connection.execute.call_args[0]
+    args = connection.execute.call_args.args[1]
     assert "partial" in args
 
 
@@ -110,7 +109,7 @@ def test_write_run_metrics_unknown_coverage_when_no_usage() -> None:
     connection = MagicMock()
     request = _terminal_request()
     _write_run_metrics(connection, "O" * 26, 1, "cancelled", request)
-    sql, args = connection.execute.call_args[0]
+    args = connection.execute.call_args.args[1]
     assert args[-1] is None  # usage_coverage is NULL when no usage object
 
 
@@ -119,7 +118,7 @@ def test_write_run_metrics_unknown_coverage_when_usage_empty() -> None:
     connection = MagicMock()
     request = _terminal_request(usage=ModelUsage())
     _write_run_metrics(connection, "O" * 26, 1, "published", request)
-    sql, args = connection.execute.call_args[0]
+    args = connection.execute.call_args.args[1]
     assert "unknown" in args
 
 
@@ -128,8 +127,8 @@ def test_write_run_metrics_null_duration_stays_null() -> None:
     connection = MagicMock()
     request = _terminal_request(run_duration_ms=None, approval_wait_ms=None)
     _write_run_metrics(connection, "O" * 26, 1, "failed", request)
-    sql, args = connection.execute.call_args[0]
-    owner_id, run_internal_id, outcome, q, c, m, v, app, pub, total = args[:10]
+    args = connection.execute.call_args.args[1]
+    q, c, m, v, app, pub, total = args[3:10]
     assert total is None
     assert app is None
     assert q is None
@@ -141,26 +140,42 @@ def test_write_run_metrics_null_duration_stays_null() -> None:
 
 def test_write_run_metrics_derives_stage_durations_from_events() -> None:
     """Per-stage durations are computed from run_events timestamps."""
-    from datetime import datetime, timedelta, timezone
-
-    t0 = datetime(2026, 9, 13, 12, 0, 0, tzinfo=timezone.utc)
+    t0 = datetime(2026, 9, 13, 12, 0, 0, tzinfo=UTC)
     events = [
         ("run.command_created", t0),
         ("run.command_dispatched", t0 + timedelta(milliseconds=150)),
         ("activity.select_context.completed", t0 + timedelta(milliseconds=650)),
         ("activity.analyze.completed", t0 + timedelta(milliseconds=2650)),
         ("activity.verify.completed", t0 + timedelta(milliseconds=4650)),
-        ("approval.decision_recorded", t0 + timedelta(milliseconds=5000)),
-        ("activity.publish.completed", t0 + timedelta(milliseconds=5500)),
+        ("approval.decision_recorded", t0 + timedelta(milliseconds=300)),
+        ("approval.decision_recorded", t0 + timedelta(milliseconds=4700)),
+        ("run.command_dispatched", t0 + timedelta(milliseconds=4750)),
+        ("github.review_publish_started", t0 + timedelta(milliseconds=5000)),
+        ("github.review_published", t0 + timedelta(milliseconds=5500)),
     ]
     connection = MagicMock()
-    connection.execute.return_value.fetchall.return_value = events
+    connection.execute.return_value.fetchall.return_value = [
+        (
+            name,
+            when,
+            {
+                "publish_started_at": (t0 + timedelta(milliseconds=5000)).isoformat(),
+                "publish_finished_at": (t0 + timedelta(milliseconds=5500)).isoformat(),
+            }
+            if name == "github.review_published"
+            else {},
+        )
+        for name, when in events
+    ]
 
-    request = _terminal_request(run_duration_ms=6000, approval_wait_ms=350)
+    request = _terminal_request(
+        run_duration_ms=6000,
+        approval_wait_ms=350,
+    )
     _write_run_metrics(connection, "O" * 26, 1, "published", request)
 
-    sql, args = connection.execute.call_args[0]
-    owner_id, run_id, outcome, q, c, m, v, app, pub, total = args[:10]
+    args = connection.execute.call_args.args[1]
+    q, c, m, v, app, pub, total = args[3:10]
     assert q == 150
     assert c == 500
     assert m == 2000
@@ -168,5 +183,38 @@ def test_write_run_metrics_derives_stage_durations_from_events() -> None:
     assert app == 350
     assert pub == 500
     assert total == 6000
+    assert args[10:13] == (None, None, None)  # terminal/check attempts are not finished
 
 
+def test_write_run_metrics_unknown_attempts_remain_null() -> None:
+    connection = MagicMock()
+    _write_run_metrics(connection, "O" * 26, 1, "failed", _terminal_request())
+    assert connection.execute.call_args.args[1][10:13] == (None, None, None)
+
+
+def test_write_run_metrics_publish_without_start_is_unknown() -> None:
+    connection = MagicMock()
+    t0 = datetime(2026, 9, 13, tzinfo=UTC)
+    connection.execute.return_value.fetchall.return_value = [
+        ("approval.decision_recorded", t0, {}),
+        ("approval.decision_recorded", t0 + timedelta(hours=2), {}),
+        ("run.command_dispatched", t0 + timedelta(hours=3), {}),
+        ("github.review_published", t0 + timedelta(hours=4), {}),
+    ]
+    _write_run_metrics(connection, "O" * 26, 1, "published", _terminal_request())
+    assert connection.execute.call_args.args[1][8] is None
+
+
+def test_write_run_metrics_out_of_order_events_are_unknown() -> None:
+    connection = MagicMock()
+    t0 = datetime(2026, 9, 13, tzinfo=UTC)
+    connection.execute.return_value.fetchall.return_value = [
+        ("run.command_created", t0 + timedelta(seconds=2), {}),
+        ("run.command_dispatched", t0 + timedelta(seconds=1), {}),
+        ("github.review_publish_started", t0 + timedelta(seconds=3), {}),
+        ("github.review_published", t0 + timedelta(seconds=2), {}),
+    ]
+    _write_run_metrics(connection, "O" * 26, 1, "published", _terminal_request())
+    args = connection.execute.call_args.args[1]
+    assert args[3] is None
+    assert args[8] is None

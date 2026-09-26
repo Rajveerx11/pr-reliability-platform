@@ -84,6 +84,16 @@ class ReviewWorkflowResult:
 
 
 @dataclass(frozen=True)
+class FinalMetricsRequest:
+    owner_id: str
+    run_id: str
+    head_sha: str
+    activity_attempts: int
+    activity_retries: int
+    activity_timeouts: int | None
+
+
+@dataclass(frozen=True)
 class StageRequest:
     owner_id: str
     run_id: str
