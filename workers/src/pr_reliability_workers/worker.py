@@ -41,6 +41,7 @@ def create_activity_worker(
 ) -> Worker:
     """Build one activity worker that registers the complete review activity set."""
 
+    activities.history_client = client
     return Worker(
         client,
         task_queue=task_queue,
@@ -51,6 +52,7 @@ def create_activity_worker(
             activities.publish,
             activities.record_terminal,
             activities.update_check,
+            activities.finalize_metrics,
         ],
     )
 
@@ -58,6 +60,7 @@ def create_activity_worker(
 def create_worker(client: Client, task_queue: str, activities: ReviewActivities) -> Worker:
     """Build a combined workflow/activity worker for tests or compact deployments."""
 
+    activities.history_client = client
     return Worker(
         client,
         task_queue=task_queue,
@@ -69,6 +72,7 @@ def create_worker(client: Client, task_queue: str, activities: ReviewActivities)
             activities.publish,
             activities.record_terminal,
             activities.update_check,
+            activities.finalize_metrics,
         ],
     )
 

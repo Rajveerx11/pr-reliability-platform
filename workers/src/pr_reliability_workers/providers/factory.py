@@ -112,6 +112,7 @@ def create_operations() -> ActivityOperations:
         publish=publish,
         record_terminal=core.record_terminal,
         update_check=checks,
+        finalize_metrics=core.finalize_metrics,
     )
 
 

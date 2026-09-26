@@ -226,6 +226,21 @@ class PullRequestReviewWorkflow:
                 # The relational outcome is authoritative. An exhausted provider retry must not
                 # strand the workflow or prevent a newer review generation from starting.
                 pass
+        try:
+            await workflow.execute_activity(
+                "finalize_metrics",
+                StageRequest(
+                    owner_id=request.owner_id,
+                    run_id=request.run_id,
+                    head_sha=request.head_sha,
+                    idempotency_key=self._key("finalize_metrics"),
+                ),
+                **self._activity_options("finalize_metrics"),
+            )
+        except ActivityError:
+            # Terminal state is already committed. Keep counts Unknown for operator repair;
+            # do not strand a superseding generation on a metrics-only failure.
+            workflow.logger.error("metrics finalization exhausted for run %s", request.run_id)
 
     async def _update_check(
         self,

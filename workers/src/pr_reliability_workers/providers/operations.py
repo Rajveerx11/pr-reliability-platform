@@ -24,6 +24,7 @@ from ..agents import ReviewAgent
 from ..context import select_context
 from ..sandbox import RepositoryCheckPolicy, VerificationPlan, load_verification_plan
 from ..workflows.types import (
+    FinalMetricsRequest,
     ModelUsage,
     StageRequest,
     StageResult,
@@ -520,6 +521,38 @@ class ProductionOperations:
                 event_data,
                 self.now(),
             )
+            _write_run_metrics(connection, request.owner_id, run.internal_id, state, request)
+
+    async def finalize_metrics(self, request: FinalMetricsRequest) -> None:
+        await asyncio.to_thread(self._finalize_metrics, request)
+
+    def _finalize_metrics(self, request: FinalMetricsRequest) -> None:
+        with self.connection_factory() as connection, connection.transaction():
+            run = self._locked_run(connection, request)
+            if run.head_sha != request.head_sha or run.state not in _TERMINAL_STATES:
+                raise RuntimeError("metrics finalization targets a nonterminal or mismatched run")
+            row = connection.execute(
+                """SELECT activity_attempts, activity_retries, activity_timeouts
+                   FROM run_metrics WHERE owner_id = %s AND run_id = %s FOR UPDATE""",
+                (request.owner_id, run.internal_id),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("terminal metrics row was not recorded")
+            values = (
+                request.activity_attempts,
+                request.activity_retries,
+                request.activity_timeouts,
+            )
+            if row == values:
+                return
+            if any(value is not None for value in row):
+                raise RuntimeError("metrics finalization conflicts with stored counts")
+            connection.execute(
+                """UPDATE run_metrics SET activity_attempts = %s,
+                   activity_retries = %s, activity_timeouts = %s, recorded_at = now()
+                   WHERE owner_id = %s AND run_id = %s""",
+                (*values, request.owner_id, run.internal_id),
+            )
 
     def _locked_run(self, connection: Connection[Any], request) -> _Run:
         row = connection.execute(
@@ -622,6 +655,130 @@ def _usage_from_data(value: object) -> ModelUsage | None:
         output_tokens=value.get("output_tokens"),
         cost_usd_micros=value.get("cost_usd_micros"),
         total_tokens=value.get("total_tokens"),
+    )
+
+
+def _write_run_metrics(
+    connection: Connection[Any],
+    owner_id: str,
+    run_internal_id: int,
+    outcome: str,
+    request: TerminalRequest,
+) -> None:
+    """Insert or replace a run_metrics row for a completed run.
+
+    Missing values remain NULL; they are never stored as zero or estimated.
+    This function runs inside the terminal transaction, so the row is written
+    exactly once even if the terminal record is replayed.
+    """
+    usage = request.usage
+    input_tokens = usage.input_tokens if usage is not None else None
+    output_tokens = usage.output_tokens if usage is not None else None
+    total_tokens = usage.total_tokens if usage is not None else None
+    cost_usd_micros = usage.cost_usd_micros if usage is not None else None
+    if usage is not None:
+        known = sum(v is not None for v in (input_tokens, output_tokens, total_tokens))
+        usage_coverage = "unknown" if known == 0 else "full" if known == 3 else "partial"
+    else:
+        usage_coverage = None
+
+    # Derive per-stage durations from recorded run_events
+    events = connection.execute(
+        """
+        SELECT event_type, occurred_at, event_data
+        FROM run_events
+        WHERE owner_id = %s AND run_id = %s
+        ORDER BY occurred_at, id
+        """,
+        (owner_id, run_internal_id),
+    ).fetchall()
+
+    event_map: dict[str, Any] = {}
+    for event_type, occurred_at, event_data in events:
+        if event_type not in event_map:
+            event_map[event_type] = (occurred_at, event_data)
+
+    def occurred(name: str):
+        event = event_map.get(name)
+        return event[0] if event is not None else None
+
+    queued_at = occurred("run.command_created")
+    dispatched_at = occurred("run.command_dispatched")
+    context_done = occurred("activity.select_context.completed")
+    analyze_done = occurred("activity.analyze.completed")
+    verify_done = occurred("activity.verify.completed")
+
+    def _diff_ms(t0, t1) -> int | None:
+        if t0 is None or t1 is None or t1 < t0:
+            return None
+        return round((t1 - t0).total_seconds() * 1000)
+
+    queue_wait_ms = _diff_ms(queued_at, dispatched_at)
+    context_ms = _diff_ms(dispatched_at, context_done)
+    model_ms = _diff_ms(context_done, analyze_done)
+    verification_ms = _diff_ms(analyze_done, verify_done)
+    published = event_map.get("github.review_published")
+    publish_data = published[1] if published is not None else None
+    publish_ms = None
+    if isinstance(publish_data, dict):
+        start = publish_data.get("publish_started_at")
+        end = publish_data.get("publish_finished_at")
+        if isinstance(start, str) and isinstance(end, str):
+            try:
+                publish_ms = _diff_ms(datetime.fromisoformat(start), datetime.fromisoformat(end))
+            except (TypeError, ValueError):
+                pass
+
+    connection.execute(
+        """
+        INSERT INTO run_metrics (
+            owner_id, run_id, outcome,
+            queue_wait_ms, context_ms, model_ms, verification_ms,
+            approval_wait_ms, publish_ms, total_ms,
+            activity_attempts, activity_retries, activity_timeouts,
+            input_tokens, output_tokens, total_tokens, cost_usd_micros,
+            usage_coverage
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (run_id) DO UPDATE SET
+            outcome          = EXCLUDED.outcome,
+            queue_wait_ms    = EXCLUDED.queue_wait_ms,
+            context_ms       = EXCLUDED.context_ms,
+            model_ms         = EXCLUDED.model_ms,
+            verification_ms  = EXCLUDED.verification_ms,
+            approval_wait_ms = EXCLUDED.approval_wait_ms,
+            publish_ms       = EXCLUDED.publish_ms,
+            total_ms         = EXCLUDED.total_ms,
+            activity_attempts = EXCLUDED.activity_attempts,
+            activity_retries  = EXCLUDED.activity_retries,
+            activity_timeouts = EXCLUDED.activity_timeouts,
+            input_tokens     = EXCLUDED.input_tokens,
+            output_tokens    = EXCLUDED.output_tokens,
+            total_tokens     = EXCLUDED.total_tokens,
+            cost_usd_micros  = EXCLUDED.cost_usd_micros,
+            usage_coverage   = EXCLUDED.usage_coverage,
+            recorded_at      = now()
+        """,
+        (
+            owner_id,
+            run_internal_id,
+            outcome,
+            queue_wait_ms,
+            context_ms,
+            model_ms,
+            verification_ms,
+            request.approval_wait_ms,
+            publish_ms,
+            request.run_duration_ms,
+            None,  # Final counts include record_terminal and the completed check.
+            None,  # Neither is observable when the terminal row is written.
+            None,
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            cost_usd_micros,
+            usage_coverage,
+        ),
     )
 
 

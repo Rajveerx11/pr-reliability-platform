@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from collections import Counter
 from pathlib import Path
 
@@ -95,6 +94,8 @@ class RecordingOperations:
         fail_analyze_once: bool = False,
         fail_publish: bool = False,
         fail_terminal_check: bool = False,
+        fail_finalization: bool = False,
+        fail_queued_check_once: bool = False,
         block_analysis: bool = False,
         block_terminal: bool = False,
         usage: ModelUsage | None = None,
@@ -104,6 +105,10 @@ class RecordingOperations:
         self.fail_analyze_once = fail_analyze_once
         self.fail_publish = fail_publish
         self.fail_terminal_check = fail_terminal_check
+        self.fail_finalization = fail_finalization
+        self.finalization_attempts = 0
+        self.finalized_counts = []
+        self.fail_queued_check_once = fail_queued_check_once
         self.block_analysis = block_analysis
         self.block_terminal = block_terminal
         self.usage = usage
@@ -174,8 +179,18 @@ class RecordingOperations:
             await self.release_terminal.wait()
         self.completed_keys.add(request.idempotency_key)
 
+    async def finalize_metrics(self, request) -> None:
+        self.finalization_attempts += 1
+        self.finalized_counts.append(request)
+        self.calls.append(("finalize_metrics", request.run_id))
+        if self.fail_finalization and request.run_id == RUN_ID:
+            raise ApplicationError("metrics storage unavailable")
+
     async def update_check(self, request: CheckRunRequest) -> None:
         self.check_requests.append(request)
+        if self.fail_queued_check_once and request.status.value == "queued":
+            self.fail_queued_check_once = False
+            raise ApplicationError("retry queued check")
         if self.fail_terminal_check and request.conclusion is not None:
             raise ApplicationError("terminal check failed")
 
@@ -203,6 +218,7 @@ class RecordingOperations:
                 publish=self.publish,
                 record_terminal=self.record_terminal,
                 update_check=self.update_check,
+                finalize_metrics=self.finalize_metrics,
             )
         )
 
@@ -241,6 +257,7 @@ def test_activity_operations_reject_unsandboxed_verification() -> None:
             publish=operations.publish,
             record_terminal=operations.record_terminal,
             update_check=operations.update_check,
+            finalize_metrics=operations.finalize_metrics,
         )
 
 
@@ -270,13 +287,13 @@ def start_command(
 
 
 async def start_temporal_environment() -> WorkflowEnvironment:
-    if sys.platform == "win32":
-        # Windows time-skipping server can stall queries while Continue-As-New changes runs.
-        return await WorkflowEnvironment.start_local()
-    return await WorkflowEnvironment.start_time_skipping()
+    # A metrics-finalization history fetch adds a real activity between generations.
+    # Time skipping can expire the next generation's approval wait while a test
+    # queries the transition; use the production-like clock on every platform.
+    return await WorkflowEnvironment.start_local()
 
 
-def test_windows_temporal_environment_uses_local_server(
+def test_temporal_environment_uses_local_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     selected = object()
@@ -285,9 +302,8 @@ def test_windows_temporal_environment_uses_local_server(
         return selected
 
     async def fail_time_skipping():
-        raise AssertionError("Windows must not use the time-skipping server")
+        raise AssertionError("integration tests must not use the time-skipping server")
 
-    monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(WorkflowEnvironment, "start_local", staticmethod(start_local))
     monkeypatch.setattr(
         WorkflowEnvironment, "start_time_skipping", staticmethod(fail_time_skipping)
@@ -355,6 +371,13 @@ def test_retry_uses_stable_keys_and_history_replays() -> None:
             "01J00000000000000000000013",
         )
         assert operations.analyze_attempts == 2
+        assert len(operations.finalized_counts) == 1
+        counts = operations.finalized_counts[0]
+        assert (counts.activity_attempts, counts.activity_retries, counts.activity_timeouts) == (
+            9,
+            1,
+            None,
+        )
         assert [request.status.value for request in operations.check_requests] == [
             "queued",
             "in_progress",
@@ -374,6 +397,40 @@ def test_retry_uses_stable_keys_and_history_replays() -> None:
         assert verify_scheduled.start_to_close_timeout.ToTimedelta().total_seconds() == 2 * 60 * 60
         replay = await Replayer(workflows=[PullRequestReviewWorkflow]).replay_workflow(history)
         assert replay.replay_failure is None
+
+    asyncio.run(run())
+
+
+def test_queued_check_retry_does_not_report_partial_activity_totals() -> None:
+    async def run() -> None:
+        operations = RecordingOperations(fail_queued_check_once=True)
+        environment, worker = await start_environment(operations)
+        async with environment, worker:
+            handle = await environment.client.start_workflow(
+                PullRequestReviewWorkflow.run,
+                workflow_input(),
+                id="review-check-retry-metrics",
+                task_queue=TASK_QUEUE,
+            )
+            await wait_for_status(handle, "awaiting_approval")
+            await handle.signal(
+                PullRequestReviewWorkflow.approve,
+                ApprovalSignal(RUN_ID, HEAD_SHA, False),
+            )
+            await handle.result()
+        assert [request.status.value for request in operations.check_requests] == [
+            "queued",
+            "queued",
+            "in_progress",
+            "completed",
+        ]
+        assert len(operations.finalized_counts) == 1
+        counts = operations.finalized_counts[0]
+        assert (counts.activity_attempts, counts.activity_retries, counts.activity_timeouts) == (
+            8,
+            1,
+            None,
+        )
 
     asyncio.run(run())
 
@@ -615,6 +672,47 @@ def test_terminal_check_failure_does_not_block_superseding_generation() -> None:
             "action_required",
             "action_required",
         ]
+
+    asyncio.run(run())
+
+
+def test_exhausted_metrics_finalization_does_not_block_superseding_generation() -> None:
+    async def run() -> None:
+        operations = RecordingOperations(fail_finalization=True)
+        environment, worker = await start_environment(operations)
+        async with environment, worker:
+            first = start_command(
+                public_id="01J00000000000000000000020",
+                run_id=RUN_ID,
+                head_sha=HEAD_SHA,
+            )
+            replacement = start_command(
+                public_id="01J00000000000000000000021",
+                run_id=NEXT_RUN_ID,
+                head_sha=NEXT_HEAD_SHA,
+                generation=2,
+            )
+            handle = await dispatch_start_run(environment.client, first, task_queue=TASK_QUEUE)
+            await wait_for_status(handle, "awaiting_approval")
+            await handle.signal(
+                PullRequestReviewWorkflow.approve,
+                ApprovalSignal(RUN_ID, HEAD_SHA, False),
+            )
+            async with asyncio.timeout(20):
+                while operations.finalization_attempts == 0:
+                    await asyncio.sleep(0.01)
+            await dispatch_start_run(environment.client, replacement, task_queue=TASK_QUEUE)
+            await wait_for_status(
+                handle, "awaiting_approval", head_sha=NEXT_HEAD_SHA, run_id=NEXT_RUN_ID
+            )
+            await handle.signal(
+                PullRequestReviewWorkflow.approve,
+                ApprovalSignal(NEXT_RUN_ID, NEXT_HEAD_SHA, False),
+            )
+            result = await handle.result()
+        assert result.run_id == NEXT_RUN_ID
+        assert result.outcome is WorkflowOutcome.REJECTED
+        assert operations.finalization_attempts >= 4  # three failed, then the replacement
 
     asyncio.run(run())
 

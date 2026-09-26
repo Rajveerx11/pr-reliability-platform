@@ -308,6 +308,30 @@ def test_run_list_filters_exactly_and_never_leaks_other_owner(
     assert injection.json()["total"] == 0
 
 
+def test_dashboard_retry_metrics_are_scoped_and_preserve_unknowns(
+    client: TestClient,
+    connection_factory: Callable[[], Connection[object]],
+    seeded_runs: dict[str, str],
+) -> None:
+    with connection_factory() as connection, connection.transaction():
+        connection.execute(
+            """
+            INSERT INTO run_metrics (owner_id, run_id, outcome, activity_attempts,
+                                     activity_retries, activity_timeouts)
+            SELECT owner_id, id, 'published', 6, 2, NULL FROM runs WHERE public_id = %s
+            """,
+            (seeded_runs["published"],),
+        )
+    overview = client.get("/api/dashboard/overview", headers=authorization())
+    assert overview.status_code == 200
+    assert overview.json()["activity_retry_count"] == 2
+    listed = client.get("/api/dashboard/runs", headers=authorization())
+    retries = {item["run_id"]: item["retry_count"] for item in listed.json()["items"]}
+    assert retries == {seeded_runs["published"]: 2, seeded_runs["awaiting"]: None}
+    detail = client.get(f"/api/dashboard/runs/{seeded_runs['published']}", headers=authorization())
+    assert detail.json()["run"]["retry_count"] == 2
+
+
 def test_run_detail_returns_safe_timeline_and_evidence(
     client: TestClient, seeded_runs: dict[str, str]
 ) -> None:
