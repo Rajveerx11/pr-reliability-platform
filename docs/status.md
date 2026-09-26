@@ -1,15 +1,16 @@
 # Current status
 
-Verified: 2026-09-08.
+Verified: 2026-09-26 against merged `main` at `c9f67e3` and its
+[Quality run](https://github.com/Rajveerx11/pr-reliability-platform/actions/runs/36257135195).
 
-The review core, production OpenAI/GitHub operations, and repository installation sync and
-policy are merged, and commit-bound Check Runs are implemented. Private production rollout is
-still unaccepted. Repository history UI, complete analytics, bounded check artifacts, signed
-releases, real-provider evaluation, and Linux VM recovery evidence remain open.
+The review core, OpenAI API/GitHub operations, installation policy, repository checks, Check Runs,
+and review metrics are merged. Private production rollout is not accepted. Repository history UI,
+bounded check artifacts, signed releases, real-provider evaluation, and Linux VM recovery evidence
+remain open. ChatGPT-subscription Codex reviews are not enabled; PR #56 remains open.
 
 ## Implemented
 
-- Strict versioned contracts and seven checksummed PostgreSQL migrations.
+- Strict versioned contracts and eight checksummed PostgreSQL migrations.
 - Signed, installation-bound PR and installation lifecycle webhooks, with delivery deduplication.
 - Initial and periodic installation inventory, owner-scoped policy API, and append-only audit.
 - Admission and queued-dispatch checks for access, pause state, base branch, budgets, and sync age.
@@ -19,6 +20,8 @@ releases, real-provider evaluation, and Linux VM recovery evidence remain open.
 - Human approval and idempotent, commit-bound GitHub review publication.
 - Idempotent Check Runs with safe annotations, exact-run dashboard links, and authenticated reruns.
 - Private run dashboard and approval inbox using individual revocable GitHub sessions.
+- Nullable review durations, activity attempts and retries, usage coverage, and known cost on the
+  dashboard; facts unavailable from a provider or Temporal history remain unknown.
 - Telemetry and readiness for PostgreSQL, Temporal, and installation sync freshness.
 - Frozen ten-task corpus, deterministic evaluation replay, and private VM deployment tools.
 
@@ -30,38 +33,33 @@ releases, real-provider evaluation, and Linux VM recovery evidence remain open.
 | [#36](https://github.com/Rajveerx11/pr-reliability-platform/issues/36) | Production provider operations | [#50](https://github.com/Rajveerx11/pr-reliability-platform/pull/50) |
 | [#37](https://github.com/Rajveerx11/pr-reliability-platform/issues/37) | Installation sync and repository policy | [#51](https://github.com/Rajveerx11/pr-reliability-platform/pull/51) |
 | [#47](https://github.com/Rajveerx11/pr-reliability-platform/issues/47) | Windows Temporal regression stability | [#48](https://github.com/Rajveerx11/pr-reliability-platform/pull/48) |
+| [#39](https://github.com/Rajveerx11/pr-reliability-platform/issues/39) | Review metrics and analytics persistence | [#57](https://github.com/Rajveerx11/pr-reliability-platform/pull/57) |
 
 ## Verification evidence
 
-All five Quality jobs passed on the merged baseline in
-[main CI run 34090550220](https://github.com/Rajveerx11/pr-reliability-platform/actions/runs/34090550220).
-
-| Job | Result |
-|---|---|
-| repository-shape | Required files, syntax, both Compose manifests, and image build passed |
-| python-quality | Ruff lint/format passed; 411 tests passed, 8 skipped |
-| temporal-workflow | 183 passed, 8 skipped on Linux |
-| temporal-workflow-windows | 16 workflow regression tests passed |
-| sandbox-integration | 35 real Docker sandbox tests passed |
-
-Jobs overlap; do not add their counts into one unique test total. Skipped tests are not evidence
-for the skipped boundary. The dedicated sandbox job exercises the real container boundary.
-PR #51 also completed independent review and Greptile review at 5/5, with its finding resolved.
-
-A full local Windows run encountered an existing Git-pack cleanup `PermissionError` in the
-production-operations fixture. It was reproduced on untouched base `09da81a`; Linux CI passes
-that test. The focused Windows workflow job does not prove the entire application suite works
-on Windows. See [development](development.md).
+All five Quality jobs passed on merged commit `c9f67e3` in
+[main CI run 36257135195](https://github.com/Rajveerx11/pr-reliability-platform/actions/runs/36257135195):
+`repository-shape`, `python-quality`, `temporal-workflow`, `temporal-workflow-windows`, and
+`sandbox-integration`. A passing repository CI run is not a live-provider or VM acceptance test.
+Skipped tests do not establish coverage for their skipped boundary.
 
 ## Remaining work
 
-Open feature issues are #38 through #45. [#14](https://github.com/Rajveerx11/pr-reliability-platform/issues/14)
-requires real model evaluation; [#15](https://github.com/Rajveerx11/pr-reliability-platform/issues/15)
-requires private Linux VM acceptance. [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46)
-tracks the production release gate. Its original checklist may lag closed child issues; this
-snapshot uses live issue states and merged code.
+Repository and PR history UI [#38](https://github.com/Rajveerx11/pr-reliability-platform/issues/38),
+bounded evidence [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42),
+runner visibility [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43), and
+signed releases [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45) remain open.
+Real model evaluation [#14](https://github.com/Rajveerx11/pr-reliability-platform/issues/14)
+and Linux VM acceptance [#15](https://github.com/Rajveerx11/pr-reliability-platform/issues/15)
+are not complete; [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46)
+tracks the production gate.
 
-Repository inventory and policy are APIs today; the repository/history UI is still #38.
-Only the operator-configured `default` verification profile is supported. Model quality and
-exact billed cost remain unmeasured. No real deployment, backup restore, or live-provider
-acceptance is claimed by repository CI. See [production readiness](production-readiness.md).
+The merged OpenAI provider uses an API key, not a ChatGPT subscription. The
+[Codex private pilot (#55)](https://github.com/Rajveerx11/pr-reliability-platform/issues/55)
+in [PR #56](https://github.com/Rajveerx11/pr-reliability-platform/pull/56) is still disabled pending
+[subscription runner (#58)](https://github.com/Rajveerx11/pr-reliability-platform/issues/58)
+and [repository admission (#59)](https://github.com/Rajveerx11/pr-reliability-platform/issues/59).
+[Public repository opt-in (#60)](https://github.com/Rajveerx11/pr-reliability-platform/issues/60)
+requires its own security gate. Only the operator-configured `default` verification profile is
+supported. Model quality and exact billed cost remain unmeasured. Repository CI does not prove a
+live deployment, backup restore, or provider acceptance. See [production readiness](production-readiness.md).

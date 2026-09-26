@@ -21,6 +21,15 @@ them and names the affected files.
 
 ## Unreleased
 
+### Refreshed the README and merged-status documentation
+
+- Scope: [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46) production-readiness tracking.
+- Decision: [DEC-010](plan/v1.md#dec-010--use-clear-code-plan-and-documentation-boundaries).
+- Kept the root `README.md` as a short link hub and updated the documentation index, status,
+  architecture, dashboard, and production-readiness pages for merged metrics (#39/#57).
+- Recorded passing merged-main CI evidence without treating it as live provider or VM acceptance;
+  private subscription Codex remains open in #55/#56 pending #58/#59, with public opt-in in #60.
+
 ### Added review metrics and analytics persistence
 
 - Issue: [#39](https://github.com/Rajveerx11/pr-reliability-platform/issues/39).

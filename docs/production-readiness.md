@@ -1,31 +1,29 @@
 # Production readiness
 
-Status date: 2026-09-07. Baseline: `675257a`. Release tracker:
+Status date: 2026-09-26. Baseline: merged `main` at `c9f67e3`. Release tracker:
 [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46).
 
-The AI pull request review core, provider operations (#36), approved publishing (#12), and
-installation sync/policy (#37) are merged. They are prerequisites for production, not proof
-that a live service or measured model baseline exists. [Current status](status.md) records CI evidence.
+The review core, OpenAI API/GitHub operations (#36), approved publishing (#12), installation
+policy (#37), repository checks (#41), Check Runs (#40), GitHub sessions (#44), and review
+metrics (#39) are merged. They are prerequisites for production, not proof that a live service
+or measured model baseline exists. [Current status](status.md) records CI evidence.
 
 ## Remaining delivery
 
 | Issue | Remaining outcome | Prerequisite status |
 |---|---|---|
 | #38 | Repository and PR history dashboard | #37 merged |
-| #39 | Durable analytics, usage, retry, and cost facts | #36 merged |
-| #40 | Commit-bound GitHub Check Runs | Implemented; live acceptance pending |
-| #41 | Repository-defined sandbox verification checks | #37 merged |
-| #42 | Retained bounded logs and test summaries | Requires #41 |
-| #43 | Runner capacity, queue visibility, and alert delivery | Requires #39 and #41 |
-| #44 | Individual sessions implemented; real GitHub login acceptance pending | #37 merged |
+| #42 | Retained bounded logs and test summaries | #41 merged |
+| #43 | Runner capacity, queue visibility, and alert delivery | #39 and #41 merged |
 | #45 | Signed immutable release images and manifest | #36 merged |
 | #14 | Frozen real-provider evaluation report | Provider code ready; real runs and adjudication needed |
 | #15 | Private Linux VM end-to-end and recovery acceptance | Remaining release gates must pass |
 
 The full dependency map is in [plan/v1.md](../plan/v1.md#github-issue-map). Work on unblocked
-issues; do not bypass dependencies. Prioritize individual access (#44) and repository checks (#41),
-then complete evidence, metrics, history, runner operations, and releases.
-Finish real evaluation and VM acceptance before any production claim.
+issues; do not bypass dependencies. Complete evidence, history, runner operations, releases, and
+live GitHub login acceptance. Finish real evaluation and VM acceptance before any production claim.
+ChatGPT-subscription Codex remains disabled in open PR #56; its private pilot depends on #58 and
+#59, and public repository opt-in requires #60.
 
 ## Production exit checklist
 

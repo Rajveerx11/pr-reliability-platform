@@ -1,11 +1,12 @@
 # Documentation
 
-Verified against merged `main` at `675257a` on 2026-09-07. Start with [current status](status.md).
+Start with [current status](status.md) for the latest verified merge and CI evidence.
 
 ## Build and operate
 
 - [Development](development.md): install, configure, migrate, start processes, and run tests.
 - [Configuration](configuration.md): environment variables and process-specific requirements.
+- [GitHub authentication](authentication.md): login, roles, sessions, revocation, and TLS setup.
 - [API](api.md): routes, authorization, webhook behavior, and contract references.
 - [Repository policy](repository-policy.md): installation sync, admission, policy, audit, and recovery.
 - [Dashboard](dashboard.md): implemented views and remaining UI work.
@@ -25,5 +26,3 @@ Verified against merged `main` at `675257a` on 2026-09-07. Start with [current s
 
 Plans live in `plan/`; operational documentation lives here. Planned behavior is labelled and
 linked to its issue. GitHub issue #46 tracks the remaining production gate.
-
-- [GitHub authentication](authentication.md) - login, roles, sessions, revocation, and TLS setup.
