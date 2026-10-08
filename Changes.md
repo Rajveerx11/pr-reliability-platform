@@ -1,5 +1,21 @@
 # Changes
 
+## 2026-10-08 — Focused independent-review corrections (#43)
+
+- Wired mandatory runner monitor environment, migration/database readiness and 90-second
+  shutdown grace into local/VM Compose and CI manifest examples, without provider/socket
+  credentials on the workflow worker.
+- Installed the 30-second private operational monitor, actual disk/backup/TLS probe mounts,
+  fixed-label Prometheus check/delivery failure rule and atomic systemd backup receipts.
+  Receiver approval/configuration and independent Prometheus notification routing remain external.
+- Added authoritative owner/repository-scoped Temporal pending activity observations through the
+  existing workflow RunnerMonitor, including later-stage queues and retry backoff. Missing/stale
+  observations remain unknown and alert as unavailable, rather than reporting false zero.
+- Added focused deployment, probe/receipt, periodic-failure and real Temporal delayed-activity
+  regressions. Kept migration reservation 0010; no 0009/evidence/release changes.
+- References: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),
+  [operations decision](plan/v1.md#dec-013--use-one-self-hosted-runner-and-an-agent-pool).
+
 ## 2026-09-08 â€” Individual GitHub access (#44)
 
 - Issue: [#44](https://github.com/Rajveerx11/pr-reliability-platform/issues/44).

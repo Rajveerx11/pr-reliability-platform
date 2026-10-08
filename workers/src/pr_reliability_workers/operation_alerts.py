@@ -18,6 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _CODES = frozenset(
     {
+        "alert_check_unavailable",
+        "queue_probe_unavailable",
         "missing_workers",
         "stuck_queue",
         "repeated_failure",
@@ -109,6 +111,8 @@ def probe_host(settings: AlertSettings, now: datetime | None = None) -> set[str]
 
 def evaluate_alerts(snapshot: dict, stuck_seconds: int = 300) -> set[str]:
     codes = set()
+    if snapshot.get("queue_observation_unknown", 0):
+        codes.add("queue_probe_unavailable")
     available = {r["workload"] for r in snapshot["runners"] if r["state"] in {"online", "busy"}}
     if not {"workflow", "review"} <= available:
         codes.add("missing_workers")
@@ -147,23 +151,33 @@ def deliver_alerts(settings: AlertSettings, codes: set[str], token: str, *, clie
 
 
 def main():
-    """One check per invocation; use the existing deployment's monitoring interval."""
+    """Supported Compose runs the periodic monitor; --once supports a local check."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     try:
         settings = AlertSettings.model_validate_json(args.config.read_bytes())
         database_url = os.environ["DATABASE_URL"]
         owner_id = os.environ["OWNER_ID"]
-        token = os.environ["OPERATIONS_ALERT_TOKEN"]
+        token = Path(os.environ["OPERATIONS_ALERT_TOKEN_FILE"]).read_text().strip()
         store = OperationsStore(
             lambda: psycopg.connect(
                 database_url, connect_timeout=5, options="-c statement_timeout=5000"
             )
         )
-        snapshot = store.snapshot(owner_id, settings.queue)
-        codes = evaluate_alerts(snapshot, settings.stuck_seconds) | probe_host(settings)
-        deliver_alerts(settings, codes, token)
+        from .alert_monitor import CheckHealth, check_once, run_monitor, serve_health
+
+        health = CheckHealth()
+        if args.once:
+            if not check_once(store, owner_id, settings, token, health):
+                raise RuntimeError("operational alert check unavailable")
+        else:
+            server = serve_health(health)
+            try:
+                run_monitor(store, owner_id, settings, token, health=health)
+            finally:
+                server.shutdown()
     except (OSError, ValueError, KeyError, psycopg.Error, httpx.HTTPError, RuntimeError):
         # Do not print validation errors (they may contain operator inputs) or HTTP exceptions.
         raise SystemExit("operational alert check unavailable") from None

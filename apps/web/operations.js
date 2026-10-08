@@ -28,7 +28,7 @@ async function load() {
     const data = await response.json();
     if (current !== generation) return;
     summary.replaceChildren(); runners.replaceChildren(); error.hidden = true;
-    const fields = {queue_depth: "Queue depth", current_wait_seconds: "Current oldest wait (s)",
+    const fields = {queue_observation_unknown: "Unobserved activity queues", queue_depth: "Queue depth", current_wait_seconds: "Current oldest wait (s)",
       p50_wait_seconds: "p50 wait (s)", p95_wait_seconds: "p95 wait (s)",
       active_workers: "Active review workers", active_capacity: "Active activity capacity",
       active_slots: "Busy activity slots", utilization: "Activity utilization (fraction)",

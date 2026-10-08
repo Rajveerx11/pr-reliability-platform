@@ -43,6 +43,7 @@ def create_operations_router(settings, connection_factory, *, queue="pr-review",
         snapshot = store.snapshot(settings.owner_id, queue, principal.repository_ids)
         # Names and the sole label are fixed/bounded. Never expose runner, PR, path or run labels.
         names = (
+            "queue_observation_unknown",
             "queue_depth",
             "current_wait_seconds",
             "p50_wait_seconds",

@@ -20,7 +20,14 @@ capacity is shared within the owner. No browser heartbeat or public scrape endpo
   outage can leave a stage running even when no worker slot is busy.
 - Awaiting approval: separate durable human wait, not worker utilization.
 - Cancelled: terminal cancelled runs. Completed: published, rejected or failed runs.
-- Queue depth: queued plus assigned runs. Current wait: oldest queued run age.
+- Queue depth: undispatched queued runs plus actual waiting Temporal activities. The existing
+  workflow runner monitor reads owned active PR workflows with DescribeWorkflowExecution every
+  heartbeat. This includes analyze after completed context selection and server retry backoff;
+  started activities and cancellation requests are not waiting slots. Current wait is the oldest
+  undispatched run age or pending activity scheduled age. A nonempty known depth is a lower bound
+  when any PR observations are unknown; `queue_observation_unknown` reports that count. No fresh
+  observations and no known backlog means Unknown, never a false zero. Observations expire after
+  45 seconds. An unavailable queue probe emits a fixed private alert.
 - p50/p95 wait: run creation to first observed activity start, including the initial Check Run
   activity. Starts are recorded once across retries. Old missing starts remain Unknown; sample
   and missing-history counts are returned. This is not Temporal schedule-to-start latency.
@@ -32,8 +39,8 @@ capacity is shared within the owner. No browser heartbeat or public scrape endpo
 - Workflow-task workers have heartbeat/version/workload and online/draining/offline status.
   Their task occupancy and capacity are Unknown, not inferred from waiting workflows.
 
-Temporal history, retry backlog, worker assignment history and per-attempt queue depth are not
-read here. #39 still owns exact historical attempt/retry facts. One owner uses one deployment
+Current pending activity retry backlog is observed, but historical attempts and worker
+assignment history are not read here. #39 still owns exact historical attempt/retry facts. One owner uses one deployment
 queue. Undispatched/historical runs have no queue observation, so they belong to that configured
 queue. Do not use this API for multi-queue routing. Runner lists are capped at 1,000 stable
 operator identities. Use stable deployment slot names, not names per run or restart.
@@ -43,45 +50,53 @@ label. Unknown values are omitted. Never add runner IDs, versions, PRs, run IDs,
 source or exception text as metric labels. It is a private browser-session API, not a new
 machine-token authentication scheme; deployment scraping must use an approved identity.
 
-## Deployment wiring required before rollout
+## Installed deployment monitoring
 
-This change does not edit VM Compose, preflight, release workflows, backup jobs or artifact code.
-The integrating operator must:
+Local and VM Compose now give both mandatory worker monitors database/owner/build/runner
+configuration, migration readiness dependencies, and 90-second shutdown grace. The VM also
+waits for healthy PostgreSQL. Set unique stable runner slot IDs and the actual `RUNNER_VERSION`
+build identifier; `RUNNER_CAPACITY` sets the review worker's Temporal activity concurrency.
+Apply reserved migration `0010` without renaming or touching #42's `0009`.
 
-1. Apply migration `0010_runner_operations.sql` after the parallel #42 migration `0009` if present.
-   API migration discovery works with the reserved gap; do not rename applied migrations.
-2. Set `DATABASE_URL` and `OWNER_ID` on both worker services. Set a unique stable `RUNNER_ID`
-   (letters, digits, underscore or hyphen, at most 64 characters) per concurrent process.
-   `RUNNER_VERSION` is the actual bounded build identifier. Set `RUNNER_CAPACITY` (1–1000,
-   default 4) for review workers. It is wired to Temporal's activity concurrency limit.
-3. Set the same `TEMPORAL_TASK_QUEUE` on API, dispatcher and both worker services.
-4. Allow the worker's database egress. Set container stop grace above the 60-second activity
-   grace and cleanup time (at least 90 seconds). Do not send SIGKILL as the normal drain path.
-5. Configure a private alert receiver **only after human approval**. Start from
-   `infra/observability/operations-alerts.example.json`. Its placeholder intentionally fails
-   validation. Replace it with the approved RFC1918/ULA literal IP HTTPS URL (port 443), valid
-   trusted certificate, and private mounts for the disk, backup receipt and TLS certificate.
-   DNS, public, loopback, metadata/link-local addresses, URL credentials, query strings and
-   redirects are rejected. No environment proxy is used. Never disable TLS verification.
-6. Supply `OPERATIONS_ALERT_TOKEN` through a secret, not a tracked file. Run
-   `pr-reliability-operation-alerts --config /private/operations-alerts.json` on the existing
-   monitoring interval (for example every minute). This command does not create a scheduler.
-   Nonzero exit means the check/delivery itself is unavailable; the monitoring service must
-   alert on that failure. Repeated checks can repeat alerts; receiver grouping/rate limiting
-   must deduplicate the fixed service/code pairs.
-7. Wire the real backup job to atomically write its private status receipt:
-   `{"succeeded":true,"finished_at":"2026-10-08T12:00:00+00:00"}`. Record false on failure.
-   Never write credentials, error text or backup paths in this receipt. No receipt proves a
-   restore; a real backup/restore drill is still required.
+Both Compose manifests install `operations-monitor`, which checks every 30 seconds, and
+Prometheus scrapes its fixed, unlabeled success-time gauge. `OperationsMonitorUnavailable`
+fires on missing/down monitoring or a check/delivery success older than 120 seconds (for 2m).
+The monitor tries a fixed `alert_check_unavailable` private notification on DB failure.
+Prometheus failure rules are installed; routing those independent Prometheus alerts to an
+operator's monitoring receiver remains an external deployment integration, not a claimed live
+notification. The six operational alerts themselves are sent directly by the periodic monitor.
 
-Alerts cover missing workflow/review workers, oldest queue wait over the configured threshold,
-three or more failed completions in the last hour at a failure ratio of at least 50%, disk free
-below 10%, failed/stale backup receipt, and TLS expiry within the configured warning period.
-Missing or malformed host probes produce distinct unavailable alerts, never healthy results.
-Delivery includes only schema version, fixed service, fixed alert code and fixed severity.
-It sends no repository names, queue names, worker names, owner IDs, paths, PR/run IDs or source.
-The receiver, receipt producers, file mounts and interval are **not configured or live-tested**
-by this repository change.
+Before starting, supply these **external, operator-approved** files/paths (examples are not live
+approval):
+
+- `OPERATIONS_ALERT_CONFIG_FILE`: copy `infra/observability/operations-alerts.example.json`
+  outside the checkout and replace its rejected placeholder with the approved RFC1918/ULA
+  literal-IP HTTPS URL (port 443), using a trusted server certificate.
+- `OPERATIONS_ALERT_TOKEN_FILE`: readable private receiver token file, mounted read-only only
+  into the monitor. No token goes to the workflow worker or Prometheus.
+- `OPERATIONS_DISK_PATH`: the actual host data/backup filesystem directory, mounted read-only
+  as `/probes/disk`, not the container overlay filesystem.
+- `OPERATIONS_BACKUP_RECEIPT_DIRECTORY`: the receipt directory, mounted read-only at
+  `/probes/backup`. The shipped systemd backup job writes `/var/lib/pr-reliability/operations/backup.json`
+  atomically with fixed boolean/time metadata, recording failure before each attempt and success
+  only after backup completion. Enable the existing backup timer as part of deployment.
+- `TLS_CERTIFICATE_FILE`: the actual served certificate mounted read-only at `/probes/tls.pem`.
+
+The installed example config points at those container probe paths. The token/config must be
+readable by the unprivileged monitor (VM deployment secret group); do not make secrets public.
+DNS/public/loopback/link-local receivers, URL credentials, query strings and redirects are
+rejected. No environment proxy is used; TLS verification is never disabled.
+`pr-reliability-operation-alerts --config /private/config.json --once` remains available for a
+single local check. Repeated fixed service/code pairs must be deduplicated by the receiver.
+
+Alerts cover missing workflow/review workers, oldest queue wait over threshold, three or more
+failed completions in an hour at a failure ratio of at least 50%, disk free below 10%, failed/stale
+backups and expiring TLS. Missing/malformed probes and unavailable Temporal observations are
+explicit unavailable alerts, never healthy results. Payloads contain fixed schema/service/code/
+severity only, never source, repository/runner/owner names, paths, IDs or exception text.
+
+The wiring is installed, not a claim of live private receiver delivery, Linux shutdown behavior,
+real host probes, backup restoration or alert routing acceptance. Those require an operator drill.
 
 ## Drain and recovery
 

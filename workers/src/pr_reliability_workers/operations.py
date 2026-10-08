@@ -18,6 +18,8 @@ from pr_reliability_api.operations.store import (
 from temporalio.service import RPCError
 from temporalio.worker import ActivityInboundInterceptor, Interceptor
 
+from .pending_activities import observe_pending_activities
+
 _LOG = logging.getLogger(__name__)
 
 
@@ -55,6 +57,8 @@ class RunnerMonitor(Interceptor):
                 _LOG.warning("runner heartbeat dependency unavailable")
             try:
                 await self.pulse(healthy)
+                if healthy and self.registration.workload == "workflow":
+                    await observe_pending_activities(client, self.store, self.registration)
             except RunnerSessionReplaced:
                 self.drain()
                 return

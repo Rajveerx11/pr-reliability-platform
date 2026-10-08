@@ -122,6 +122,45 @@ class OperationsStore:
                 is not None
             )
 
+    def queue_workflows(self, owner_id: str, queue: str) -> list:
+        """Only owned active PR workflows; never enumerate another owner's namespace."""
+        with self.connection_factory() as connection:
+            return connection.execute(
+                """SELECT DISTINCT p.id, p.public_id FROM runs r
+                   JOIN pull_requests p ON p.owner_id = r.owner_id AND p.id = r.pull_request_id
+                   LEFT JOIN operation_work w ON w.owner_id = r.owner_id AND w.run_id = r.id
+                   WHERE r.owner_id = %s AND (w.queue IS NULL OR w.queue = %s)
+                     AND r.state IN ('queued', 'selecting_context', 'analyzing', 'verifying',
+                                     'awaiting_approval')
+                     AND EXISTS (SELECT 1 FROM run_events e
+                       WHERE e.owner_id = r.owner_id AND e.run_id = r.id
+                         AND e.event_type = 'run.command_dispatched'
+                         AND e.event_data->>'status' = 'accepted')""",
+                (owner_id, queue),
+            ).fetchall()
+
+    def observe_pending(self, runner: RunnerRegistration, observations: list) -> None:
+        with self.connection_factory() as connection:
+            if (
+                connection.execute(
+                    """SELECT 1 FROM operation_runners WHERE owner_id = %s AND runner_id = %s
+                   AND session_id = %s FOR SHARE""",
+                    (runner.owner_id, runner.runner_id, runner.session_id),
+                ).fetchone()
+                is None
+            ):
+                raise RunnerSessionReplaced("runner session replaced")
+            for pull_request_id, depth, oldest in observations:
+                connection.execute(
+                    """INSERT INTO operation_pending_activities
+                         (owner_id, pull_request_id, queue, depth, oldest_scheduled_at)
+                       VALUES (%s, %s, %s, %s, %s)
+                       ON CONFLICT (owner_id, pull_request_id, queue) DO UPDATE SET
+                         depth = EXCLUDED.depth, oldest_scheduled_at = EXCLUDED.oldest_scheduled_at,
+                         observed_at = now()""",
+                    (runner.owner_id, pull_request_id, runner.queue, depth, oldest),
+                )
+
     def snapshot(self, owner_id: str, queue: str, repository_ids=None) -> dict:
         if not _NAME.fullmatch(queue):
             raise ValueError("invalid queue")
@@ -159,7 +198,7 @@ class OperationsStore:
                      count(*) FILTER (WHERE state IN ('published', 'rejected', 'failed')),
                      count(*) FILTER (WHERE state = 'queued'),
                      max(extract(epoch FROM (now() - created_at)))
-                       FILTER (WHERE state = 'queued'),
+                       FILTER (WHERE state = 'queued' AND NOT assigned),
                      percentile_cont(0.50) WITHIN GROUP
                        (ORDER BY extract(epoch FROM (first_activity_at - created_at)))
                        FILTER (WHERE first_activity_at >= created_at),
@@ -174,6 +213,30 @@ class OperationsStore:
                                        AND updated_at > now() - interval '1 hour')
                    FROM facts""",
                 (owner_id, repository_ids, repository_ids, queue),
+            ).fetchone()
+            pending = connection.execute(
+                """WITH active_prs AS (
+                     SELECT DISTINCT p.id FROM runs r JOIN pull_requests p
+                       ON p.owner_id = r.owner_id AND p.id = r.pull_request_id
+                     LEFT JOIN operation_work w ON w.owner_id = r.owner_id AND w.run_id = r.id
+                     WHERE r.owner_id = %s
+                       AND (%s::bigint[] IS NULL OR p.repository_id = ANY(%s))
+                       AND (w.queue IS NULL OR w.queue = %s)
+                       AND r.state IN ('queued', 'selecting_context', 'analyzing', 'verifying',
+                                       'awaiting_approval')
+                       AND (r.state != 'queued' OR EXISTS (SELECT 1 FROM run_events e
+                         WHERE e.owner_id = r.owner_id AND e.run_id = r.id
+                           AND e.event_type = 'run.command_dispatched'
+                           AND e.event_data->>'status' = 'accepted'))
+                   ) SELECT coalesce(sum(o.depth) FILTER
+                       (WHERE o.observed_at >= now() - interval '45 seconds'), 0),
+                     max(extract(epoch FROM (now() - o.oldest_scheduled_at))) FILTER
+                       (WHERE o.observed_at >= now() - interval '45 seconds'),
+                     count(*) FILTER (WHERE o.depth IS NULL
+                       OR o.observed_at < now() - interval '45 seconds')
+                   FROM active_prs p LEFT JOIN operation_pending_activities o
+                     ON o.owner_id = %s AND o.pull_request_id = p.id AND o.queue = %s""",
+                (owner_id, repository_ids, repository_ids, queue, owner_id, queue),
             ).fetchone()
             verification = connection.execute(
                 """SELECT count(*) FILTER (WHERE event_data->>'conclusion' = 'passed'), count(*)
@@ -239,5 +302,21 @@ class OperationsStore:
         snapshot["pass_rate_samples"] = verification[1]
         snapshot["schema_version"] = "1"
         snapshot["queue"] = queue
-        snapshot["temporal_history"] = "unavailable"
+        # Undispatched runs still wait in the durable outbox. Dispatched PRs use actual
+        # Temporal pending activities, including later stages and retry backoff.
+        known_depth = snapshot["queued"] + pending[0]
+        snapshot["queue_observation_unknown"] = pending[2]
+        snapshot["queue_depth"] = known_depth if known_depth or not pending[2] else None
+        waits = [
+            value
+            for value in (
+                snapshot["current_wait_seconds"] if snapshot["queued"] else None,
+                pending[1],
+            )
+            if value is not None
+        ]
+        snapshot["current_wait_seconds"] = max(waits) if waits else None
+        snapshot["temporal_history"] = (
+            "unavailable"  # Historical percentiles still use first starts.
+        )
         return snapshot

@@ -29,3 +29,16 @@ CREATE TABLE operation_work (
 
 CREATE INDEX operation_runners_owner_queue_idx ON operation_runners (owner_id, queue);
 -- No guessed start times for historical runs. Absence of an observation is Unknown.
+
+-- Actual pending activity observations from Temporal DescribeWorkflowExecution.
+-- One workflow per owned PR; repository filtering remains relational and owner scoped.
+CREATE TABLE operation_pending_activities (
+    owner_id varchar(26) NOT NULL,
+    pull_request_id bigint NOT NULL,
+    queue varchar(64) NOT NULL CHECK (queue ~ '^[a-zA-Z0-9_-]{1,64}$'),
+    depth integer CHECK (depth >= 0),
+    oldest_scheduled_at timestamptz,
+    observed_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (owner_id, pull_request_id, queue),
+    FOREIGN KEY (owner_id, pull_request_id) REFERENCES pull_requests (owner_id, id)
+);
