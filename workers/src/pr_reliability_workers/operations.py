@@ -49,23 +49,35 @@ class RunnerMonitor(Interceptor):
         self.stop.set()
 
     async def watch(self, client, interval: float = 10):
-        while True:
-            try:
-                healthy = await client.service_client.check_health(timeout=timedelta(seconds=3))
-            except (RPCError, ConnectionError, TimeoutError):
-                healthy = False
-                _LOG.warning("runner heartbeat dependency unavailable")
-            try:
-                await self.pulse(healthy)
-                if healthy and self.registration.workload == "workflow":
-                    await observe_pending_activities(client, self.store, self.registration)
-            except RunnerSessionReplaced:
-                self.drain()
-                return
-            except (psycopg.Error, ConnectionError, TimeoutError):
-                # Keep Temporal work durable during a dependency outage. No exception details.
-                _LOG.warning("runner heartbeat dependency unavailable")
-            await asyncio.sleep(interval)
+        pending = None
+        try:
+            while True:
+                try:
+                    healthy = await client.service_client.check_health(timeout=timedelta(seconds=3))
+                except (RPCError, ConnectionError, TimeoutError):
+                    healthy = False
+                    _LOG.warning("runner heartbeat dependency unavailable")
+                try:
+                    await self.pulse(healthy)
+                    if pending is not None and pending.done():
+                        finished, pending = pending, None
+                        await finished
+                    if healthy and self.registration.workload == "workflow" and pending is None:
+                        # Queue RPCs must not delay runner liveness, even during large backlogs.
+                        pending = asyncio.create_task(
+                            observe_pending_activities(client, self.store, self.registration)
+                        )
+                except RunnerSessionReplaced:
+                    self.drain()
+                    return
+                except (psycopg.Error, ConnectionError, TimeoutError):
+                    # Keep Temporal work durable during a dependency outage. No exception details.
+                    _LOG.warning("runner heartbeat dependency unavailable")
+                await asyncio.sleep(interval)
+        finally:
+            if pending is not None:
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
 
 
 class _ObservedActivity(ActivityInboundInterceptor):

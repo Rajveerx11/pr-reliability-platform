@@ -47,6 +47,10 @@ def test_rendered_compose_worker_readiness_grace_credentials_and_periodic_probes
         assert worker["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
         if "vm.yaml" in manifest:
             assert worker["depends_on"]["postgres"]["condition"] == "service_healthy"
+    assert (
+        services["api"]["environment"]["TEMPORAL_TASK_QUEUE"]
+        == services["workflow-worker"]["environment"]["TEMPORAL_TASK_QUEUE"]
+    )
     workflow = services["workflow-worker"]
     assert not any(
         key.startswith(("GITHUB_", "OPENAI_", "MODEL_")) for key in workflow["environment"]

@@ -115,6 +115,7 @@ services:
       OWNER_ID: ${OWNER_ID:?OWNER_ID is required}
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-pr-review}
     depends_on:
       migrate:
         condition: service_completed_successfully

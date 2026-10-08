@@ -11,6 +11,7 @@
 - Added authoritative owner/repository-scoped Temporal pending activity observations through the
   existing workflow RunnerMonitor, including later-stage queues and retry backoff. Missing/stale
   observations remain unknown and alert as unavailable, rather than reporting false zero.
+  Queue RPCs cannot block liveness pulses; API and workers share the configured queue.
 - Added focused deployment, probe/receipt, periodic-failure and real Temporal delayed-activity
   regressions. Kept migration reservation 0010; no 0009/evidence/release changes.
 - References: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),

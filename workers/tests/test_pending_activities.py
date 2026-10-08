@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+import test_runner_operations_recovery as recovery
 from pr_reliability_api.operations.store import RunnerRegistration
 from pr_reliability_workers.pending_activities import (
     observe_pending_activities,
@@ -19,7 +20,6 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-import test_runner_operations_recovery as recovery
 
 OWNER = recovery.OWNER
 durable_store = recovery.durable_store
@@ -107,7 +107,9 @@ class LaterStageActivities:
     @activity.defn(name="context_probe")
     async def context(self):
         with self.store.connection_factory() as connection:
-            connection.execute("UPDATE runs SET state = 'selecting_context' WHERE owner_id = %s", (OWNER,))
+            connection.execute(
+                "UPDATE runs SET state = 'selecting_context' WHERE owner_id = %s", (OWNER,)
+            )
         self.context_complete.set()
 
     @activity.defn(name="verify_probe")
@@ -126,10 +128,14 @@ class LaterStageActivities:
 def test_real_temporal_context_completed_then_analyze_queued_and_retry_backlog(durable_store):
     async def scenario():
         store, _, _ = durable_store
-        runner = RunnerRegistration(OWNER, "workflow-1", uuid4(), "pending-probe", "test", "workflow", 1)
+        runner = RunnerRegistration(
+            OWNER, "workflow-1", uuid4(), "pending-probe", "test", "workflow", 1
+        )
         store.register(runner)
         with store.connection_factory() as connection:
-            run = connection.execute("SELECT id FROM runs WHERE owner_id = %s", (OWNER,)).fetchone()[0]
+            run = connection.execute(
+                "SELECT id FROM runs WHERE owner_id = %s", (OWNER,)
+            ).fetchone()[0]
             connection.execute(
                 """INSERT INTO run_events (public_id, owner_id, run_id, event_key, event_type,
                      event_data, occurred_at) VALUES (%s, %s, %s, 'dispatch',
@@ -154,7 +160,9 @@ def test_real_temporal_context_completed_then_analyze_queued_and_retry_backlog(d
                 ),
             ):
                 handle = await environment.client.start_workflow(
-                    LaterStageProbe.run, id=f"pr-review:{OWNER}:01J00000000000000000000003", task_queue=queue
+                    LaterStageProbe.run,
+                    id=f"pr-review:{OWNER}:01J00000000000000000000003",
+                    task_queue=queue,
                 )
                 await asyncio.wait_for(operations.context_complete.wait(), 10)
                 blocker = await environment.client.start_workflow(

@@ -183,3 +183,39 @@ def test_database_loss_at_startup_never_starts_polling():
         runner.store.retire.assert_not_called()
 
     asyncio.run(scenario())
+
+
+def test_workflow_queue_observations_cannot_block_liveness(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from pr_reliability_workers.operations import RunnerMonitor
+
+    async def scenario():
+        store = MagicMock()
+        store.heartbeat.return_value = False
+        runner = RunnerRegistration(
+            "01J00000000000000000000001", "workflow-1", uuid4(), "pr-review", "test", "workflow", 1
+        )
+        monitor = RunnerMonitor(store, runner)
+        blocked = asyncio.Event()
+
+        async def slow_observations(*args):
+            blocked.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(
+            "pr_reliability_workers.operations.observe_pending_activities", slow_observations
+        )
+        client = MagicMock()
+        client.service_client.check_health = AsyncMock(return_value=True)
+        watching = asyncio.create_task(monitor.watch(client, interval=0.01))
+        try:
+            await asyncio.wait_for(blocked.wait(), 2)
+            await asyncio.sleep(0.06)
+            assert store.heartbeat.call_count >= 3
+        finally:
+            watching.cancel()
+            await asyncio.gather(watching, return_exceptions=True)
+
+    asyncio.run(scenario())

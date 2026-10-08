@@ -182,3 +182,12 @@ Temporal pending activities via the existing workflow heartbeat loop. Focused re
 actual context completion followed by analyze waiting behind verification, plus retry backoff,
 unknown/stale observations and rendered deployment configuration. This is not a fresh independent
 review or production acceptance. The parent must run full CI and obtain re-review.
+
+Focused correction validation (task-owned PostgreSQL 18, port 55843): **77 passed, 2 skipped**,
+including real Temporal plus durable database observations after context completion and during
+retry backoff. The two skips are POSIX-only socket ownership checks on Windows. One existing
+FastAPI/httpx deprecation warning remains. Whole-repository Ruff lint/format, Node syntax,
+rendered local/VM Compose config regressions and diff whitespace checks passed. Docker's Linux
+daemon is unavailable here; LSP is unavailable. The independently reproduced baseline Windows
+Git-pack failure was not changed or excluded from any claimed full-suite acceptance. Full CI,
+fresh independent review and live operational drills remain pending.
