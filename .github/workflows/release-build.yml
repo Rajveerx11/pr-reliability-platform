@@ -34,6 +34,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --frozen
       - name: Require successful main Quality for this exact commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
+          uv run python - <<'PY'
           import json, os, subprocess
           from pathlib import Path
           from infra.release.manifest import OWN_IMAGES, IMAGE_KEYS, validate_images
@@ -89,7 +93,7 @@ jobs:
           set -euo pipefail
           args=()
           if [[ -n "$PREVIOUS_RUN" ]]; then args+=(--previous /tmp/previous-release); fi
-          python -m infra.release build --commit "$COMMIT" --upstream-images /tmp/upstream-images.json --output /tmp/release-candidate "${args[@]}"
+          uv run python -m infra.release build --commit "$COMMIT" --upstream-images /tmp/upstream-images.json --output /tmp/release-candidate "${args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: signed-release-candidate

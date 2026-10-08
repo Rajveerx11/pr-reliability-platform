@@ -38,10 +38,17 @@ def artifacts(tmp_path):
                     "SchemaVersion": 2,
                     "ArtifactType": "container_image",
                     "ArtifactName": images[key],
-                    "Results": [{"Target": "fixture", "Vulnerabilities": []}],
+                    "Results": [{"Target": "fixture", "Class": "os-pkgs", "Vulnerabilities": []}],
                 },
             )
-            write_json(directory / f"{key}.sbom.json", {"bomFormat": "CycloneDX", "components": []})
+            write_json(
+                directory / f"{key}.sbom.json",
+                {
+                    "bomFormat": "CycloneDX",
+                    "metadata": {"component": {"type": "container", "name": images[key]}},
+                    "components": [{"type": "library", "name": "fixture", "version": "1"}],
+                },
+            )
         prior = None if previous is None else json.loads((previous / "release.json").read_text())
         manifest = create_manifest(
             repository,

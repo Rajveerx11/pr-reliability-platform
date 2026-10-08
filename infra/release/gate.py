@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from .manifest import SHA256, ReleaseError, digest, read_json, require_compatible
+from .manifest import SHA256, ReleaseError, digest, read_document, require_compatible
 from .staging import CHECKS
 from .verify import STAGING_IDENTITY, Runner, run_checked, verify_blob, verify_release
 
@@ -24,13 +24,13 @@ def release_gate(
     candidate_sha = digest(candidate_directory / "release.json")
     previous_sha = digest(previous_directory / "release.json")
     require_compatible(candidate, previous, previous_sha)
-    before = digest(receipt_path) if receipt_path.is_file() else None
-    receipt = read_json(receipt_path)
+    receipt, before = read_document(receipt_path)
     verify_blob(
         receipt_path,
         receipt_path.with_suffix(".sigstore.json"),
         STAGING_IDENTITY,
         candidate["commit"],
+        expected_sha256=before,
         runner=runner,
     )
     if digest(receipt_path) != before:

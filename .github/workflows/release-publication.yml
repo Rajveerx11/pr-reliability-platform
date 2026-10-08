@@ -42,6 +42,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --frozen
       - name: Validate public run IDs
         env:
           CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
@@ -80,7 +84,7 @@ jobs:
           ARTIFACT_ROOT: ${{ runner.temp }}
           E2E_SHA256: ${{ vars.STAGING_E2E_SHA256 }}
         run: >-
-          python -m infra.release publish
+          uv run python -m infra.release publish
           --candidate "$ARTIFACT_ROOT/candidate"
           --previous "$ARTIFACT_ROOT/previous"
           --receipt "$ARTIFACT_ROOT/staging/staging.json"

@@ -57,3 +57,20 @@ def test_release_sandbox_has_locked_tools_without_source_or_credentials():
     assert "USER app" in provider
     assert "snapshot.debian.org" in provider
     assert "docker:28.5.1-cli@sha256:" in provider
+
+
+def test_all_release_clis_use_frozen_project_dependencies():
+    for name in ("release-build.yml", "release-staging.yml", "release-publication.yml"):
+        document = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+        for job in document["jobs"].values():
+            steps = job["steps"]
+            install = next(
+                i for i, step in enumerate(steps) if step.get("run") == "uv sync --frozen"
+            )
+            assert any(
+                step.get("uses", "").startswith("astral-sh/setup-uv@") for step in steps[:install]
+            )
+            for index, step in enumerate(steps):
+                if "-m infra.release" in step.get("run", ""):
+                    assert index > install
+                    assert "uv run python -m infra.release" in step["run"]

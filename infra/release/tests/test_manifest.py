@@ -122,3 +122,53 @@ def test_duplicate_json_keys_and_symlinks_rejected(tmp_path):
         pytest.skip("host does not allow creating symlinks")
     with pytest.raises(ReleaseError):
         read_json(link)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda r: r.update(components=[]),
+        lambda r: r.update(components=[{}]),
+        lambda r: r.update(metadata={}),
+        lambda r: r["metadata"]["component"].update(name="mutable:tag"),
+        lambda r: r["metadata"]["component"].update(type="application"),
+    ],
+)
+def test_empty_or_cross_image_sbom_fails(artifacts, mutation):
+    _, candidate, _ = artifacts
+    manifest = read_json(candidate / "release.json")
+    path = candidate / "PLATFORM_IMAGE.sbom.json"
+    report = read_json(path)
+    mutation(report)
+    path.write_text(json.dumps(report))
+    manifest["evidence"][path.name] = digest(path)
+    with pytest.raises(ReleaseError, match="SBOM"):
+        validate_evidence(candidate, manifest)
+
+
+def test_repository_aliases_of_same_digest_are_not_separate_images(artifacts):
+    _, candidate, _ = artifacts
+    manifest = read_json(candidate / "release.json")
+    checksum = manifest["images"]["PLATFORM_IMAGE"].split("@", 1)[1]
+    manifest["images"]["SANDBOX_IMAGE"] = "ghcr.io/another/sandbox@" + checksum
+    with pytest.raises(ReleaseError, match="separate"):
+        validate_manifest(manifest)
+
+
+def test_malformed_empty_vulnerability_object_fails(artifacts):
+    _, candidate, _ = artifacts
+    manifest = read_json(candidate / "release.json")
+    path = candidate / "PLATFORM_IMAGE.scan.json"
+    report = read_json(path)
+    report["Results"][0]["Vulnerabilities"] = {}
+    path.write_text(json.dumps(report))
+    manifest["evidence"][path.name] = digest(path)
+    with pytest.raises(ReleaseError, match="vulnerabilities"):
+        validate_evidence(candidate, manifest)
+
+
+def test_oversized_document_fails_before_json_parsing(tmp_path):
+    path = tmp_path / "oversized.json"
+    path.write_bytes(b" " * (16 * 1024 * 1024 + 1))
+    with pytest.raises(ReleaseError, match="bounded"):
+        read_json(path)

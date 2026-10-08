@@ -144,3 +144,55 @@ def test_missing_tool_and_nonzero_tool_do_not_expose_output(monkeypatch):
     with pytest.raises(ReleaseError) as error:
         verify.run_checked(["cosign", "verify"])
     assert "private" not in str(error.value)
+
+
+def test_blob_verification_uses_private_exact_byte_snapshot(artifacts):
+    from pathlib import Path
+
+    _, candidate, _ = artifacts
+    path = candidate / "release.json"
+    original = path.read_bytes()
+
+    def inspect_snapshot(command):
+        if command[1] == "verify-blob":
+            document = Path(command[-1])
+            assert document != path
+            path.write_text("swapped while verifier runs")
+            assert document.read_bytes() == original
+            assert Path(command[command.index("--bundle") + 1]).read_bytes() == b"{}"
+            path.write_bytes(original)
+
+    verify.verify_release(candidate, runner=inspect_snapshot)
+
+
+def test_swapped_blob_before_verification_never_reaches_tool(artifacts):
+    _, candidate, _ = artifacts
+    path = candidate / "release.json"
+    commands = []
+    with pytest.raises(ReleaseError, match="changed before"):
+        verify.verify_blob(
+            path,
+            candidate / "release.sigstore.json",
+            verify.BUILD_IDENTITY,
+            "2" * 40,
+            expected_sha256="f" * 64,
+            runner=commands.append,
+        )
+    assert commands == []
+
+
+@pytest.mark.parametrize("failure", [OSError("private failure"), TimeoutError("private failure")])
+def test_unavailable_tool_fails_without_output(monkeypatch, failure):
+    # TimeoutExpired is the specific subprocess failure handled by the production runner.
+    import subprocess
+
+    if isinstance(failure, TimeoutError):
+        failure = subprocess.TimeoutExpired("cosign", 600, output="private stdout")
+
+    def reject(*_, **__):
+        raise failure
+
+    monkeypatch.setattr(verify.subprocess, "run", reject)
+    with pytest.raises(ReleaseError) as error:
+        verify.run_checked(["cosign", "verify"])
+    assert "private" not in str(error.value)

@@ -33,16 +33,32 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def read_json(path: Path) -> dict:
+def read_bytes(path: Path) -> bytes:
     try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > 16 * 1024 * 1024:
+        if path.is_symlink() or not path.is_file():
             raise ReleaseError("release evidence must be a bounded regular file")
-        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_keys)
+        with path.open("rb") as source:
+            content = source.read(16 * 1024 * 1024 + 1)
+        if len(content) > 16 * 1024 * 1024:
+            raise ReleaseError("release evidence must be a bounded regular file")
+        return content
+    except OSError as exc:
+        raise ReleaseError("release evidence is missing or unreadable") from exc
+
+
+def read_document(path: Path) -> tuple[dict, str]:
+    content = read_bytes(path)
+    try:
+        value = json.loads(content, object_pairs_hook=_unique_keys)
         if not isinstance(value, dict):
             raise TypeError
-        return value
-    except (OSError, ValueError, TypeError) as exc:
-        raise ReleaseError("release evidence is missing or invalid JSON") from exc
+        return value, hashlib.sha256(content).hexdigest()
+    except (ValueError, TypeError) as exc:
+        raise ReleaseError("release evidence is invalid JSON") from exc
+
+
+def read_json(path: Path) -> dict:
+    return read_document(path)[0]
 
 
 def _unique_keys(pairs: list[tuple[str, object]]) -> dict:
@@ -79,7 +95,7 @@ def validate_images(images: dict) -> None:
             _require_release_image(name, image)
     except PreflightError as exc:
         raise ReleaseError("release contains an invalid immutable image") from exc
-    if len({images[name] for name in OWN_IMAGES}) != 3:
+    if len({images[name].split("@", 1)[1] for name in OWN_IMAGES}) != 3:
         raise ReleaseError("platform, provider-activity, and sandbox images must be separate")
 
 
@@ -141,14 +157,24 @@ def validate_manifest(value: dict) -> None:
 
 def validate_evidence(directory: Path, manifest: dict) -> None:
     for name, checksum in manifest["evidence"].items():
-        report = read_json(directory / name)
-        if digest(directory / name) != checksum:
+        report, actual_checksum = read_document(directory / name)
+        if actual_checksum != checksum:
             raise ReleaseError("release evidence checksum mismatch")
         if name.endswith(".sbom.json"):
-            if report.get("bomFormat") != "CycloneDX" or not isinstance(
-                report.get("components"), list
+            image_key = name.removesuffix(".sbom.json")
+            metadata = report.get("metadata")
+            component = metadata.get("component") if isinstance(metadata, dict) else None
+            components = report.get("components")
+            if (
+                report.get("bomFormat") != "CycloneDX"
+                or not isinstance(component, dict)
+                or component.get("type") != "container"
+                or component.get("name") != manifest["images"][image_key]
+                or not isinstance(components, list)
+                or not components
+                or any(not isinstance(item, dict) or not item.get("name") for item in components)
             ):
-                raise ReleaseError("image SBOM is invalid")
+                raise ReleaseError("image SBOM is invalid or names a different image")
         else:
             image_key = name.removesuffix(".scan.json")
             if report.get("ArtifactName") != manifest["images"][image_key]:
@@ -161,9 +187,16 @@ def validate_evidence(directory: Path, manifest: dict) -> None:
             ):
                 raise ReleaseError("image scan is incomplete")
             for result in report["Results"]:
-                if not isinstance(result, dict):
+                if (
+                    not isinstance(result, dict)
+                    or result.get("Class") not in {"os-pkgs", "lang-pkgs"}
+                    or not isinstance(result.get("Target"), str)
+                    or not result["Target"]
+                ):
                     raise ReleaseError("image scan result is invalid")
-                vulnerabilities = result.get("Vulnerabilities") or []
+                vulnerabilities = result.get("Vulnerabilities")
+                if vulnerabilities is None:
+                    vulnerabilities = []
                 if not isinstance(vulnerabilities, list):
                     raise ReleaseError("image vulnerabilities are invalid")
                 for vulnerability in vulnerabilities:

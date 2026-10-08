@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
+import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -12,7 +14,8 @@ from .manifest import (
     config_version,
     digest,
     migration_set,
-    read_json,
+    read_bytes,
+    read_document,
     validate_evidence,
     validate_manifest,
 )
@@ -58,31 +61,51 @@ def identity_flags(identity: str, commit: str) -> list[str]:
 
 
 def verify_blob(
-    path: Path, bundle: Path, identity: str, commit: str, *, runner: Runner = run_checked
+    path: Path,
+    bundle: Path,
+    identity: str,
+    commit: str,
+    *,
+    expected_sha256: str,
+    runner: Runner = run_checked,
 ) -> None:
     if path.is_symlink() or bundle.is_symlink() or not path.is_file() or not bundle.is_file():
         raise ReleaseError("signed release document and bundle are required")
-    runner(
-        [
-            "cosign",
-            "verify-blob",
-            "--bundle",
-            str(bundle),
-            *identity_flags(identity, commit),
-            str(path),
-        ]
-    )
+    content, signature = read_bytes(path), read_bytes(bundle)
+    if hashlib.sha256(content).hexdigest() != expected_sha256:
+        raise ReleaseError("signed document changed before signature verification")
+    # Verify the exact parsed bytes from a private snapshot. Checking only the source
+    # before/after a subprocess would permit a file swap during verification.
+    with tempfile.TemporaryDirectory() as temporary:
+        document = Path(temporary) / "document.json"
+        snapshot_bundle = Path(temporary) / "bundle.json"
+        document.write_bytes(content)
+        snapshot_bundle.write_bytes(signature)
+        runner(
+            [
+                "cosign",
+                "verify-blob",
+                "--bundle",
+                str(snapshot_bundle),
+                *identity_flags(identity, commit),
+                str(document),
+            ]
+        )
 
 
 def verify_release(
     directory: Path, *, repository: Path | None = None, runner: Runner = run_checked
 ) -> dict:
     path = directory / "release.json"
-    before = digest(path) if path.is_file() else None
-    manifest = read_json(path)
+    manifest, before = read_document(path)
     validate_manifest(manifest)
     verify_blob(
-        path, directory / "release.sigstore.json", BUILD_IDENTITY, manifest["commit"], runner=runner
+        path,
+        directory / "release.sigstore.json",
+        BUILD_IDENTITY,
+        manifest["commit"],
+        expected_sha256=before,
+        runner=runner,
     )
     if digest(path) != before:
         raise ReleaseError("release changed during signature verification")

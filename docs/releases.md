@@ -28,7 +28,9 @@ product source, Git, a Docker CLI or credentials. It still runs with the existin
 network-denied sandbox policy. It is a baseline Python tool image, not a universal build image.
 
 Every owned image must have a passing scan, signed image and signed CycloneDX attestation.
-The authenticated manifest binds the local SBOM and scan bytes. A registry attestation alone
+The authenticated manifest binds the local SBOM and scan bytes. Document verification uses
+private snapshots of the exact parsed bytes, preventing source swaps during the verifier
+subprocess; scan parsing and checksums also use the same byte snapshot. A registry attestation alone
 is not a substitute for the attached reports. UNKNOWN, HIGH and CRITICAL vulnerabilities fail;
 LOW and MEDIUM findings remain in the attached report, with no ignore-unfixed bypass.
 Third-party service images are bound by the signed manifest; they are not re-signed as our code.
@@ -83,11 +85,16 @@ The job requires successful Quality on the exact commit and a clean checkout. On
 files, registry credentials or runtime secrets. Build arguments contain only the platform
 image digest. Python tools/actions and base images are pinned; Git uses a fixed official Debian
 snapshot (normal archive signature verification remains enabled). Tool output is not forwarded
-by the Python runner. Secret and vulnerability scans run **before** pushing. The immutable
-registry reference is scanned again and gets an SBOM, signature and attestation. Only a complete
+by the Python runner. The archived source is secret-scanned. Each image runs bounded, read-only, network-denied
+smoke checks before pushing: platform imports, provider worker/Git/Docker CLI availability,
+and sandbox Python/pytest/Ruff without product code or Git/Docker. Secret and vulnerability
+scans run **before** pushing. The immutable registry reference is scanned again and gets an
+image-bound, nonempty SBOM, signature and attestation. Only a complete
 verified candidate is uploaded as `signed-release-candidate`; failures do not upload evidence.
 Unsigned intermediate uploads are not deployable releases. Commit-labelled transport tags may
-be mutable; only signed digests are consumed. Docker build provenance is not uploaded.
+be mutable; only signed digests are consumed. Automatic Docker build provenance and SBOM
+are explicitly disabled; only the credential-free scanned reports are attached. Every CLI
+workflow installs the frozen project environment rather than relying on host Python packages.
 
 No build has been run by this implementation session. Linux image build, apt snapshot availability,
 scanner databases, vulnerability disposition, Sigstore storage compatibility and GHCR permissions

@@ -31,6 +31,54 @@ def output(command: list[str]) -> str:
     return result.stdout.strip()
 
 
+def smoke_image(name: str, tag: str) -> None:
+    """Exercise real binaries without credentials, mounts, capabilities or network access."""
+    commands = {
+        "PLATFORM_IMAGE": [
+            "python",
+            "-c",
+            "import pr_reliability_api.app; import pr_reliability_workers.worker",
+        ],
+        "ACTIVITY_WORKER_IMAGE": [
+            "sh",
+            "-ec",
+            (
+                "git --version; docker --version; "
+                "command -v pr-reliability-activity-worker; "
+                "python -c 'import pr_reliability_workers.worker'"
+            ),
+        ],
+        "SANDBOX_IMAGE": [
+            "sh",
+            "-ec",
+            (
+                "python --version; python -m pytest --version; ruff --version; "
+                "if command -v git || command -v docker; then exit 1; fi; "
+                "python -c 'import importlib.util; "
+                'assert importlib.util.find_spec("pr_reliability_api") is None; '
+                'assert importlib.util.find_spec("pr_reliability_workers") is None\''
+            ),
+        ],
+    }
+    output(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--network=none",
+            "--read-only",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--pids-limit=64",
+            "--memory=512m",
+            "--cpus=1",
+            "--tmpfs=/tmp:rw,nosuid,nodev,size=64m",
+            tag,
+            *commands[name],
+        ]
+    )
+
+
 def build(
     repository: Path,
     commit: str,
@@ -39,8 +87,9 @@ def build(
     previous_directory: Path | None = None,
 ) -> dict:
     # The workflow additionally checks approved-main Quality before granting registry/OIDC access.
-    if output(["git", "rev-parse", "HEAD"]) != commit or output(
-        ["git", "status", "--porcelain", "--untracked-files=all"]
+    git = ["git", "-C", str(repository.resolve())]
+    if output([*git, "rev-parse", "HEAD"]) != commit or output(
+        [*git, "status", "--porcelain", "--untracked-files=all"]
     ):
         raise ReleaseError("release build requires a clean exact-commit checkout")
     upstream = read_json(upstream_file)
@@ -78,8 +127,9 @@ def build(
         context = Path(temporary) / "context"
         context.mkdir()
         archive = Path(temporary) / "source.tar"
-        output(["git", "archive", "--format=tar", f"--output={archive}", commit])
+        output([*git, "archive", "--format=tar", f"--output={archive}", commit])
         output(["tar", "--extract", "--file", str(archive), "--directory", str(context)])
+        output(["trivy", "fs", "--scanners", "secret", "--exit-code", "1", str(context)])
         for name, suffix, dockerfile in zip(
             OWN_IMAGES,
             ("platform", "provider-activity", "sandbox"),
@@ -101,6 +151,8 @@ def build(
                     "docker",
                     "build",
                     "--platform=linux/amd64",
+                    "--provenance=false",
+                    "--sbom=false",
                     "--file",
                     str(context / dockerfile),
                     "--tag",
@@ -109,6 +161,7 @@ def build(
                     str(context),
                 ]
             )
+            smoke_image(name, tag)
             output(["trivy", "image", "--scanners", "secret", "--exit-code", "1", tag])
             output(
                 [
@@ -152,14 +205,16 @@ def build(
                     images[name],
                 ]
             )
-    value = create_manifest(
-        repository,
-        commit,
-        images,
-        directory,
-        previous,
-        None if previous is None else digest(previous_directory / "release.json"),
-    )
+        # Public configuration and migrations are taken from the archived commit, not
+        # mutable worktree files that could change while the lengthy builds run.
+        value = create_manifest(
+            context,
+            commit,
+            images,
+            directory,
+            previous,
+            None if previous is None else digest(previous_directory / "release.json"),
+        )
     write_json(directory / "release.json", value)
     for name in OWN_IMAGES:
         run_checked(["cosign", "sign", "--yes", images[name]])

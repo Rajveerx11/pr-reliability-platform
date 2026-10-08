@@ -21,7 +21,7 @@ them and names the affected files.
 
 ## Unreleased
 
-### Added signed immutable release machinery (recovery checkpoint)
+### Added signed immutable release machinery
 
 - Issue: [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45), referenced only;
   live acceptance is still open.
@@ -31,9 +31,16 @@ them and names the affected files.
   strict manifest/preflight, authorized disposable staging drill, and gated draft publication.
 - Added release tests beside `infra/release`, registered them in pytest, and documented operator
   infrastructure in `docs/releases.md`. Existing `quality.yml` is unchanged.
-- Checkpoint only: validation and hardening are in progress. No image build, registry write,
-  staging deployment, restore, rollback or GitHub release was executed. Real Linux evidence,
-  independent review and operator approvals remain acceptance blockers; do not close #45.
+- Hardened all release CLI workflows with frozen Python dependencies, credential-free real
+  binary smoke checks before push, archive secret scanning and disabled automatic build provenance.
+  Manifest migrations/configuration come from the archived commit. Report validation rejects empty
+  or cross-image SBOMs, malformed scans and aliased image digests. Sigstore verifies private byte
+  snapshots, not mutable source files.
+- Focused recovery checks: Ruff passes; Python 3.12 release/deployment tests pass (127 passed,
+  2 POSIX-only skips on Windows). Broader validation is pending at this checkpoint.
+- No image build, registry write, staging deployment, restore, rollback or GitHub release was
+  executed. Real Linux evidence, independent review and operator approvals remain acceptance
+  blockers; do not close #45.
 
 ### Refreshed the README and merged-status documentation
 
