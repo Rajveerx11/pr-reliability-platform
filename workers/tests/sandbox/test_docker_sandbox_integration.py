@@ -241,3 +241,57 @@ print('cpu-capped')
 
     assert result.succeeded, result.stderr
     assert result.stdout == "cpu-capped\n"
+
+
+def test_real_container_exports_junit_before_tmpfs_cleanup(tmp_path: Path) -> None:
+    script = """
+from pathlib import Path
+Path('junit.xml').write_text('<testsuite><testcase time="0.25"/><testcase><skipped/></testcase></testsuite>')
+print('bounded verification output')
+"""
+    result = asyncio.run(
+        DockerSandboxRunner().run(
+            SandboxRequest(
+                image=os.environ["SANDBOX_TEST_IMAGE"],
+                workspace=tmp_path,
+                command=("python", "-c", script),
+                report_files=("junit.xml",),
+            )
+        )
+    )
+    assert result.succeeded, result.report_error
+    assert result.report_summaries == (
+        {"passed": 1, "failed": 0, "skipped": 1, "duration_ms": 250},
+    )
+    assert not (tmp_path / "junit.xml").exists()
+
+
+@pytest.mark.parametrize("attack", ["symlink", "hardlink", "malformed", "oversized"])
+def test_real_container_hostile_report_fails_safely(tmp_path: Path, attack: str) -> None:
+    script = """
+import os, sys
+from pathlib import Path
+attack = sys.argv[1]
+if attack == 'symlink':
+    os.symlink('/etc/passwd', 'junit.xml')
+elif attack == 'hardlink':
+    Path('original.xml').write_text('<testsuite/>')
+    os.link('original.xml', 'junit.xml')
+elif attack == 'malformed':
+    Path('junit.xml').write_text('<testsuite>')
+else:
+    Path('junit.xml').write_bytes(b'x' * (2 * 1024 * 1024))
+"""
+    result = asyncio.run(
+        DockerSandboxRunner().run(
+            SandboxRequest(
+                image=os.environ["SANDBOX_TEST_IMAGE"],
+                workspace=tmp_path,
+                command=("python", "-c", script, attack),
+                report_files=("junit.xml",),
+            )
+        )
+    )
+    assert not result.succeeded
+    assert result.report_error == "report_invalid"
+    assert result.report_summaries == ()

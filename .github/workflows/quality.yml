@@ -30,6 +30,11 @@ jobs:
           GITHUB_OAUTH_CLIENT_ID: "test-client"
           GITHUB_OAUTH_CLIENT_SECRET: "test-client-secret"
           SESSION_ENCRYPTION_KEY: "test-key"
+          # Placeholder for manifest interpolation only; not a service startup key.
+          EVIDENCE_ENCRYPTION_KEY: "test-evidence-key"
+          EVIDENCE_MAX_BYTES: "262144"
+          EVIDENCE_RETENTION_SECONDS: "604800"
+          EVIDENCE_SECRET_PATTERNS: "[]"
           GITHUB_LOGIN_ORIGIN: "https://reviews.internal.example"
           GITHUB_ALLOWED_ACCOUNT_ID: "1"
           GITHUB_ADMIN_IDS: "1"

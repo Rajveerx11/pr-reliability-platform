@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import psycopg
+from pr_reliability_evidence import from_environment as evidence_from_environment
 from pr_reliability_proof_adapter import ProofAdapter
 
 from ..activities import (
@@ -82,6 +83,7 @@ def create_operations() -> ActivityOperations:
         workspace_root=staging_root,
         check_policy=check_policy,
         id_factory=_new_ulid,
+        evidence_settings=evidence_from_environment(os.environ),
     )
     verify = SandboxVerificationOperation(
         prepare=core.prepare_verification,

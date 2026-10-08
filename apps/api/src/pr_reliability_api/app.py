@@ -10,6 +10,8 @@ from datetime import timedelta
 import psycopg
 from fastapi import FastAPI, Request
 from opentelemetry import propagate, trace
+from pr_reliability_evidence import EvidenceSettings
+from pr_reliability_evidence import from_environment as evidence_from_environment
 from pr_reliability_observability import configure_telemetry, tracer
 from psycopg import Connection
 from temporalio.client import Client
@@ -28,6 +30,7 @@ def create_app(
     approval_settings: ApprovalInboxSettings | None = None,
     *,
     sessions=None,
+    evidence_settings: EvidenceSettings | None = None,
     workflow_health_check: WorkflowHealthCheck | None = None,
     database_health_check: DatabaseHealthCheck | None = None,
     repository_health_check: DatabaseHealthCheck | None = None,
@@ -50,6 +53,14 @@ def create_app(
     )
     app.include_router(create_github_webhook_router(settings, connection_factory))
     if approval_settings is not None:
+        if evidence_settings is not None:
+            from .evidence.routes import create_evidence_router
+
+            app.include_router(
+                create_evidence_router(
+                    approval_settings, connection_factory, evidence_settings, sessions=sessions
+                )
+            )
         app.include_router(
             create_approval_inbox_router(approval_settings, connection_factory, sessions=sessions)
         )
@@ -124,6 +135,7 @@ def create_app_from_environment() -> FastAPI:
         ),
         approval_settings,
         sessions=sessions,
+        evidence_settings=evidence_from_environment(os.environ),
         workflow_health_check=workflow_health_check,
         database_health_check=_database_health_check(
             database_url,

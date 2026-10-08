@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from pr_reliability_contracts import ReviewCommand
+from pr_reliability_evidence import EvidenceSettings
+from pr_reliability_evidence.store import evidence_reference, persist
 from psycopg import Connection
 
 from ..activities import VerificationEvidence
@@ -77,6 +79,7 @@ class ProductionOperations:
     workspace_root: Path
     check_policy: RepositoryCheckPolicy
     id_factory: IdFactory
+    evidence_settings: EvidenceSettings
     now: Now = lambda: datetime.now(UTC)
 
     async def select_context(self, request: StageRequest) -> StageResult:
@@ -188,6 +191,9 @@ class ProductionOperations:
                     "status": check.status,
                     "reason_code": check.reason_code,
                     "error_code": check.error_code,
+                    "evidence_ref": evidence_reference(
+                        request.owner_id, request.run_id, check.name
+                    ),
                     "exit_code": check.sandbox.exit_code if check.sandbox is not None else None,
                     "duration_ms": check.sandbox.duration_ms if check.sandbox is not None else None,
                     "timed_out": check.sandbox.timed_out if check.sandbox is not None else False,
@@ -207,7 +213,9 @@ class ProductionOperations:
             else None,
             "proof_error": "proof_gate_failed" if evidence.proof_error is not None else None,
         }
-        result = await asyncio.to_thread(self._record_stage, request, data, None)
+        result = await asyncio.to_thread(
+            self._record_verification_artifacts, request, data, evidence
+        )
         if passed:
             await asyncio.to_thread(self._mark_awaiting_approval, request)
         return result
@@ -405,6 +413,55 @@ class ProductionOperations:
                 (request.owner_id, request.run_id, request.idempotency_key),
             ).fetchone()
         return row[0] if row is not None else None
+
+    def _record_verification_artifacts(self, request, event_data, evidence) -> StageResult:
+        with self.connection_factory() as connection, connection.transaction():
+            run = self._locked_run(connection, request)
+            _require_current_run(request, run)
+            _require_active_run(run)
+            existing = _event_data(connection, run.internal_id, request.idempotency_key)
+            if existing is not None:
+                if existing != event_data:
+                    raise RuntimeError("verification retry result does not match its receipt")
+                return StageResult(str(event_data["output_ref"]))
+            for check in evidence.checks:
+                sandbox = check.sandbox
+                payload = {
+                    "check_name": check.name,
+                    "status": check.status,
+                    "reason_code": check.reason_code,
+                    "error_code": check.error_code,
+                    "stdout": sandbox.stdout if sandbox else "",
+                    "stderr": sandbox.stderr if sandbox else "",
+                    "timed_out": sandbox.timed_out if sandbox else False,
+                    "output_limit_exceeded": sandbox.output_limit_exceeded if sandbox else False,
+                    "duration_ms": sandbox.duration_ms if sandbox else None,
+                    "exit_code": sandbox.exit_code if sandbox else None,
+                    "report_summaries": sandbox.report_summaries if sandbox else (),
+                    "report_error": sandbox.report_error if sandbox else None,
+                }
+                persist(
+                    connection,
+                    self.evidence_settings,
+                    owner_id=request.owner_id,
+                    run_id=run.internal_id,
+                    reference=evidence_reference(request.owner_id, request.run_id, check.name),
+                    check_name=check.name,
+                    payload=payload,
+                    expiry_event_id=self.id_factory(),
+                    now=self.now(),
+                )
+            _insert_event(
+                connection,
+                self.id_factory(),
+                request.owner_id,
+                run.internal_id,
+                request.idempotency_key,
+                "activity.verify.completed",
+                event_data,
+                self.now(),
+            )
+        return StageResult(str(event_data["output_ref"]))
 
     def _record_stage(
         self,

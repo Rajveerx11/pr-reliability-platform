@@ -21,6 +21,10 @@ substitution; only values explicitly listed under a service's `environment` ente
 | `GITHUB_ADMIN_IDS` | API | Required comma-separated numeric administrator IDs |
 | `GITHUB_REVIEWER_IDS` | API | Optional comma-separated numeric reviewer IDs |
 | `SESSION_ENCRYPTION_KEY` | API | External Fernet key for persisted user access tokens |
+| `EVIDENCE_ENCRYPTION_KEY` | API, activities | Required shared external Fernet key for check evidence |
+| `EVIDENCE_MAX_BYTES` | API, activities | Plaintext bound; default `262144`, range `4096`–`10485760` |
+| `EVIDENCE_RETENTION_SECONDS` | API, activities | Default `604800`, range `60`–`7776000` |
+| `EVIDENCE_SECRET_PATTERNS` | API, activities | JSON list of literal strings; default `[]` |
 | `GITHUB_INSTALLATION_ID` | API, activities, sync | Required positive installation ID |
 | `GITHUB_WEBHOOK_SECRET` | API | Required HMAC secret |
 | `GITHUB_APP_ID` | API, activities, sync | Required positive App ID; API authenticates Check Run reruns |
@@ -29,6 +33,9 @@ substitution; only values explicitly listed under a service's `environment` ente
 | `HEALTH_CHECK_TIMEOUT_SECONDS` | API | Positive seconds; default `2` per readiness dependency |
 
 See [GitHub login](authentication.md) for provisioning, sessions, revocation, and local TLS.
+See [verification evidence](verification-evidence.md) for external key setup, redaction and expiry.
+Both Compose manifests forward evidence settings to the API and activity worker. The VM preflight
+rejects missing/invalid evidence keys or settings before startup.
 The production API no longer reads `APPROVAL_ACTOR_ID` or `APPROVAL_REVIEWER_TOKEN`.
 The API receives no GitHub private key. Sync receives no model key or Docker socket.
 Inventory runs every 60 seconds with a 120-second whole-sync timeout and a 15-minute freshness

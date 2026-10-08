@@ -11,7 +11,7 @@ import time
 import uuid
 from collections.abc import Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -22,6 +22,7 @@ from .models import (
     SandboxRuntimeError,
     SandboxUnavailableError,
 )
+from .reports import export_reports
 
 _CONTROL_TIMEOUT_SECONDS = 30.0
 _CONTROL_OUTPUT_BYTES = 16 * 1024
@@ -131,8 +132,28 @@ class DockerSandboxRunner:
                 )
                 _require_control_success(created, "create sandbox container")
 
+                if request.report_files:
+                    # Keep tmpfs mounted until read-only report export completes.
+                    # The same isolation limits apply to the exec command.
+                    started = await self._runtime.execute(
+                        ("start", container_name),
+                        timeout_seconds=_CONTROL_TIMEOUT_SECONDS,
+                        output_limit_bytes=_CONTROL_OUTPUT_BYTES,
+                    )
+                    _require_control_success(started, "start report sandbox")
+                    command = (
+                        "exec",
+                        container_name,
+                        "/bin/sh",
+                        "-c",
+                        _COPY_COMMAND,
+                        "sandbox-entry",
+                        *request.command,
+                    )
+                else:
+                    command = ("start", "--attach", container_name)
                 attached = await self._runtime.execute(
-                    ("start", "--attach", container_name),
+                    command,
                     timeout_seconds=request.limits.timeout_seconds,
                     output_limit_bytes=request.limits.output_bytes,
                 )
@@ -150,24 +171,32 @@ class DockerSandboxRunner:
                 elif attached.return_code is None:
                     raise SandboxRuntimeError("sandbox attach returned no process status")
                 else:
-                    inspected = await self._runtime.execute(
-                        ("inspect", "--format", "{{.State.ExitCode}}", container_name),
-                        timeout_seconds=_CONTROL_TIMEOUT_SECONDS,
-                        output_limit_bytes=_CONTROL_OUTPUT_BYTES,
-                    )
-                    _require_control_success(inspected, "read sandbox exit status")
-                    try:
-                        exit_code = int(inspected.stdout.strip())
-                    except ValueError as error:
-                        raise SandboxRuntimeError(
-                            "sandbox returned an invalid exit status"
-                        ) from error
+                    if request.report_files:
+                        exit_code = attached.return_code
+                    else:
+                        inspected = await self._runtime.execute(
+                            ("inspect", "--format", "{{.State.ExitCode}}", container_name),
+                            timeout_seconds=_CONTROL_TIMEOUT_SECONDS,
+                            output_limit_bytes=_CONTROL_OUTPUT_BYTES,
+                        )
+                        _require_control_success(inspected, "read sandbox exit status")
+                        try:
+                            exit_code = int(inspected.stdout.strip())
+                        except ValueError as error:
+                            raise SandboxRuntimeError(
+                                "sandbox returned an invalid exit status"
+                            ) from error
                     result = SandboxResult(
                         exit_code=exit_code,
                         stdout=_decode(attached.stdout),
                         stderr=_decode(attached.stderr),
                         duration_ms=duration_ms,
                     )
+                    if request.report_files:
+                        summaries, error = await export_reports(
+                            self._runtime, container_name, request.report_files
+                        )
+                        result = replace(result, report_summaries=summaries, report_error=error)
         finally:
             if create_attempted:
                 await self._remove_container(container_name)
@@ -310,9 +339,11 @@ def _create_arguments(
         request.image,
         "/bin/sh",
         "-c",
-        _COPY_COMMAND,
-        "sandbox-entry",
-        *request.command,
+        *(
+            ("exec sleep 1200",)
+            if request.report_files
+            else (_COPY_COMMAND, "sandbox-entry", *request.command)
+        ),
     )
 
 

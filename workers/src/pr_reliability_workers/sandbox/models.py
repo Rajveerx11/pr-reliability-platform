@@ -91,8 +91,12 @@ class SandboxRequest:
     workspace: Path
     command: tuple[str, ...]
     limits: SandboxLimits = SandboxLimits()
+    report_files: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        from .reports import validate_report_files
+
+        validate_report_files(self.report_files)
         if not isinstance(self.workspace, Path):
             raise TypeError("sandbox workspace must be a Path")
         if not isinstance(self.command, tuple):
@@ -123,10 +127,18 @@ class SandboxResult:
     duration_ms: int
     timed_out: bool = False
     output_limit_exceeded: bool = False
+    report_summaries: tuple[dict[str, int], ...] = ()
+    report_error: str | None = None
 
     @property
     def succeeded(self) -> bool:
-        return self.exit_code == 0 and not self.timed_out and not self.output_limit_exceeded
+        return (
+            self.exit_code == 0
+            and not self.timed_out
+            and not self.output_limit_exceeded
+            and self.report_error is None
+            and not any(summary["failed"] for summary in self.report_summaries)
+        )
 
 
 class SandboxError(RuntimeError):

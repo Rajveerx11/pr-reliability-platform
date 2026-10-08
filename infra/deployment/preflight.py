@@ -42,6 +42,7 @@ _REQUIRED_VALUES = (
     "GITHUB_OAUTH_CLIENT_ID",
     "GITHUB_OAUTH_CLIENT_SECRET",
     "SESSION_ENCRYPTION_KEY",
+    "EVIDENCE_ENCRYPTION_KEY",
     "GITHUB_LOGIN_ORIGIN",
     "GITHUB_ALLOWED_ACCOUNT_ID",
     "GITHUB_ADMIN_IDS",
@@ -111,6 +112,12 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
         from_environment(values["OWNER_ID"], int(values["GITHUB_INSTALLATION_ID"]), values)
     except (ValueError, TypeError):
         raise PreflightError("invalid GitHub login configuration") from None
+    from pr_reliability_evidence import from_environment as evidence_from_environment
+
+    try:
+        evidence_from_environment(values)
+    except (ValueError, TypeError, RuntimeError):
+        raise PreflightError("invalid evidence configuration") from None
     if len(values["GITHUB_OAUTH_CLIENT_SECRET"]) < 20 or values[
         "GITHUB_OAUTH_CLIENT_SECRET"
     ].startswith("replace-"):

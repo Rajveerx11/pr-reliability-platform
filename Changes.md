@@ -21,6 +21,50 @@ them and names the affected files.
 
 ## Unreleased
 
+### Issue #42 independent review corrections
+
+- Hide the evidence encryption key and literal secret patterns from `EvidenceSettings` repr,
+  including when embedded in `ProductionOperations`. Preserve constructor defaults and add
+  direct and nested repr regressions for [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42)
+  and [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
+- Issue: [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42).
+  Decision: [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
+- Reject unsupported XML namespaces anywhere, including namespaced failure/testcase elements
+  and attributes. Redact configured secret prefixes at runtime capture cutoffs before encryption
+  and on display, including incomplete UTF-8 boundaries. Added focused regression tests.
+- Persist the actual runtime timeout flag so encryption redacts partial configured secrets even
+  when output did not overflow. Added production database regressions for a real local-runtime
+  timeout without overflow, output overflow, report validation errors, unchanged receipt facts
+  and skipped defaults.
+- Reapply boundary redaction when the evidence storage byte budget cuts log text. Added raw
+  authenticated-plaintext regressions for both streams so display-time redaction cannot hide a leak.
+- Forward the required external evidence key and bounded settings to API/activity services in
+  local and VM Compose. Validate evidence settings in VM preflight; update operator templates,
+  configuration notes, CI manifest placeholders and regression fixtures. No release/deploy changes.
+- Focused Windows validation: 216 passed, 24 skipped (PostgreSQL, real Docker and POSIX/Linux
+  prerequisites); Ruff lint/format, compileall, both Compose config checks and missing-key rejection
+  passed. Parent review, CodeRabbit, full Linux CI and live operator acceptance remain required.
+
+### Bounded encrypted verification evidence
+
+- Linked to [issue #42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42),
+  [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence), and
+  [acceptance plan](plan/issue-42.md).
+- Added shared encrypted/redacted bounded evidence storage, migration 0009, configurable
+  retention, transactional expiry tombstones, and an operator maintenance command.
+- Exported operator-approved report files read-only from live disposable containers before
+  removal, rejecting links and unsafe files; added resource-bounded JUnit summaries.
+- Wired production verification receipts to opaque references, owner/repository-scoped JSON
+  display/download routes, and dashboard finding links to run-level check summaries and logs.
+- Added parser, redaction, truncation, extraction, isolation, expiry, and database regression
+  tests plus [deployment seam notes](docs/verification-evidence.md). Protected in-flight dashboard
+  details at sign-out and bounded log display on mobile. Kept allowlist validation stdlib-only
+  for existing release preflight, and normalized disposable Windows Git test fixtures.
+- Local validation: 149 focused checks and 572 full-suite checks passed with 21/28 explicit
+  platform skips; format/lint, build and fixture browser checks passed. Linux Docker CI,
+  independent review and real deployment evidence remain required; local checks are not staging
+  evidence. Exact evidence and corrected earlier failures are in the issue acceptance plan.
+
 ### Refreshed the README and merged-status documentation
 
 - Scope: [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46) production-readiness tracking.
