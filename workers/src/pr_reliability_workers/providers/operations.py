@@ -433,6 +433,7 @@ class ProductionOperations:
                     "error_code": check.error_code,
                     "stdout": sandbox.stdout if sandbox else "",
                     "stderr": sandbox.stderr if sandbox else "",
+                    "timed_out": sandbox.timed_out if sandbox else False,
                     "output_limit_exceeded": sandbox.output_limit_exceeded if sandbox else False,
                     "duration_ms": sandbox.duration_ms if sandbox else None,
                     "exit_code": sandbox.exit_code if sandbox else None,

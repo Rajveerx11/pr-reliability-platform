@@ -28,6 +28,9 @@ them and names the affected files.
 - Reject unsupported XML namespaces anywhere, including namespaced failure/testcase elements
   and attributes. Redact configured secret prefixes at runtime capture cutoffs before encryption
   and on display, including incomplete UTF-8 boundaries. Added focused regression tests.
+- Persist the actual runtime timeout flag so encryption redacts partial configured secrets even
+  when output did not overflow. Added production database regressions for timeout-only cutoffs,
+  output overflow, report validation errors, unchanged receipt facts and skipped defaults.
 - Forward the required external evidence key and bounded settings to API/activity services in
   local and VM Compose. Validate evidence settings in VM preflight; update operator templates,
   configuration notes, CI manifest placeholders and regression fixtures. No release/deploy changes.
