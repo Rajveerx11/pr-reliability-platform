@@ -429,3 +429,28 @@ def _option(arguments: tuple[str, ...], name: str) -> str:
 
 def _options(arguments: tuple[str, ...], name: str) -> list[str]:
     return [arguments[index + 1] for index, value in enumerate(arguments) if value == name]
+
+
+def test_runtime_truncated_secret_is_redacted_before_evidence_persistence() -> None:
+    from cryptography.fernet import Fernet
+    from pr_reliability_evidence import EvidenceSettings
+
+    secret = "synthetic-credential-0123456789ABCDEF"
+    result = asyncio.run(
+        LocalDockerRuntime(sys.executable).execute(
+            ("-c", f"import sys; sys.stdout.write({secret!r})"),
+            timeout_seconds=5,
+            output_limit_bytes=16,
+        )
+    )
+    assert result.output_limit_exceeded
+    assert result.stdout == secret[:16].encode()
+    config = EvidenceSettings(Fernet.generate_key(), secret_patterns=(secret,))
+    encrypted, _ = config.encrypt(
+        {
+            "stdout": result.stdout.decode(),
+            "stderr": result.stderr.decode(),
+            "output_limit_exceeded": result.output_limit_exceeded,
+        }
+    )
+    assert config.decrypt(encrypted)["stdout"] == "[redacted]\n[truncated]"

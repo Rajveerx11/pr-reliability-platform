@@ -81,3 +81,26 @@ def test_references_are_opaque_stable_and_owner_run_scoped():
         == 4
     )
     assert "owner" not in evidence_reference("owner", "run", "unit")
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+@pytest.mark.parametrize("cutoff", range(1, 35))
+def test_runtime_cutoff_redacts_every_configured_secret_prefix(stream, cutoff):
+    secret = "synthetic-credential-0123456789ABCDEF"
+    config = settings(secret_patterns=(secret,))
+    payload = {"stdout": "", "stderr": "", "output_limit_exceeded": True}
+    payload[stream] = "safe: " + secret[:cutoff]
+    encrypted, _ = config.encrypt(payload)
+    assert config.decrypt(encrypted)[stream] == "safe: [redacted]" + TRUNCATION_MARKER
+
+
+def test_runtime_cutoff_redacts_partial_utf8_and_current_rule_prefixes():
+    key = Fernet.generate_key()
+    old = EvidenceSettings(key)
+    encrypted, _ = old.encrypt(
+        {"stdout": "safe: credential\ufffd", "stderr": "", "output_limit_exceeded": True}
+    )
+    current = EvidenceSettings(key, secret_patterns=("credential😀secret",))
+    assert current.decrypt(encrypted)["stdout"] == "safe: [redacted]" + TRUNCATION_MARKER
+    encrypted, _ = current.encrypt({"stdout": "credential\ufffd", "stderr": "", "timed_out": True})
+    assert current.decrypt(encrypted)["stdout"] == "[redacted]"

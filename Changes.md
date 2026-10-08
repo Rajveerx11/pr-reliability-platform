@@ -21,6 +21,14 @@ them and names the affected files.
 
 ## Unreleased
 
+### Issue #42 independent review corrections
+
+- Issue: [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42).
+  Decision: [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
+- Reject unsupported XML namespaces anywhere, including namespaced failure/testcase elements
+  and attributes. Redact configured secret prefixes at runtime capture cutoffs before encryption
+  and on display, including incomplete UTF-8 boundaries. Added focused regression tests.
+
 ### Bounded encrypted verification evidence
 
 - Linked to [issue #42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42),

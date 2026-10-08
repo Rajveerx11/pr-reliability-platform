@@ -15,7 +15,7 @@ class ReportError(ValueError):
 def summarize_junit(raw: bytes) -> dict[str, int]:
     if not raw or len(raw) > MAX_REPORT_BYTES:
         raise ReportError("report_invalid")
-    parser = expat.ParserCreate()
+    parser = expat.ParserCreate(namespace_separator="}")
     summary = {"passed": 0, "failed": 0, "skipped": 0, "duration_ms": 0}
     depth = elements = 0
     active = None
@@ -29,6 +29,8 @@ def summarize_junit(raw: bytes) -> dict[str, int]:
         depth += 1
         elements += 1
         if depth > 32 or elements > MAX_XML_ELEMENTS:
+            reject()
+        if "}" in name or any("}" in attribute for attribute in attrs):
             reject()
         if root is None:
             root = name
@@ -60,6 +62,8 @@ def summarize_junit(raw: bytes) -> dict[str, int]:
             active = None
         depth -= 1
 
+    # Namespace declarations anywhere (including unused prefixes) are unsupported.
+    parser.StartNamespaceDeclHandler = reject
     parser.StartElementHandler = start
     parser.EndElementHandler = end
     parser.StartDoctypeDeclHandler = reject

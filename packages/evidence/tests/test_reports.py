@@ -38,3 +38,18 @@ def test_junit_counts_cases_not_untrusted_suite_aggregates():
 def test_malformed_oversized_and_hostile_xml_fail_safely(raw):
     with pytest.raises(ReportError, match="report_invalid"):
         summarize_junit(raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'<testsuite xmlns:j="urn:junit"><testcase><j:failure/></testcase></testsuite>',
+        b'<testsuite xmlns:j="urn:junit"><j:testcase time="nan"/></testsuite>',
+        b'<testsuite><testcase xmlns="urn:junit"><failure/></testcase></testsuite>',
+        b'<testsuite><testcase><failure xmlns:j="urn:unused"/></testcase></testsuite>',
+        b'<testsuite><testcase xml:space="preserve"/></testsuite>',
+    ],
+)
+def test_namespaces_anywhere_fail_closed(raw):
+    with pytest.raises(ReportError, match="report_invalid"):
+        summarize_junit(raw)

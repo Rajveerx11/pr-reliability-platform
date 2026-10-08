@@ -36,17 +36,36 @@ class EvidenceSettings:
     def retention(self):
         return timedelta(seconds=self.retention_seconds)
 
-    def redact(self, text: str) -> str:
+    def redact(self, text: str, *, truncated: bool = False) -> str:
+        marker = TRUNCATION_MARKER if text.endswith(TRUNCATION_MARKER) else ""
+        if marker:
+            text = text[: -len(marker)]
+            truncated = True
+        if truncated:
+            # Runtime capture precedes redaction. A cutoff can leave any secret prefix,
+            # including a replacement character from an incomplete UTF-8 codepoint.
+            boundary = text.rstrip("\ufffd")
+            longest = 0
+            for pattern in self.secret_patterns:
+                for size in range(min(len(boundary), len(pattern)), longest, -1):
+                    if boundary.endswith(pattern[:size]):
+                        longest = size
+                        break
+            if longest:
+                text = boundary[:-longest] + "[redacted]"
         for pattern in sorted(self.secret_patterns, key=len, reverse=True):
             text = text.replace(pattern, "[redacted]")
-        return text
+        return text + marker
 
     def encrypt(self, payload: dict) -> tuple[bytes, int]:
         safe = dict(payload)
         # Allow ample bounded space for summaries, escaping and JSON structure.
         budget = self.max_bytes // 16
         for name in ("stdout", "stderr"):
-            text = self.redact(str(safe.get(name, "")))
+            text = self.redact(
+                str(safe.get(name, "")),
+                truncated=bool(safe.get("output_limit_exceeded") or safe.get("timed_out")),
+            )
             raw = text.encode("utf-8")
             if len(raw) > budget or safe.get("output_limit_exceeded"):
                 text = raw[:budget].decode("utf-8", errors="ignore") + TRUNCATION_MARKER
