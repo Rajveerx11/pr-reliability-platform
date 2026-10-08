@@ -1,0 +1,103 @@
+name: Build signed release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_images_json:
+        description: Public JSON of the five reviewed third-party image digests (never secrets)
+        required: true
+        type: string
+      previous_run_id:
+        description: Previous signed release-build run ID; empty only for bootstrap
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-release-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: approved-release-build
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.12.7'
+          python-version: '3.12'
+      - run: uv sync --frozen
+      - name: Require successful main Quality for this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ github.sha }}
+          PREVIOUS_RUN: ${{ inputs.previous_run_id }}
+          UPSTREAM_IMAGES: ${{ inputs.upstream_images_json }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          from infra.release.manifest import OWN_IMAGES, IMAGE_KEYS, validate_images
+          assert not os.environ['PREVIOUS_RUN'] or os.environ['PREVIOUS_RUN'].isdigit()
+          runs = json.loads(subprocess.check_output([
+              'gh', 'run', 'list', '--repo', 'Rajveerx11/pr-reliability-platform',
+              '--workflow', 'quality.yml', '--branch', 'main', '--event', 'push',
+              '--commit', os.environ['COMMIT'], '--json', 'headSha,status,conclusion', '--limit', '10'
+          ]))
+          assert runs and runs[0]['headSha'] == os.environ['COMMIT']
+          assert runs[0]['status'] == 'completed' and runs[0]['conclusion'] == 'success'
+          upstream = json.loads(os.environ['UPSTREAM_IMAGES'])
+          assert set(upstream) == set(IMAGE_KEYS) - set(OWN_IMAGES)
+          validate_images({**upstream, **{name: f'ghcr.io/validation/{name.lower()}@sha256:{i+1:064x}' for i,name in enumerate(OWN_IMAGES)}})
+          Path('/tmp/upstream-images.json').write_text(json.dumps(upstream))
+          PY
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: inputs.previous_run_id != ''
+        with:
+          name: signed-release-candidate
+          path: /tmp/previous-release
+          run-id: ${{ inputs.previous_run_id }}
+          github-token: ${{ github.token }}
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.75.0
+          cache: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build credential-free archived source, scan, push by digest, sign and verify
+        env:
+          COMMIT: ${{ github.sha }}
+          PREVIOUS_RUN: ${{ inputs.previous_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ -n "$PREVIOUS_RUN" ]]; then args+=(--previous /tmp/previous-release); fi
+          uv run python -m infra.release build --commit "$COMMIT" --upstream-images /tmp/upstream-images.json --output /tmp/release-candidate "${args[@]}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-release-candidate
+          path: /tmp/release-candidate/
+          if-no-files-found: error
+          retention-days: 90
