@@ -48,6 +48,22 @@ them and names the affected files.
 
 ## Unreleased
 
+### Integrate signed release tooling with evidence and runner operations (#45)
+
+- Integrate existing PR62 with merged PR61/#42 and PR63/#43 at main `ee8b6d6`,
+  retaining both audit parents and unchanged migrations 0009 and 0010.
+- Preserve encrypted evidence/redaction settings, runner monitoring, private alerts,
+  pending queue observations and backup receipts. Release fixtures use the actual combined
+  configuration and migration chain; source image and wheel packaging retain both features.
+- Keep signed manifest/snapshot/controlled Compose verification and eight-image SBOM/scan
+  policies. Release workflows remain manual-only; no publication on a main push.
+- Sync scoped status documentation: #42/#43 are merged and release tooling is implemented
+  in this candidate. Live #45/#14/#15/#38 acceptance remains open. Real Linux signed artifacts,
+  staging, backup restore, rollback and protected environments are still required. Publication
+  requires separate approval; local synthetic fixtures are not production evidence.
+- References: [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45),
+  [DEC-013](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation).
+
 ### Integrate runner operations with bounded evidence (#43)
 
 - Merge existing PR63 runner operations with PR61 evidence at main `ef742b8` without
@@ -124,6 +140,73 @@ them and names the affected files.
   17 skipped and reproduced the baseline Windows read-only Git-pack cleanup failure.
 - Docker/Linux and LSP checks, live receiver, VM recovery, backup/restore and independent
   review remained unverified at recovery; see the later corrections in `docs/operations.md`.
+### Bound staging to retained release bytes (#45)
+
+- References [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45), not closes.
+  Decisions: [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout)
+  and [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+- `infra/release/staging.py` authenticates the retained candidate/rollback directories, not
+  mutable source paths. Private environment copies select those same retained releases for
+  preflight and every staging tool. Original release/environment mutation checks remain.
+- Added adjacent regressions for a transient same-commit A→B→A swap during verification and
+  preflight: approved A inputs deploy only A; B inputs cannot produce a deployment or receipt.
+  Real manifest/evidence/preflight plumbing is exercised with synthetic Cosign/tool boundaries.
+- Corrected `docs/releases.md` to require scan/SBOM pairs for all eight images and describe
+  tag-before-draft publication, matching tag/complete-draft retries and fail-closed conflicts.
+- Windows/Python 3.14.3 local checks: release/deployment tests 164 passed, 2 POSIX-only skips;
+  Ruff lint/format, compileall and release CLI help passed. `pylsp` is unavailable (missing module).
+- No real Linux build, signing, staging, restore, rollback or publication was performed. Full
+  #45 acceptance, parent independent review and required Linux CI remain external gates.
+
+### Corrected release review findings (#45)
+
+- References [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45), not closes.
+  Decisions: [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout)
+  and [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+- `infra/release/compose.py`, `verify.py` and `staging.py` use a controlled process environment
+  and compare rendered Compose service/sandbox images with the authenticated manifest. Backup,
+  restore, health and E2E subprocesses use the same controlled environment.
+- `snapshot.py`, `verify.py`, `gate.py`, `staging.py` and `publish.py` retain authenticated
+  artifact bytes/checksums through the whole operation. Late swaps and different same-commit
+  builds cannot change the tested receipt or published attachments.
+- Publication explicitly creates and verifies the approved lightweight GitHub tag before a draft.
+  It never replaces refs or attachments; matching tag-only attempts and complete drafts can retry.
+  Conflicting tags, already-public releases, partial/mismatched drafts and races fail closed.
+- `build.py` and the strict manifest schema now require scan/SBOM evidence for all eight images,
+  including the five upstream digests. The signed manifest binds upstream evidence; only the
+  three owned images are pushed, image-signed and SBOM-attested by this repository.
+- All three release workflows pin the uv binary to 0.12.7 (the local validated version),
+  independently of the pinned setup-uv action. Workflow regression checks the exact version.
+- Added/updated adjacent regressions for all five review findings. Windows/Python 3.14.3 checks:
+  release tests 129 passed; deployment tests 32 passed, 2 POSIX-only skips; repository Ruff lint
+  and format pass. `pylsp --help` fails because its Python module is not installed.
+- No live build, deployment, restore, rollback, signing or publication was performed. Independent
+  review, CodeRabbit/CI and full #45 live Linux acceptance remain external gates; do not close #45.
+
+### Added signed immutable release machinery
+
+- Issue: [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45), referenced only;
+  live acceptance is still open.
+- Decisions: [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout)
+  and [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+- Recovered separate platform/activity/sandbox build, scan, SBOM and Sigstore verification,
+  strict manifest/preflight, authorized disposable staging drill, and gated draft publication.
+- Added release tests beside `infra/release`, registered them in pytest, and documented operator
+  infrastructure in `docs/releases.md`. Existing `quality.yml` is unchanged.
+- Hardened all release CLI workflows with frozen Python dependencies, credential-free real
+  binary smoke checks before push, archive secret scanning and disabled automatic build provenance.
+  Manifest migrations/configuration come from the archived commit. Report validation rejects empty
+  or cross-image SBOMs, malformed scans and aliased image digests. Sigstore verifies private byte
+  snapshots, not mutable source files.
+- Recovery checks on Windows/Python 3.12: Ruff format/check, compileall, release CLI help and
+  both Compose syntax checks pass. Release/deployment tests: 127 passed, 2 POSIX-only skips.
+  Full pytest (no exclusions): 466 passed, 159 skipped, 1 dependency deprecation warning.
+  Skips need PostgreSQL (142), Docker (8) or Linux/POSIX (9); they are not integration acceptance.
+  All 95 release tests are registered in the default pytest suite. LSP diagnostics are unavailable
+  through this implementation session's tool API.
+- No image build, registry write, staging deployment, restore, rollback or GitHub release was
+  executed. Real Linux evidence, independent review and operator approvals remain acceptance
+  blockers; do not close #45.
 
 ### Refreshed the README and merged-status documentation
 

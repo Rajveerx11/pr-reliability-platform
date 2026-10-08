@@ -50,6 +50,17 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "GITHUB_OAUTH_CLIENT_SECRET": "r" * 32,
         "SESSION_ENCRYPTION_KEY": Fernet.generate_key().decode(),
         "EVIDENCE_ENCRYPTION_KEY": Fernet.generate_key().decode(),
+        "EVIDENCE_MAX_BYTES": "262144",
+        "EVIDENCE_RETENTION_SECONDS": "604800",
+        "EVIDENCE_SECRET_PATTERNS": "[]",
+        # Synthetic release inputs; individual tests inject or authenticate their own artifacts.
+        "RELEASE_DIRECTORY": str(tmp_path / "release"),
+        "RELEASE_COMMIT": "1" * 40,
+        "DEPLOYMENT_CONFIG_VERSION": "sha256:" + "2" * 64,
+        "WORKFLOW_RUNNER_ID": "workflow-fixture",
+        "ACTIVITY_RUNNER_ID": "activity-fixture",
+        "RUNNER_VERSION": "fixture",
+        "RUNNER_CAPACITY": "4",
         "GITHUB_LOGIN_ORIGIN": "https://reviews.internal.example",
         "GITHUB_ALLOWED_ACCOUNT_ID": "1",
         "GITHUB_ADMIN_IDS": "1",
@@ -106,13 +117,29 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     return repository, environment_file, values
 
 
-def test_preflight_accepts_external_secrets_private_tls_and_digest_images(
+def test_preflight_accepts_valid_environment_after_release_verification(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repository, environment_file, values = _deployment_files(tmp_path)
     monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
 
+    from infra.release import verify
+
+    verified = []
+    monkeypatch.setattr(
+        verify, "validate_deployment_release", lambda repo, env: verified.append((repo, env))
+    )
     assert validate_environment(repository, environment_file) == values
+    assert verified == [(repository, values)]
+
+
+def test_preflight_rejects_missing_signed_release(tmp_path, monkeypatch):
+    repository, environment_file, values = _deployment_files(tmp_path)
+    del values["RELEASE_DIRECTORY"]
+    environment_file.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
+    monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
+    with pytest.raises(PreflightError, match="RELEASE_DIRECTORY"):
+        validate_environment(repository, environment_file)
 
 
 def test_every_image_in_shipped_environment_example_is_rejected(
