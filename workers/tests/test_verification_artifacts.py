@@ -18,6 +18,26 @@ from test_production_operations import OWNER_ID, RUN_ID, _check_policy, _seed, c
 __all__ = ["connection_factory"]
 
 
+def test_production_operations_repr_hides_evidence_secrets():
+    key = Fernet.generate_key()
+    secret = "synthetic-operations-repr-secret"
+    settings = EvidenceSettings(key, secret_patterns=(secret,))
+    operations = ProductionOperations(
+        lambda: None,
+        None,
+        None,
+        Path("."),
+        _check_policy(),
+        lambda: "synthetic-id",
+        settings,
+    )
+    assert key.decode() not in repr(operations)
+    assert secret not in repr(operations)
+    assert "evidence_settings=EvidenceSettings(" in repr(operations)
+    assert operations.evidence_settings is settings
+    assert callable(operations.now)
+
+
 def test_verification_artifacts_are_encrypted_redacted_bounded_and_idempotent(connection_factory):
     head = "b" * 40
     _seed(connection_factory, "a" * 40, head)

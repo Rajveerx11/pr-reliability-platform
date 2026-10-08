@@ -13,6 +13,26 @@ def settings(**kwargs):
     return EvidenceSettings(Fernet.generate_key(), **kwargs)
 
 
+def test_settings_repr_hides_key_and_literal_secret_patterns():
+    key = Fernet.generate_key()
+    secret = "synthetic-repr-secret"
+    config = EvidenceSettings(key, 4096, 60, (secret,))
+    assert key.decode() not in repr(config)
+    assert secret not in repr(config)
+    assert repr(config) == "EvidenceSettings(max_bytes=4096, retention_seconds=60)"
+    assert config.key == key
+    assert config.secret_patterns == (secret,)
+
+
+def test_settings_constructor_preserves_defaults():
+    key = Fernet.generate_key()
+    config = EvidenceSettings(key)
+    assert config.key == key
+    assert config.max_bytes == 256 * 1024
+    assert config.retention_seconds == 7 * 86400
+    assert config.secret_patterns == ()
+
+
 def test_ciphertext_redacts_before_truncating_and_is_authenticated():
     config = settings(max_bytes=4096, secret_patterns=("token-value",))
     payload = {

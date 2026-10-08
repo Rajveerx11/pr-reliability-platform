@@ -23,6 +23,10 @@ them and names the affected files.
 
 ### Issue #42 independent review corrections
 
+- Hide the evidence encryption key and literal secret patterns from `EvidenceSettings` repr,
+  including when embedded in `ProductionOperations`. Preserve constructor defaults and add
+  direct and nested repr regressions for [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42)
+  and [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
 - Issue: [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42).
   Decision: [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
 - Reject unsupported XML namespaces anywhere, including namespaced failure/testcase elements

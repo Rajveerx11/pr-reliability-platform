@@ -2,7 +2,7 @@
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from cryptography.fernet import Fernet
@@ -12,10 +12,10 @@ TRUNCATION_MARKER = "\n[truncated]"
 
 @dataclass(frozen=True)
 class EvidenceSettings:
-    key: bytes
+    key: bytes = field(repr=False)
     max_bytes: int = 256 * 1024
     retention_seconds: int = 7 * 86400
-    secret_patterns: tuple[str, ...] = ()
+    secret_patterns: tuple[str, ...] = field(default=(), repr=False)
 
     def __post_init__(self):
         Fernet(self.key)
