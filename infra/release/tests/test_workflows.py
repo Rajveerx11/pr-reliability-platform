@@ -74,3 +74,9 @@ def test_all_release_clis_use_frozen_project_dependencies():
                 if "-m infra.release" in step.get("run", ""):
                     assert index > install
                     assert "uv run python -m infra.release" in step["run"]
+
+
+def test_uv_binary_is_exactly_pinned_in_all_release_workflows():
+    for name in ("release-build", "release-staging", "release-publication"):
+        content = (ROOT / f".github/workflows/{name}.yml").read_text()
+        assert "          version: '0.12.7'" in content

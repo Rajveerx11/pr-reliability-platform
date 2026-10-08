@@ -38,6 +38,8 @@ them and names the affected files.
 - `build.py` and the strict manifest schema now require scan/SBOM evidence for all eight images,
   including the five upstream digests. The signed manifest binds upstream evidence; only the
   three owned images are pushed, image-signed and SBOM-attested by this repository.
+- All three release workflows pin the uv binary to 0.12.7 (the local validated version),
+  independently of the pinned setup-uv action. Workflow regression checks the exact version.
 - Added/updated adjacent regressions for all five review findings. Windows/Python 3.14.3 checks:
   release tests 129 passed; deployment tests 32 passed, 2 POSIX-only skips; repository Ruff lint
   and format pass. `pylsp --help` fails because its Python module is not installed.

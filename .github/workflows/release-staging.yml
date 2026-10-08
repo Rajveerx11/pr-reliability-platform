@@ -58,6 +58,7 @@ jobs:
           github-token: ${{ github.token }}
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version: '0.12.7'
           python-version: '3.12'
       - run: uv sync --frozen
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2

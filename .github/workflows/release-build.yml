@@ -36,6 +36,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
+          version: '0.12.7'
           python-version: '3.12'
       - run: uv sync --frozen
       - name: Require successful main Quality for this exact commit
