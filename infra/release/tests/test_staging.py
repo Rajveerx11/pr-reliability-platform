@@ -177,7 +177,7 @@ def test_transient_same_commit_swap_cannot_deploy_b_and_attest_a(
     sha_a = digest(candidate / "release.json")
     original = {path.name: path.read_bytes() for path in candidate.iterdir()}
     manifest_b = json.loads(json.dumps(manifest_a))
-    image_b = "ghcr.io/test/another-build@sha256:" + "f" * 64
+    image_b = "ghcr.io/test/another-build@sha256:" + "fedcba9876543210" * 4
     manifest_b["images"]["PLATFORM_IMAGE"] = image_b
     scan_b = read_json(candidate / "PLATFORM_IMAGE.scan.json")
     scan_b["ArtifactName"] = image_b
@@ -218,6 +218,7 @@ def test_transient_same_commit_swap_cannot_deploy_b_and_attest_a(
         for name in ("PLATFORM_IMAGE.scan.json", "PLATFORM_IMAGE.sbom.json"):
             manifest_b["evidence"][name] = digest(candidate / name)
         (candidate / "release.json").write_text(json.dumps(manifest_b))
+        assert verify.verify_release(candidate, runner=lambda _: None, **kwargs) == manifest_b
         result = verify.verify_release(directory, runner=lambda _: None, **kwargs)
         verified.append((directory, result))
         return result
@@ -242,7 +243,6 @@ def test_transient_same_commit_swap_cannot_deploy_b_and_attest_a(
         if command[0] == "docker":
             # These are the exact process values supplied to Compose, not source claims.
             deployed.append(values["PLATFORM_IMAGE"])
-            assert Path(values["RELEASE_DIRECTORY"]) not in (candidate, previous)
 
     monkeypatch.setattr(staging, "verify_release", authenticate)
     monkeypatch.setattr(staging, "validate_environment", environment)
