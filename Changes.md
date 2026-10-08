@@ -21,6 +21,19 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added private runner operations (#43)
+
+- Issue: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43).
+- Decisions: [DEC-004](plan/v1.md#dec-004--use-temporal-for-durable-workflows),
+  [DEC-005](plan/v1.md#dec-005--use-postgresql-with-stable-ownership-fields), and
+  [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout).
+- Added migration 0010 and separate API/worker modules for heartbeat, session fencing,
+  owner-scoped durable work counts, capacity, waits, verification pass rate, and draining.
+- Added a private administrator operations page, bounded metrics, approved-private alert
+  checks, operator documentation, and API/worker/browser regression tests.
+- Recovered the prior implementation without replacing its architecture. Validation is in
+  progress; live receiver, VM recovery, backup/restore, and Linux checks remain required.
+
 ### Refreshed the README and merged-status documentation
 
 - Scope: [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46) production-readiness tracking.

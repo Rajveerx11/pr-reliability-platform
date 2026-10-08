@@ -1,0 +1,10 @@
+{
+  "approved_receiver_url": "https://PRIVATE_RECEIVER_IP/alerts",
+  "queue": "pr-review",
+  "disk_path": "/srv/pr-reliability",
+  "backup_receipt": "/srv/pr-reliability/backup-status.json",
+  "tls_certificate": "/srv/pr-reliability/tls/certificate.pem",
+  "stuck_seconds": 300,
+  "backup_max_age_seconds": 172800,
+  "tls_warning_days": 14
+}
