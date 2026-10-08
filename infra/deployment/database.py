@@ -297,6 +297,30 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def write_backup_receipt(path: Path, succeeded: bool) -> None:
+    """Atomic fixed metadata only, readable by the unprivileged probe container."""
+    body = json.dumps({"succeeded": succeeded, "finished_at": datetime.now(UTC).isoformat()})
+    descriptor, temporary = tempfile.mkstemp(prefix=".receipt-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as receipt:
+            receipt.write(body)
+            receipt.flush()
+            os.fsync(receipt.fileno())
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def backup_with_receipt(repository, compose_file, environment_file, destination, receipt):
+    # A killed or failed attempt leaves an explicit failure, not a stale success.
+    write_backup_receipt(receipt, False)
+    created = backup(repository, compose_file, environment_file, destination)
+    write_backup_receipt(receipt, True)
+    return created
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, default=Path.cwd())
@@ -307,16 +331,22 @@ def main() -> None:
     subcommands = parser.add_subparsers(dest="operation", required=True)
     backup_parser = subcommands.add_parser("backup")
     backup_parser.add_argument("destination", type=Path)
+    backup_parser.add_argument("--receipt", type=Path)
     restore_parser = subcommands.add_parser("restore")
     restore_parser.add_argument("bundle", type=Path)
     restore_parser.add_argument("--confirm", required=True)
     arguments = parser.parse_args()
     if arguments.operation == "backup":
-        created = backup(
+        arguments_list = (
             arguments.repository,
             arguments.compose_file,
             arguments.env_file,
             arguments.destination,
+        )
+        created = (
+            backup_with_receipt(*arguments_list, arguments.receipt)
+            if arguments.receipt
+            else backup(*arguments_list)
         )
         print(created)
     else:

@@ -119,6 +119,7 @@ services:
       OWNER_ID: ${OWNER_ID:?OWNER_ID is required}
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-pr-review}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -167,14 +168,25 @@ services:
   workflow-worker:
     <<: *app
     command: [pr-reliability-workflow-worker]
-    environment: *temporal-environment
+    stop_grace_period: 90s
+    environment:
+      <<: *temporal-environment
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      OWNER_ID: ${OWNER_ID:?OWNER_ID is required}
+      RUNNER_ID: ${WORKFLOW_RUNNER_ID:-workflow-1}
+      RUNNER_VERSION: ${RUNNER_VERSION:?RUNNER_VERSION is required}
     depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       temporal:
         condition: service_healthy
 
   activity-worker:
     image: ${ACTIVITY_WORKER_IMAGE:?ACTIVITY_WORKER_IMAGE is required}
     restart: unless-stopped
+    stop_grace_period: 90s
     init: true
     user: "${SANDBOX_ENGINE_UID:?SANDBOX_ENGINE_UID is required}:${SANDBOX_ENGINE_GID:?SANDBOX_ENGINE_GID is required}"
     read_only: true
@@ -190,6 +202,9 @@ services:
       EVIDENCE_MAX_BYTES: ${EVIDENCE_MAX_BYTES:-262144}
       EVIDENCE_RETENTION_SECONDS: ${EVIDENCE_RETENTION_SECONDS:-604800}
       EVIDENCE_SECRET_PATTERNS: ${EVIDENCE_SECRET_PATTERNS:-[]}
+      RUNNER_ID: ${ACTIVITY_RUNNER_ID:-review-1}
+      RUNNER_VERSION: ${RUNNER_VERSION:?RUNNER_VERSION is required}
+      RUNNER_CAPACITY: ${RUNNER_CAPACITY:-4}
       <<: *temporal-environment
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       DASHBOARD_BASE_URL: ${PRIVATE_BASE_URL:?PRIVATE_BASE_URL is required}/dashboard
@@ -218,12 +233,32 @@ services:
         target: ${SANDBOX_STAGING_DIRECTORY:?SANDBOX_STAGING_DIRECTORY is required}
     networks: [private, egress]
     depends_on:
+      postgres:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
       temporal:
         condition: service_healthy
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+
+  operations-monitor:
+    <<: *app
+    command: [pr-reliability-operation-alerts, --config, /run/operations/config.json]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      OWNER_ID: ${OWNER_ID:?OWNER_ID is required}
+      OPERATIONS_ALERT_TOKEN_FILE: /run/operations/token
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ${OPERATIONS_ALERT_CONFIG_FILE:?OPERATIONS_ALERT_CONFIG_FILE is required}:/run/operations/config.json:ro
+      - ${OPERATIONS_ALERT_TOKEN_FILE:?OPERATIONS_ALERT_TOKEN_FILE is required}:/run/operations/token:ro
+      - ${OPERATIONS_DISK_PATH:?OPERATIONS_DISK_PATH is required}:/probes/disk:ro
+      - ${OPERATIONS_BACKUP_RECEIPT_DIRECTORY:?OPERATIONS_BACKUP_RECEIPT_DIRECTORY is required}:/probes/backup:ro
+      - ${TLS_CERTIFICATE_FILE:?TLS_CERTIFICATE_FILE is required}:/probes/tls.pem:ro
+    networks: [private, egress]
 
   otel-collector:
     image: ${OTEL_COLLECTOR_IMAGE:?OTEL_COLLECTOR_IMAGE is required}

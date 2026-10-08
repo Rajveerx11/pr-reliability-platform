@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Runner operations</title>
+  <link rel="stylesheet" href="/dashboard/assets/dashboard.css">
+  <script src="/auth/assets/auth.js" defer></script>
+  <script src="/operations/assets/operations.js" defer></script>
+</head>
+<body>
+  <header><h1>Runner operations</h1><a href="/dashboard">Review dashboard</a>
+    <span id="reviewer-name">Sign in to view operations.</span>
+    <a id="github-login" href="/auth/login">Sign in with GitHub</a>
+    <button id="logout" hidden>Sign out</button>
+  </header>
+  <main>
+    <p>Administrator access required. Counts follow your repository access. Capacity is shared within your owner.</p>
+    <p id="error" role="alert" hidden></p>
+    <button id="refresh" disabled>Refresh operations</button>
+    <section aria-labelledby="queue-title"><h2 id="queue-title">Queue and capacity</h2>
+      <dl id="summary"></dl>
+    </section>
+    <section aria-labelledby="workers-title"><h2 id="workers-title">Runners</h2>
+      <div id="runners"></div>
+    </section>
+    <p>Assigned means Temporal accepted dispatch, not assignment to a named runner. Running is the durable review stage, not continuous slot use. Waiting for human approval is separate.</p>
+    <p>Wait samples are observed first activity starts only. Older missing observations are Unknown. Pass rate uses recorded verification outcomes, not publication or approval. Utilization measures review activity slots, not CPU usage.</p>
+    <p>Temporal task history and per-attempt backlog are unavailable here. Offline includes heartbeats older than 45 seconds. Draining stops polling and preserves durable workflows.</p>
+  </main>
+</body>
+</html>
