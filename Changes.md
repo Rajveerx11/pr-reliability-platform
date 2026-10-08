@@ -63,6 +63,13 @@ them and names the affected files.
 - Add receipt/probe concurrency, atomic completion/cancellation, local image export/order,
   timeout, direct dependency and desktop/mobile browser regressions. Local Docker builds,
   signed images and production/staging acceptance are not claimed; #45 stays open.
+- Local Python 3.12 validation: focused tests 388 passed/26 skipped; full pytest 702 passed/
+  189 skipped (missing PostgreSQL, Linux/Docker and POSIX prerequisites). Ruff lint and
+  format pass (239 files); frozen sync/lock checks pass with all 46 package versions unchanged.
+  Both Compose manifests validate and the wheel contains the exact updated UI/sandbox source.
+  Chromium passes 52 desktop/mobile assertions for shared controls, keyboard navigation,
+  safe text and error handling. Parent independent review and remote CI remain required;
+  local LSP is unavailable because pylsp cannot be imported.
 - References: [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42),
   [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),
   [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45),
