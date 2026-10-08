@@ -162,6 +162,26 @@ draft stays unpublished; a human must inspect it. The token has no OIDC or packa
 The CLI has matching `build`, `verify`, `stage`, `gate` and `publish` commands:
 `uv run python -m infra.release --help`. Direct `stage`/`publish` also require explicit flags.
 
+## Local recovery validation (2026-10-08)
+
+Windows, Python 3.12.13, frozen dependencies. These are local checks, not Linux release evidence:
+
+- `uv run ruff format --check .` and `uv run ruff check .`: passed, 204 Python files formatted.
+- `uv run pytest infra/release/tests infra/deployment/tests -q -ra`: 127 passed, 2 POSIX-only skips.
+- `uv run pytest -q -ra`: 466 passed, 159 skipped, 1 existing FastAPI/Starlette dependency warning;
+  no test directories were excluded. Skips: 142 PostgreSQL, 8 Docker, 7 Linux process supervision,
+  2 POSIX socket ownership. They remain unvalidated integration boundaries.
+- `uv run pytest --collect-only -q infra/release/tests`: all 95 release tests registered.
+- Compileall, release CLI help, private VM Compose syntax, and production-process Compose syntax
+  with the existing Quality CI environment: passed. The bare `.env.example` intentionally lacks
+  required process variables and fails syntax interpolation without that CI environment.
+- Docker daemon connection: unavailable (`dockerDesktopLinuxEngine` pipe absent). No real image,
+  scanner, Sigstore, staging or publication operation was run. LSP diagnostics are unavailable
+  through the session's tool API; no custom LSP client was built. No UI code changed.
+
+Independent review, CodeRabbit and Linux CI belong to the parent/operator acceptance lane and
+were not executed by this sole writer. No successful review or live staging result is implied.
+
 ## Acceptance state
 
 Code-ready evidence: strict manifest/preflight, build ordering, signature-policy arguments,

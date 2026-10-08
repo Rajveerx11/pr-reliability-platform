@@ -36,8 +36,12 @@ them and names the affected files.
   Manifest migrations/configuration come from the archived commit. Report validation rejects empty
   or cross-image SBOMs, malformed scans and aliased image digests. Sigstore verifies private byte
   snapshots, not mutable source files.
-- Focused recovery checks: Ruff passes; Python 3.12 release/deployment tests pass (127 passed,
-  2 POSIX-only skips on Windows). Broader validation is pending at this checkpoint.
+- Recovery checks on Windows/Python 3.12: Ruff format/check, compileall, release CLI help and
+  both Compose syntax checks pass. Release/deployment tests: 127 passed, 2 POSIX-only skips.
+  Full pytest (no exclusions): 466 passed, 159 skipped, 1 dependency deprecation warning.
+  Skips need PostgreSQL (142), Docker (8) or Linux/POSIX (9); they are not integration acceptance.
+  All 95 release tests are registered in the default pytest suite. LSP diagnostics are unavailable
+  through this implementation session's tool API.
 - No image build, registry write, staging deployment, restore, rollback or GitHub release was
   executed. Real Linux evidence, independent review and operator approvals remain acceptance
   blockers; do not close #45.
