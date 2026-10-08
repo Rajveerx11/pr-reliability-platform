@@ -21,6 +21,21 @@ them and names the affected files.
 
 ## Unreleased
 
+### Bounded encrypted verification evidence
+
+- Linked to [issue #42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42),
+  [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence), and
+  [acceptance plan](plan/issue-42.md).
+- Added shared encrypted/redacted bounded evidence storage, migration 0009, configurable
+  retention, transactional expiry tombstones, and an operator maintenance command.
+- Exported operator-approved report files read-only from live disposable containers before
+  removal, rejecting links and unsafe files; added resource-bounded JUnit summaries.
+- Wired production verification receipts to opaque references, owner/repository-scoped JSON
+  display/download routes, and dashboard finding links to run-level check summaries and logs.
+- Added parser, redaction, truncation, extraction, isolation, expiry, and database regression
+  tests plus [deployment seam notes](docs/verification-evidence.md). Linux Docker CI, independent
+  review and real deployment evidence remain required; local checks are not staging evidence.
+
 ### Refreshed the README and merged-status documentation
 
 - Scope: [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46) production-readiness tracking.

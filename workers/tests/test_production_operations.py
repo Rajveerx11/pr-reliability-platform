@@ -14,9 +14,11 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from cryptography.fernet import Fernet
 from pr_reliability_api.db import apply_migrations
 from pr_reliability_contracts import ModelUsage as ContractUsage
 from pr_reliability_contracts import UsageCoverage
+from pr_reliability_evidence import EvidenceSettings
 from pr_reliability_proof_adapter import ProofVerdict
 from pr_reliability_workers.activities import VerificationCheckEvidence, VerificationEvidence
 from pr_reliability_workers.agents import ModelRequest, ModelResponse, ReviewAgent
@@ -366,6 +368,7 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
             workspace_root=staging,
             check_policy=_check_policy(),
             id_factory=lambda: f"01J{uuid4().int % 10**23:023d}",
+            evidence_settings=EvidenceSettings(Fernet.generate_key(), secret_patterns=("private",)),
         )
         global BASE_SHA, HEAD_SHA
         BASE_SHA, HEAD_SHA = actual_base, actual_head
@@ -468,6 +471,15 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
             events = connection.execute(
                 "SELECT event_data::text FROM run_events ORDER BY id"
             ).fetchall()
+            artifacts = connection.execute(
+                "SELECT reference, ciphertext FROM verification_artifacts"
+            ).fetchall()
+        assert len(artifacts) == 1
+        assert artifacts[0][0].startswith("ev_")
+        assert b"private" not in bytes(artifacts[0][1])
+        assert operations.evidence_settings.decrypt(bytes(artifacts[0][1]))["stdout"] == (
+            "[redacted] sandbox output"
+        )
         persisted = "\n".join(row[0] for row in events)
         assert finding_count == 1
         assert state == "rejected"

@@ -47,11 +47,14 @@ class ApprovedCheck:
     image: str
     command: tuple[str, ...]
     maximum_limits: SandboxLimits = field(default_factory=SandboxLimits)
+    report_files: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_name(self.name, ValueError)
         try:
-            SandboxRequest(self.image, Path("."), self.command, self.maximum_limits)
+            SandboxRequest(
+                self.image, Path("."), self.command, self.maximum_limits, self.report_files
+            )
         except (TypeError, ValueError) as exc:
             raise ValueError(f"approved check {self.name!r} is invalid") from exc
 
@@ -101,7 +104,9 @@ def parse_check_allowlist(raw: str) -> RepositoryCheckPolicy:
         raise ValueError("check allowlist must be a list with between 1 and 16 entries")
     checks: list[ApprovedCheck] = []
     for item in value:
-        data = _object(item, {"name", "image", "command", "maximum_resources"}, ValueError)
+        data = _object(
+            item, {"name", "image", "command", "maximum_resources", "report_files"}, ValueError
+        )
         _require_fields(data, {"name", "image", "command"}, ValueError)
         maximums = _object(data.get("maximum_resources", {}), _LIMIT_FIELDS, ValueError)
         try:
@@ -112,6 +117,7 @@ def parse_check_allowlist(raw: str) -> RepositoryCheckPolicy:
                     image=_string(data["image"], ValueError),
                     command=_command(data["command"], ValueError),
                     maximum_limits=limits,
+                    report_files=tuple(data.get("report_files", [])),
                 )
             )
         except (TypeError, ValueError) as exc:
@@ -195,7 +201,13 @@ def _parse_repository_check(
         raise RepositoryCheckConfigError("invalid") from exc
     _require_within_operator_limits(limits, approved.maximum_limits)
     try:
-        request = SandboxRequest(image=image, workspace=workspace, command=command, limits=limits)
+        request = SandboxRequest(
+            image=image,
+            workspace=workspace,
+            command=command,
+            limits=limits,
+            report_files=approved.report_files,
+        )
     except (TypeError, ValueError) as exc:
         raise RepositoryCheckConfigError("invalid") from exc
     return request, paths, name
