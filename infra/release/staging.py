@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import platform
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
 from infra.deployment.database import RESTORE_CONFIRMATION, backup, restore
 from infra.deployment.health import check_health
-from infra.deployment.preflight import validate_environment
+from infra.deployment.preflight import load_environment, validate_environment
 
 from .compose import checked, database_runner, execute, validate_rendered_deployment
 from .manifest import ReleaseError, digest, require_compatible, write_json
@@ -52,6 +53,7 @@ def exercise_staging(
         snapshot_release(previous_directory) as previous_snapshot,
         snapshot_files(candidate_env.parent, (candidate_env.name,)) as candidate_env_snapshot,
         snapshot_files(previous_env.parent, (previous_env.name,)) as previous_env_snapshot,
+        tempfile.TemporaryDirectory() as temporary,
     ):
 
         def unchanged() -> None:
@@ -63,12 +65,25 @@ def exercise_staging(
             ):
                 snapshot.unchanged()
 
+        root = Path(temporary)
+        candidate_env = _retained_environment(
+            candidate_env_snapshot.directory / candidate_env.name,
+            candidate_directory,
+            candidate_snapshot.directory,
+            root / "candidate.env",
+        )
+        previous_env = _retained_environment(
+            previous_env_snapshot.directory / previous_env.name,
+            previous_directory,
+            previous_snapshot.directory,
+            root / "previous.env",
+        )
         return _exercise_staging(
             repository,
-            candidate_directory,
-            previous_directory,
-            candidate_env_snapshot.directory / candidate_env.name,
-            previous_env_snapshot.directory / previous_env.name,
+            candidate_snapshot.directory,
+            previous_snapshot.directory,
+            candidate_env,
+            previous_env,
             output,
             run_id,
             e2e_program_sha256,
@@ -76,6 +91,21 @@ def exercise_staging(
             candidate_snapshot.hashes["release.json"],
             previous_snapshot.hashes["release.json"],
         )
+
+
+def _retained_environment(
+    environment: Path, source: Path, retained: Path, destination: Path
+) -> Path:
+    values = load_environment(environment)
+    if Path(values.get("RELEASE_DIRECTORY", "")).resolve() != source.resolve():
+        raise ReleaseError("staging environments must reference the selected signed releases")
+    # Preflight and every staging tool must consume the same release as the receipt.
+    # Keep the original environment snapshot intact for source mutation checks.
+    values["RELEASE_DIRECTORY"] = str(retained.resolve())
+    with destination.open("x", encoding="utf-8") as output:
+        destination.chmod(0o600)
+        output.write("\n".join(f"{name}={value}" for name, value in values.items()) + "\n")
+    return destination
 
 
 def _exercise_staging(

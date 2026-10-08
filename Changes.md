@@ -21,6 +21,24 @@ them and names the affected files.
 
 ## Unreleased
 
+### Bound staging to retained release bytes (#45)
+
+- References [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45), not closes.
+  Decisions: [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout)
+  and [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+- `infra/release/staging.py` authenticates the retained candidate/rollback directories, not
+  mutable source paths. Private environment copies select those same retained releases for
+  preflight and every staging tool. Original release/environment mutation checks remain.
+- Added adjacent regressions for a transient same-commit A→B→A swap during verification and
+  preflight: approved A inputs deploy only A; B inputs cannot produce a deployment or receipt.
+  Real manifest/evidence/preflight plumbing is exercised with synthetic Cosign/tool boundaries.
+- Corrected `docs/releases.md` to require scan/SBOM pairs for all eight images and describe
+  tag-before-draft publication, matching tag/complete-draft retries and fail-closed conflicts.
+- Windows/Python 3.14.3 local checks: release/deployment tests 164 passed, 2 POSIX-only skips;
+  Ruff lint/format, compileall and release CLI help passed. `pylsp` is unavailable (missing module).
+- No real Linux build, signing, staging, restore, rollback or publication was performed. Full
+  #45 acceptance, parent independent review and required Linux CI remain external gates.
+
 ### Corrected release review findings (#45)
 
 - References [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45), not closes.

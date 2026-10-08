@@ -18,7 +18,7 @@ The signed `release.json` has a strict schema and records:
 - Every SQL migration's name and SHA-256, including already applied migrations.
 - A configuration SHA-256 for the public Compose, proxy, entrypoints and telemetry configuration.
 - The previous signed manifest's SHA-256 and commit, or `null` for bootstrap only.
-- SHA-256 values for the three image vulnerability reports and three CycloneDX SBOMs.
+- SHA-256 values for all eight image vulnerability reports and eight CycloneDX SBOMs.
 
 Images are separate `ghcr.io/rajveerx11/pr-reliability-platform/platform`, `provider-activity`
 and `sandbox` packages. The platform uses the existing Dockerfile. The provider image adds Git
@@ -33,7 +33,8 @@ private snapshots of the exact parsed bytes, preventing source swaps during the 
 subprocess; scan parsing and checksums also use the same byte snapshot. A registry attestation alone
 is not a substitute for the attached reports. UNKNOWN, HIGH and CRITICAL vulnerabilities fail;
 LOW and MEDIUM findings remain in the attached report, with no ignore-unfixed bypass.
-Third-party service images are bound by the signed manifest; they are not re-signed as our code.
+All five third-party service images also require passing scans and image-bound SBOMs in the
+signed manifest; they are not re-signed as our code.
 
 ## Infrastructure needed before dispatch
 
@@ -134,7 +135,10 @@ inputs default to false. No production deployment workflow is provided.
 the exact current main workflow commit. After explicit disposable staging approval it verifies
 both signed releases and requires identical migration sets and public configuration versions.
 It materializes private candidate/rollback environment copies from the approved base file,
-using only signed images. It then:
+using only signed images. Staging retains private release and environment snapshots for the
+whole drill. Authentication, preflight and every deployment consume those retained releases;
+the receipt records the same retained manifest hashes. Source mutation checks are additional
+fail-closed checks, not the binding between tested images and receipt. It then:
 
 1. Deploys candidate with Compose `--wait`; checks private TLS/API/telemetry health and real E2E.
 2. Quiesces writers and backs up all three databases with existing checksummed backup tooling.
@@ -154,10 +158,13 @@ After independent acceptance and separate GitHub release publication authorizati
 `release-publication.yml` with candidate, previous and staging run IDs. The gate re-verifies
 all signatures, exact release hashes, the approved E2E executable checksum, all required passing
 checks, rollback compatibility and a completion time within 48 hours (future evidence fails).
-It rejects existing tags instead of replacing history. Publication first creates a **draft**
-with manifests, scans, SBOMs, signed staging evidence and a ZIP of the previous release. It reads
-back the tag/attachments and checks every byte before making the release public. On failure the
-draft stays unpublished; a human must inspect it. The token has no OIDC or package-write scope.
+Publication first creates and verifies the lightweight Git tag for the exact approved commit,
+then creates a **draft** with manifests, scans, SBOMs, signed staging evidence and a ZIP of the
+previous release. It reads back the tag/attachments and checks every byte before making the
+release public. A retry may reuse a matching tag-only attempt or a complete matching draft;
+it never replaces tags or attachments. Conflicting or annotated tags, already-public releases,
+partial/mismatched drafts and creation races fail closed. A failure may leave only the tag or
+an unpublished draft; a human must inspect it. The token has no OIDC or package-write scope.
 
 The CLI has matching `build`, `verify`, `stage`, `gate` and `publish` commands:
 `uv run python -m infra.release --help`. Direct `stage`/`publish` also require explicit flags.
@@ -189,8 +196,9 @@ negative regression tests, staging orchestration, release gates and draft/read-b
 are implemented. Synthetic verifier stubs test fail-closed plumbing, **not** real signatures.
 
 Full issue-ready evidence: **absent**. Still required are an integrated approved commit,
-independent review and Linux CI, three real scanned/published/SBOM-bearing/signed images, actual
-signature verification and credential-exclusion evidence, an accepted previous release, the
+independent review and Linux CI, all eight real scanned/SBOM-bearing images (the three owned
+images also published/signed/SBOM-attested), actual signature verification and
+credential-exclusion evidence, an accepted previous release, the
 approved Linux test infrastructure/E2E executable, exercised staging health/E2E/backup/restore/
 rollback, signed real receipts and separate authorization for GitHub release publication.
 The future PR must reference #45, not close it, until those facts are independently checked.
