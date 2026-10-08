@@ -169,9 +169,13 @@ an unpublished draft; a human must inspect it. The token has no OIDC or package-
 The CLI has matching `build`, `verify`, `stage`, `gate` and `publish` commands:
 `uv run python -m infra.release --help`. Direct `stage`/`publish` also require explicit flags.
 
-## Local recovery validation (2026-10-08)
+## Earlier local recovery checkpoint (2026-10-08)
 
-Windows, Python 3.12.13, frozen dependencies. These are local checks, not Linux release evidence:
+The counts below describe the earlier recovery checkpoint, not the latest code. See
+[the final PR62 review corrections](../Changes.md#focused-final-pr62-review-corrections-42-43-45)
+for later validation and UI changes. These local checks are not Linux release evidence.
+
+Windows, Python 3.12.13, frozen dependencies:
 
 - `uv run ruff format --check .` and `uv run ruff check .`: passed, 204 Python files formatted.
 - `uv run pytest infra/release/tests infra/deployment/tests -q -ra`: 127 passed, 2 POSIX-only skips.
@@ -184,7 +188,7 @@ Windows, Python 3.12.13, frozen dependencies. These are local checks, not Linux 
   required process variables and fails syntax interpolation without that CI environment.
 - Docker daemon connection: unavailable (`dockerDesktopLinuxEngine` pipe absent). No real image,
   scanner, Sigstore, staging or publication operation was run. LSP diagnostics are unavailable
-  through the session's tool API; no custom LSP client was built. No UI code changed.
+  through the session's tool API; no custom LSP client was built.
 
 Independent review, CodeRabbit and Linux CI belong to the parent/operator acceptance lane and
 were not executed by this sole writer. No successful review or live staging result is implied.

@@ -48,6 +48,13 @@ them and names the affected files.
 
 ## Unreleased
 
+### Final release documentation review correction (#45)
+
+- Label the release recovery counts as an earlier checkpoint and link to the latest PR62
+  validation entry. Remove the stale statement that no UI changed.
+- References: [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45) and
+  [DEC-013](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation).
+
 ### Focused final PR62 review corrections (#42, #43, #45)
 
 - Keep the last completed backup receipt while a backup is running. Atomically write a
