@@ -12,7 +12,10 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlparse
 
 # Keep the documented plain-Python command usable from a clean source checkout.
-_WORKER_SOURCE = Path(__file__).resolve().parents[2] / "workers" / "src"
+_REPOSITORY = Path(__file__).resolve().parents[2]
+if str(_REPOSITORY) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY))
+_WORKER_SOURCE = _REPOSITORY / "workers" / "src"
 if str(_WORKER_SOURCE) not in sys.path:
     sys.path.insert(0, str(_WORKER_SOURCE))
 
@@ -217,6 +220,13 @@ def validate_environment(repository: Path, environment_file: Path) -> dict[str, 
         )
     if values["GITHUB_LOGIN_ORIGIN"] != values.get("PRIVATE_BASE_URL"):
         raise PreflightError("GITHUB_LOGIN_ORIGIN must match PRIVATE_BASE_URL")
+    from infra.release.manifest import ReleaseError
+    from infra.release.verify import validate_deployment_release
+
+    try:
+        validate_deployment_release(repository, values)
+    except ReleaseError as exc:
+        raise PreflightError(str(exc)) from exc
     return values
 
 

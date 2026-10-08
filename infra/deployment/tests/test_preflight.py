@@ -105,13 +105,27 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     return repository, environment_file, values
 
 
-def test_preflight_accepts_external_secrets_private_tls_and_digest_images(
+def test_preflight_accepts_valid_environment_after_release_verification(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repository, environment_file, values = _deployment_files(tmp_path)
     monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
 
+    from infra.release import verify
+
+    verified = []
+    monkeypatch.setattr(
+        verify, "validate_deployment_release", lambda repo, env: verified.append((repo, env))
+    )
     assert validate_environment(repository, environment_file) == values
+    assert verified == [(repository, values)]
+
+
+def test_preflight_rejects_missing_signed_release(tmp_path, monkeypatch):
+    repository, environment_file, _ = _deployment_files(tmp_path)
+    monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
+    with pytest.raises(PreflightError, match="RELEASE_DIRECTORY"):
+        validate_environment(repository, environment_file)
 
 
 def test_every_image_in_shipped_environment_example_is_rejected(

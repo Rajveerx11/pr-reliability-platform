@@ -21,6 +21,20 @@ them and names the affected files.
 
 ## Unreleased
 
+### Added signed immutable release machinery (recovery checkpoint)
+
+- Issue: [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45), referenced only;
+  live acceptance is still open.
+- Decisions: [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout)
+  and [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+- Recovered separate platform/activity/sandbox build, scan, SBOM and Sigstore verification,
+  strict manifest/preflight, authorized disposable staging drill, and gated draft publication.
+- Added release tests beside `infra/release`, registered them in pytest, and documented operator
+  infrastructure in `docs/releases.md`. Existing `quality.yml` is unchanged.
+- Checkpoint only: validation and hardening are in progress. No image build, registry write,
+  staging deployment, restore, rollback or GitHub release was executed. Real Linux evidence,
+  independent review and operator approvals remain acceptance blockers; do not close #45.
+
 ### Refreshed the README and merged-status documentation
 
 - Scope: [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46) production-readiness tracking.
