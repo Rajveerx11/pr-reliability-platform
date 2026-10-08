@@ -142,7 +142,7 @@ def validate_manifest(value: dict) -> None:
         or not SHA256.fullmatch(rollback["manifest_sha256"])
     ):
         raise ReleaseError("rollback target is invalid")
-    expected_evidence = {f"{name}.{kind}.json" for name in OWN_IMAGES for kind in ("scan", "sbom")}
+    expected_evidence = {f"{name}.{kind}.json" for name in IMAGE_KEYS for kind in ("scan", "sbom")}
     evidence = value["evidence"]
     if (
         not isinstance(evidence, dict)
@@ -152,7 +152,7 @@ def validate_manifest(value: dict) -> None:
             for checksum in evidence.values()
         )
     ):
-        raise ReleaseError("every built image requires a scan and SBOM")
+        raise ReleaseError("every deployment image requires a scan and SBOM")
 
 
 def validate_evidence(directory: Path, manifest: dict) -> None:
@@ -226,7 +226,7 @@ def create_manifest(
         else {"commit": previous["commit"], "manifest_sha256": previous_sha},
         "evidence": {
             f"{name}.{kind}.json": digest(directory / f"{name}.{kind}.json")
-            for name in OWN_IMAGES
+            for name in IMAGE_KEYS
             for kind in ("scan", "sbom")
         },
     }

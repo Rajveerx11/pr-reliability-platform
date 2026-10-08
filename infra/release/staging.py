@@ -10,8 +10,10 @@ from infra.deployment.database import RESTORE_CONFIRMATION, backup, restore
 from infra.deployment.health import check_health
 from infra.deployment.preflight import validate_environment
 
+from .compose import checked, database_runner, execute, validate_rendered_deployment
 from .manifest import ReleaseError, digest, require_compatible, write_json
-from .verify import run_checked, verify_release
+from .snapshot import snapshot_files, snapshot_release
+from .verify import verify_release
 
 E2E_PROGRAM = Path("/opt/pr-reliability/staging-e2e")
 CHECKS = (
@@ -45,9 +47,53 @@ def exercise_staging(
         raise ReleaseError("staging requires a workflow run ID and a new evidence path")
     if not E2E_PROGRAM.is_file() or E2E_PROGRAM.is_symlink():
         raise ReleaseError("approved real-provider staging E2E program is not installed")
+    with (
+        snapshot_release(candidate_directory) as candidate_snapshot,
+        snapshot_release(previous_directory) as previous_snapshot,
+        snapshot_files(candidate_env.parent, (candidate_env.name,)) as candidate_env_snapshot,
+        snapshot_files(previous_env.parent, (previous_env.name,)) as previous_env_snapshot,
+    ):
+
+        def unchanged() -> None:
+            for snapshot in (
+                candidate_snapshot,
+                previous_snapshot,
+                candidate_env_snapshot,
+                previous_env_snapshot,
+            ):
+                snapshot.unchanged()
+
+        return _exercise_staging(
+            repository,
+            candidate_directory,
+            previous_directory,
+            candidate_env_snapshot.directory / candidate_env.name,
+            previous_env_snapshot.directory / previous_env.name,
+            output,
+            run_id,
+            e2e_program_sha256,
+            unchanged,
+            candidate_snapshot.hashes["release.json"],
+            previous_snapshot.hashes["release.json"],
+        )
+
+
+def _exercise_staging(
+    repository: Path,
+    candidate_directory: Path,
+    previous_directory: Path,
+    candidate_env: Path,
+    previous_env: Path,
+    output: Path,
+    run_id: str,
+    e2e_program_sha256: str,
+    unchanged,
+    candidate_sha: str,
+    previous_sha: str,
+) -> dict:
     candidate = verify_release(candidate_directory, repository=repository)
     previous = verify_release(previous_directory, repository=repository)
-    require_compatible(candidate, previous, digest(previous_directory / "release.json"))
+    require_compatible(candidate, previous, previous_sha)
     candidate_values = validate_environment(repository, candidate_env)
     previous_values = validate_environment(repository, previous_env)
     if (
@@ -72,8 +118,15 @@ def exercise_staging(
         raise ReleaseError("staging E2E program does not match its approved checksum")
     completed: dict[str, str] = {}
 
+    def values_for(env: Path) -> dict[str, str]:
+        return candidate_values if env == candidate_env else previous_values
+
     def deploy(env: Path) -> None:
-        run_checked(
+        unchanged()
+        validate_rendered_deployment(
+            repository, values_for(env), candidate if env == candidate_env else previous
+        )
+        checked(
             [
                 "docker",
                 "compose",
@@ -86,16 +139,21 @@ def exercise_staging(
                 "--wait",
                 "--wait-timeout",
                 "300",
-            ]
+            ],
+            values_for(env),
         )
 
     def health(env: Path, name: str) -> None:
-        check_health(compose, env)
+        check_health(
+            compose,
+            env,
+            command_runner=lambda command: execute(command, values_for(env), text=True),
+        )
         completed[name] = "passed"
 
     def e2e(env: Path, name: str) -> None:
         # Credentials stay in external files; never serialize command output or secrets.
-        run_checked([str(E2E_PROGRAM), "--env-file", str(env)])
+        checked([str(E2E_PROGRAM), "--env-file", str(env)], values_for(env))
         if digest(E2E_PROGRAM) != program_sha:
             raise ReleaseError("staging E2E program changed during execution")
         completed[name] = "passed"
@@ -103,10 +161,23 @@ def exercise_staging(
     deploy(candidate_env)
     health(candidate_env, "health")
     e2e(candidate_env, "end_to_end")
-    bundle = backup(repository, compose, candidate_env, Path(candidate_values["BACKUP_DIRECTORY"]))
+    bundle = backup(
+        repository,
+        compose,
+        candidate_env,
+        Path(candidate_values["BACKUP_DIRECTORY"]),
+        runner=database_runner(candidate_values),
+    )
     completed["backup"] = "passed"
     backup_sha = digest(bundle / "manifest.json")
-    restore(repository, compose, candidate_env, bundle, RESTORE_CONFIRMATION)
+    restore(
+        repository,
+        compose,
+        candidate_env,
+        bundle,
+        RESTORE_CONFIRMATION,
+        runner=database_runner(candidate_values),
+    )
     health(candidate_env, "restore")
     e2e(candidate_env, "restored_end_to_end")
     deploy(previous_env)
@@ -115,12 +186,13 @@ def exercise_staging(
     deploy(candidate_env)
     health(candidate_env, "promoted_health")
     e2e(candidate_env, "promoted_end_to_end")
+    unchanged()
     receipt = {
         "schema_version": 1,
         "environment": "linux-staging",
         "commit": candidate["commit"],
-        "manifest_sha256": digest(candidate_directory / "release.json"),
-        "previous_manifest_sha256": digest(previous_directory / "release.json"),
+        "manifest_sha256": candidate_sha,
+        "previous_manifest_sha256": previous_sha,
         "run_id": run_id,
         "completed_at": datetime.now(UTC).isoformat(),
         "checks": completed,

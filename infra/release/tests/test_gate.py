@@ -91,5 +91,5 @@ def test_unsigned_or_wrong_signer_staging_evidence_fails(artifacts, tmp_path):
     with pytest.raises(ReleaseError, match="forged"):
         gate.release_gate(candidate, previous, receipt, PROGRAM_SHA, runner=reject, now=NOW)
     receipt.with_suffix(".sigstore.json").unlink()
-    with pytest.raises(ReleaseError, match="bundle"):
+    with pytest.raises(ReleaseError, match="bounded regular file"):
         gate.release_gate(candidate, previous, receipt, PROGRAM_SHA, runner=lambda _: None, now=NOW)

@@ -25,7 +25,7 @@ def staging_tools(artifacts, tmp_path, monkeypatch):
 
     def environment(_, env):
         return {
-            "RELEASE_DIRECTORY": str(candidate if env == candidate_env else previous),
+            "RELEASE_DIRECTORY": str(candidate if env.name == candidate_env.name else previous),
             **dict.fromkeys(
                 (
                     "PRIVATE_BASE_URL",
@@ -41,21 +41,22 @@ def staging_tools(artifacts, tmp_path, monkeypatch):
 
     monkeypatch.setattr(staging, "validate_environment", environment)
 
-    def execute(command):
+    def execute(command, *_):
         events.append("e2e" if command[0] == str(program) else "deploy")
 
-    monkeypatch.setattr(staging, "run_checked", execute)
-    monkeypatch.setattr(staging, "check_health", lambda *_: events.append("health"))
+    monkeypatch.setattr(staging, "checked", execute)
+    monkeypatch.setattr(staging, "validate_rendered_deployment", lambda *_: None)
+    monkeypatch.setattr(staging, "check_health", lambda *_, **__: events.append("health"))
     bundle = tmp_path / "bundle"
     bundle.mkdir()
     (bundle / "manifest.json").write_text("backup fixture")
 
-    def backup(*_):
+    def backup(*_, **__):
         events.append("backup")
         return bundle
 
     monkeypatch.setattr(staging, "backup", backup)
-    monkeypatch.setattr(staging, "restore", lambda *_: events.append("restore"))
+    monkeypatch.setattr(staging, "restore", lambda *_, **__: events.append("restore"))
     return (
         repository,
         candidate,
@@ -90,7 +91,7 @@ def test_staging_executes_backup_restore_rollback_and_repromotion(staging_tools)
     assert Path(arguments[5]).is_file()
 
 
-@pytest.mark.parametrize("operation", ["check_health", "backup", "restore", "run_checked"])
+@pytest.mark.parametrize("operation", ["check_health", "backup", "restore", "checked"])
 def test_any_failed_operation_produces_no_acceptance_receipt(staging_tools, monkeypatch, operation):
     arguments, _ = staging_tools
 
@@ -122,3 +123,36 @@ def test_e2e_checksum_and_previous_target_fail_before_deploy(staging_tools):
     with pytest.raises(ReleaseError):
         staging.exercise_staging(*arguments, authorized=True)
     assert not events
+
+
+@pytest.mark.parametrize("target", ["candidate", "previous", "environment", "same_commit_build"])
+def test_mutable_release_inputs_never_produce_receipt(staging_tools, monkeypatch, target):
+    import json
+
+    arguments, _ = staging_tools
+    original = staging.checked
+    count = 0
+
+    def mutate(command, values):
+        nonlocal count
+        original(command, values)
+        if command[0] == str(staging.E2E_PROGRAM):
+            count += 1
+            if count == 4:
+                if target == "environment":
+                    arguments[3].write_text("PLATFORM_IMAGE=unsigned")
+                else:
+                    path = arguments[2 if target == "previous" else 1] / "release.json"
+                    if target == "same_commit_build":
+                        replacement = read_json(path)
+                        replacement["images"]["PLATFORM_IMAGE"] = (
+                            "ghcr.io/another/build@sha256:" + "f" * 64
+                        )
+                        path.write_text(json.dumps(replacement))
+                    else:
+                        path.write_text("changed")
+
+    monkeypatch.setattr(staging, "checked", mutate)
+    with pytest.raises(ReleaseError, match="changed during"):
+        staging.exercise_staging(*arguments, authorized=True)
+    assert not arguments[5].exists()

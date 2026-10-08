@@ -42,7 +42,7 @@ def test_unsigned_manifest_fails_even_with_complete_scan_files(artifacts):
     _, candidate, _ = artifacts
     (candidate / "release.sigstore.json").unlink()
     commands = []
-    with pytest.raises(ReleaseError, match="bundle"):
+    with pytest.raises(ReleaseError, match="bounded regular file"):
         verify.verify_release(candidate, runner=commands.append)
     assert commands == []
 
@@ -79,7 +79,9 @@ def deployment_values(candidate):
     }
 
 
-def test_preflight_consumes_all_signed_images(artifacts):
+def test_preflight_consumes_all_signed_images(artifacts, monkeypatch):
+    calls = []
+    monkeypatch.setattr(verify, "validate_rendered_deployment", lambda *args: calls.append(args))
     repository, candidate, _ = artifacts
     assert (
         verify.validate_deployment_release(
@@ -87,6 +89,8 @@ def test_preflight_consumes_all_signed_images(artifacts):
         )["commit"]
         == "2" * 40
     )
+
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize(
@@ -196,3 +200,26 @@ def test_unavailable_tool_fails_without_output(monkeypatch, failure):
     with pytest.raises(ReleaseError) as error:
         verify.run_checked(["cosign", "verify"])
     assert "private" not in str(error.value)
+
+
+@pytest.mark.parametrize("target", ["manifest", "evidence", "bundle"])
+def test_final_image_command_cannot_swap_authenticated_artifacts(artifacts, target):
+    _, candidate, _ = artifacts
+    commands = []
+
+    def late_swap(command):
+        commands.append(command)
+        if len(commands) == 7:
+            path = (
+                candidate
+                / {
+                    "manifest": "release.json",
+                    "evidence": "POSTGRES_IMAGE.sbom.json",
+                    "bundle": "release.sigstore.json",
+                }[target]
+            )
+            path.write_text("replaced after last image command")
+
+    with pytest.raises(ReleaseError, match="changed during"):
+        verify.verify_release(candidate, runner=late_swap)
+    assert len(commands) == 7

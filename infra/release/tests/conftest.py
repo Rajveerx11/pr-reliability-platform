@@ -7,7 +7,6 @@ import pytest
 from infra.release.manifest import (
     CONFIG_FILES,
     IMAGE_KEYS,
-    OWN_IMAGES,
     create_manifest,
     digest,
     write_json,
@@ -31,7 +30,7 @@ def artifacts(tmp_path):
             key: f"ghcr.io/test/{key.lower()}@sha256:{i + 1:064x}"
             for i, key in enumerate(IMAGE_KEYS)
         }
-        for key in OWN_IMAGES:
+        for key in IMAGE_KEYS:
             write_json(
                 directory / f"{key}.scan.json",
                 {

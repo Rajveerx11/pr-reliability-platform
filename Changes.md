@@ -21,6 +21,29 @@ them and names the affected files.
 
 ## Unreleased
 
+### Corrected release review findings (#45)
+
+- References [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45), not closes.
+  Decisions: [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout)
+  and [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+- `infra/release/compose.py`, `verify.py` and `staging.py` use a controlled process environment
+  and compare rendered Compose service/sandbox images with the authenticated manifest. Backup,
+  restore, health and E2E subprocesses use the same controlled environment.
+- `snapshot.py`, `verify.py`, `gate.py`, `staging.py` and `publish.py` retain authenticated
+  artifact bytes/checksums through the whole operation. Late swaps and different same-commit
+  builds cannot change the tested receipt or published attachments.
+- Publication explicitly creates and verifies the approved lightweight GitHub tag before a draft.
+  It never replaces refs or attachments; matching tag-only attempts and complete drafts can retry.
+  Conflicting tags, already-public releases, partial/mismatched drafts and races fail closed.
+- `build.py` and the strict manifest schema now require scan/SBOM evidence for all eight images,
+  including the five upstream digests. The signed manifest binds upstream evidence; only the
+  three owned images are pushed, image-signed and SBOM-attested by this repository.
+- Added/updated adjacent regressions for all five review findings. Windows/Python 3.14.3 checks:
+  release tests 129 passed; deployment tests 32 passed, 2 POSIX-only skips; repository Ruff lint
+  and format pass. `pylsp --help` fails because its Python module is not installed.
+- No live build, deployment, restore, rollback, signing or publication was performed. Independent
+  review, CodeRabbit/CI and full #45 live Linux acceptance remain external gates; do not close #45.
+
 ### Added signed immutable release machinery
 
 - Issue: [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45), referenced only;

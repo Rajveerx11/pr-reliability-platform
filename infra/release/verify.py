@@ -8,6 +8,7 @@ import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from .compose import validate_rendered_deployment
 from .manifest import (
     OWN_IMAGES,
     ReleaseError,
@@ -19,6 +20,7 @@ from .manifest import (
     validate_evidence,
     validate_manifest,
 )
+from .snapshot import snapshot_release
 
 REPOSITORY = "Rajveerx11/pr-reliability-platform"
 ISSUER = "https://token.actions.githubusercontent.com"
@@ -96,6 +98,13 @@ def verify_blob(
 def verify_release(
     directory: Path, *, repository: Path | None = None, runner: Runner = run_checked
 ) -> dict:
+    with snapshot_release(directory) as snapshot:
+        manifest = _verify_snapshot(snapshot.directory, repository=repository, runner=runner)
+        snapshot.unchanged()
+        return manifest
+
+
+def _verify_snapshot(directory: Path, *, repository: Path | None, runner: Runner) -> dict:
     path = directory / "release.json"
     manifest, before = read_document(path)
     validate_manifest(manifest)
@@ -120,6 +129,9 @@ def verify_release(
         flags = identity_flags(BUILD_IDENTITY, manifest["commit"])
         runner(["cosign", "verify", *flags, image])
         runner(["cosign", "verify-attestation", "--type", "cyclonedx", *flags, image])
+    if digest(path) != before:
+        raise ReleaseError("release changed during image verification")
+    validate_evidence(directory, manifest)
     return manifest
 
 
@@ -142,4 +154,5 @@ def validate_deployment_release(
     checks = parse_check_allowlist(values["REVIEW_CHECK_ALLOWLIST_JSON"])
     if any(check.image != manifest["images"]["SANDBOX_IMAGE"] for check in checks.checks):
         raise ReleaseError("check image does not match the signed sandbox image")
+    validate_rendered_deployment(repository, values, manifest)
     return manifest

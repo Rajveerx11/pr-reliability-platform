@@ -67,7 +67,7 @@ def test_scanning_fails_before_push_or_sign(artifacts, tmp_path, monkeypatch, sc
         assert "--provenance=false" in docker and "--sbom=false" in docker
 
 
-def test_all_three_images_are_scanned_pushed_attested_and_manifest_bound(
+def test_all_eight_images_have_evidence_and_three_owned_images_are_pushed_attested(
     artifacts, tmp_path, monkeypatch
 ):
     repository, candidate, previous = artifacts
@@ -109,7 +109,16 @@ def test_all_three_images_are_scanned_pushed_attested_and_manifest_bound(
     )
     result = build.build(repository, "2" * 40, upstream, tmp_path / "out", previous)
     assert set(result["images"]) == set(IMAGE_KEYS)
-    assert len(result["evidence"]) == 6
+    assert len(result["evidence"]) == 16
+    for image in result["images"].values():
+        assert any(
+            c[:2] == ["trivy", "image"] and "--output" in c and c[-1] == image for c in commands
+        )
+    for key in set(IMAGE_KEYS) - set(OWN_IMAGES):
+        assert any(
+            c[:2] == ["trivy", "image"] and "secret" in c and c[-1] == result["images"][key]
+            for c in commands
+        )
     assert len([c for c in commands if c[:2] == ["docker", "push"]]) == 3
     assert len([c for c in commands if c[:2] == ["cosign", "attest"]]) == 3
     smoke = [c for c in commands if c[:2] == ["docker", "run"]]

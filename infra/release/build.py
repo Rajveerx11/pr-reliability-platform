@@ -79,6 +79,33 @@ def smoke_image(name: str, tag: str) -> None:
     )
 
 
+def collect_image_evidence(directory: Path, name: str, image: str) -> None:
+    output(
+        [
+            "trivy",
+            "image",
+            "--scanners",
+            "vuln",
+            "--format",
+            "json",
+            "--output",
+            str(directory / f"{name}.scan.json"),
+            image,
+        ]
+    )
+    output(
+        [
+            "trivy",
+            "image",
+            "--format",
+            "cyclonedx",
+            "--output",
+            str(directory / f"{name}.sbom.json"),
+            image,
+        ]
+    )
+
+
 def build(
     repository: Path,
     commit: str,
@@ -181,30 +208,23 @@ def build(
                 ["docker", "image", "inspect", "--format", "{{index .RepoDigests 0}}", tag]
             )
             validate_images(images)
+            collect_image_evidence(directory, name, images[name])
+        for name, image in upstream.items():
+            output(["trivy", "image", "--scanners", "secret", "--exit-code", "1", image])
             output(
                 [
                     "trivy",
                     "image",
                     "--scanners",
                     "vuln",
-                    "--format",
-                    "json",
-                    "--output",
-                    str(directory / f"{name}.scan.json"),
-                    images[name],
+                    "--exit-code",
+                    "1",
+                    "--severity",
+                    "UNKNOWN,HIGH,CRITICAL",
+                    image,
                 ]
             )
-            output(
-                [
-                    "trivy",
-                    "image",
-                    "--format",
-                    "cyclonedx",
-                    "--output",
-                    str(directory / f"{name}.sbom.json"),
-                    images[name],
-                ]
-            )
+            collect_image_evidence(directory, name, image)
         # Public configuration and migrations are taken from the archived commit, not
         # mutable worktree files that could change while the lengthy builds run.
         value = create_manifest(

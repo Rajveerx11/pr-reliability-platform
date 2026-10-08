@@ -172,3 +172,41 @@ def test_oversized_document_fails_before_json_parsing(tmp_path):
     path.write_bytes(b" " * (16 * 1024 * 1024 + 1))
     with pytest.raises(ReleaseError, match="bounded"):
         read_json(path)
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["POSTGRES_IMAGE", "TEMPORAL_IMAGE", "CADDY_IMAGE", "OTEL_COLLECTOR_IMAGE", "PROMETHEUS_IMAGE"],
+)
+@pytest.mark.parametrize("kind", ["scan", "sbom"])
+def test_every_upstream_image_requires_bound_evidence(artifacts, key, kind):
+    _, candidate, _ = artifacts
+    manifest = read_json(candidate / "release.json")
+    name = f"{key}.{kind}.json"
+    del manifest["evidence"][name]
+    with pytest.raises(ReleaseError, match="every deployment image"):
+        validate_manifest(manifest)
+    manifest = read_json(candidate / "release.json")
+    (candidate / name).write_text("{}")
+    with pytest.raises(ReleaseError, match="checksum"):
+        validate_evidence(candidate, manifest)
+
+
+@pytest.mark.parametrize("kind", ["scan", "sbom"])
+@pytest.mark.parametrize("mutation", ["wrong_image", "malformed"])
+def test_upstream_reports_require_real_image_bound_content(artifacts, kind, mutation):
+    _, candidate, _ = artifacts
+    manifest = read_json(candidate / "release.json")
+    name = f"POSTGRES_IMAGE.{kind}.json"
+    path = candidate / name
+    report = read_json(path)
+    if mutation == "malformed":
+        report = {}
+    elif kind == "scan":
+        report["ArtifactName"] = "another image"
+    else:
+        report["metadata"]["component"]["name"] = "another image"
+    path.write_text(json.dumps(report))
+    manifest["evidence"][name] = digest(path)
+    with pytest.raises(ReleaseError):
+        validate_evidence(candidate, manifest)

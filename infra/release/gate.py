@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .manifest import SHA256, ReleaseError, digest, read_document, require_compatible
+from .snapshot import snapshot_files, snapshot_release
 from .staging import CHECKS
 from .verify import STAGING_IDENTITY, Runner, run_checked, verify_blob, verify_release
 
@@ -18,6 +19,37 @@ def release_gate(
     *,
     runner: Runner = run_checked,
     now: datetime | None = None,
+) -> dict:
+    with (
+        snapshot_release(candidate_directory) as candidate_snapshot,
+        snapshot_release(previous_directory) as previous_snapshot,
+        snapshot_files(
+            receipt_path.parent,
+            (receipt_path.name, receipt_path.with_suffix(".sigstore.json").name),
+        ) as receipt_snapshot,
+    ):
+        value = _release_gate(
+            candidate_snapshot.directory,
+            previous_snapshot.directory,
+            receipt_snapshot.directory / receipt_path.name,
+            e2e_program_sha256,
+            runner=runner,
+            now=now,
+        )
+        candidate_snapshot.unchanged()
+        previous_snapshot.unchanged()
+        receipt_snapshot.unchanged()
+        return value
+
+
+def _release_gate(
+    candidate_directory: Path,
+    previous_directory: Path,
+    receipt_path: Path,
+    e2e_program_sha256: str,
+    *,
+    runner: Runner,
+    now: datetime | None,
 ) -> dict:
     candidate = verify_release(candidate_directory, runner=runner)
     previous = verify_release(previous_directory, runner=runner)
