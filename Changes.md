@@ -62,7 +62,13 @@ them and names the affected files.
   staging, backup restore, rollback and protected environments are still required. Publication
   requires separate approval; local synthetic fixtures are not production evidence.
 - Initial checkpoint validation caught newline escaping in the added test; corrected it
-  in a follow-up commit. Whole-tree Ruff lint/format and 76 release verifier/manifest tests pass.
+  in a follow-up commit. Local Windows validation: whole-tree Ruff lint/format pass (239 files),
+  focused release/deployment/evidence/migrations/operations tests 299 passed and 23 skipped,
+  full pytest 688 passed and 189 skipped. Skips cover missing PostgreSQL and Linux/Docker/POSIX
+  prerequisites; the known Windows cleanup failure did not reproduce in this run.
+- Both Compose configurations and wheel contents pass local checks. Source-image wiring is
+  retained, but an actual image build is unavailable without the Docker daemon. LSP is unavailable
+  because the installed launcher cannot import pylsp. Parent review and remote CI remain required.
 - References: [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45),
   [DEC-013](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation).
 
