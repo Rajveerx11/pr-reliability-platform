@@ -61,6 +61,8 @@ them and names the affected files.
   in this candidate. Live #45/#14/#15/#38 acceptance remains open. Real Linux signed artifacts,
   staging, backup restore, rollback and protected environments are still required. Publication
   requires separate approval; local synthetic fixtures are not production evidence.
+- Initial checkpoint validation caught newline escaping in the added test; corrected it
+  in a follow-up commit. Whole-tree Ruff lint/format and 76 release verifier/manifest tests pass.
 - References: [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45),
   [DEC-013](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation).
 

@@ -236,9 +236,7 @@ def test_combined_evidence_and_operations_environment_passes_release_preflight(
     deployment.mkdir()
     _, environment, values = _deployment_files(deployment)
     values.update(deployment_values(candidate))
-    environment.write_text("
-".join(f"{key}={value}" for key, value in values.items()) + "
-")
+    environment.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
     monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
     real_validate = verify.validate_deployment_release
     # Only external Cosign/Compose are synthetic. Manifest, migrations, configuration,
@@ -256,15 +254,20 @@ def test_combined_evidence_and_operations_environment_passes_release_preflight(
     assert "0009_verification_artifacts.sql" in manifest["migration_set"]
     assert "0010_runner_operations.sql" in manifest["migration_set"]
     compose = (repository / "infra/deployment/compose.vm.yaml").read_text()
-    for setting in ("EVIDENCE_ENCRYPTION_KEY", "RUNNER_CAPACITY", "OPERATIONS_BACKUP_RECEIPT_DIRECTORY"):
+    for setting in (
+        "EVIDENCE_ENCRYPTION_KEY",
+        "RUNNER_CAPACITY",
+        "OPERATIONS_BACKUP_RECEIPT_DIRECTORY",
+    ):
         assert setting in compose
 
 
-@pytest.mark.parametrize("migration", ["0009_verification_artifacts.sql", "0010_runner_operations.sql"])
+@pytest.mark.parametrize(
+    "migration", ["0009_verification_artifacts.sql", "0010_runner_operations.sql"]
+)
 def test_either_feature_migration_drift_blocks_release(artifacts, migration):
     repository, candidate, _ = artifacts
     with (repository / "migrations" / migration).open("a") as file:
-        file.write("-- changed fixture
-")
+        file.write("-- changed fixture\n")
     with pytest.raises(ReleaseError, match="checkout"):
         verify.verify_release(candidate, repository=repository, runner=lambda _: None)
