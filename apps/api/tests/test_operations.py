@@ -326,3 +326,43 @@ def test_public_shell_and_script_have_no_private_data_and_secure_headers():
     assert script.headers["content-type"].startswith("text/javascript")
     assert script.headers["cache-control"] == "no-store"
     assert "heartbeat" in script.text
+
+
+def test_later_stage_pending_activity_wait_and_unknown_observations_are_owner_scoped(factory):
+    from datetime import UTC, datetime
+
+    from pr_reliability_workers.operation_alerts import evaluate_alerts
+
+    store = OperationsStore(factory)
+    repository, run, _request = seed(factory, state="selecting_context")
+    seed(factory, OTHER, 20, state="analyzing")
+    runner = registration(workload="workflow", runner_id="workflow-1")
+    store.register(runner)
+    with factory() as connection:
+        pr = connection.execute(
+            "SELECT pull_request_id FROM runs WHERE id = %s", (run,)
+        ).fetchone()[0]
+        connection.execute(
+            """INSERT INTO run_events (public_id, owner_id, run_id, event_key, event_type,
+               event_data, occurred_at) VALUES (%s, %s, %s, 'dispatch',
+               'run.command_dispatched', '{"status":"accepted"}', now())""",
+            ("01J00000000000000000000090", OWNER, run),
+        )
+    assert store.queue_workflows(OWNER, "pr-review") == [(pr, "01J00000000000000000000011")]
+    assert store.snapshot(OWNER, "pr-review")["queue_depth"] is None
+    oldest = datetime.now(UTC) - timedelta(seconds=301)
+    store.observe_pending(runner, [(pr, 1, oldest)])
+    snapshot = store.snapshot(OWNER, "pr-review", [repository])
+    assert snapshot["queued"] == 0 and snapshot["running"] == 1
+    assert snapshot["queue_depth"] == 1 and snapshot["current_wait_seconds"] >= 301
+    assert "stuck_queue" in evaluate_alerts(snapshot)
+    assert store.snapshot(OWNER, "pr-review", [])["queue_depth"] == 0
+    with factory() as connection:
+        connection.execute(
+            "UPDATE operation_pending_activities SET observed_at = now() - interval '46 seconds'"
+        )
+    snapshot = store.snapshot(OWNER, "pr-review")
+    assert snapshot["queue_depth"] is None and snapshot["current_wait_seconds"] is None
+    assert "queue_probe_unavailable" in evaluate_alerts(snapshot)
+    store.observe_pending(runner, [(pr, 0, None)])
+    assert store.snapshot(OWNER, "pr-review")["queue_depth"] == 0

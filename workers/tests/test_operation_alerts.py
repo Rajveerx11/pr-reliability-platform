@@ -167,3 +167,57 @@ def test_probe_unknown_is_not_healthy_and_does_not_reflect_local_data(tmp_path, 
         "backup_probe_unavailable",
         "tls_probe_unavailable",
     }
+
+
+def test_periodic_monitor_repeats_and_never_marks_delivery_failure_success(tmp_path, monkeypatch):
+    import threading
+    from unittest.mock import MagicMock
+
+    from pr_reliability_workers.alert_monitor import CheckHealth, run_monitor
+
+    stop = threading.Event()
+    health = CheckHealth()
+    store = MagicMock()
+    store.snapshot.return_value = {
+        "runners": [],
+        "queue_depth": None,
+        "current_wait_seconds": None,
+        "queue_observation_unknown": 1,
+        "recent_failures": 0,
+        "recent_completed": 0,
+    }
+    calls = []
+
+    def fail_delivery(settings, codes, token):
+        calls.append(codes)
+        if len(calls) == 2:
+            stop.set()
+        raise RuntimeError("fixed failure")
+
+    monkeypatch.setattr("pr_reliability_workers.alert_monitor.deliver_alerts", fail_delivery)
+    run_monitor(
+        store, "owner", settings(tmp_path), "test-only", interval=0.001, stop=stop, health=health
+    )
+    assert len(calls) == 2
+    assert all("queue_probe_unavailable" in codes for codes in calls)
+    assert health.last_success == 0
+    assert b"pr_operations_alert_last_success_seconds 0" in health.metrics()
+
+
+def test_monitor_database_failure_attempts_fixed_private_failure_code(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
+    import psycopg
+    from pr_reliability_workers.alert_monitor import CheckHealth, check_once
+
+    store = MagicMock()
+    store.snapshot.side_effect = psycopg.OperationalError("private DB details")
+    delivered = []
+    monkeypatch.setattr(
+        "pr_reliability_workers.alert_monitor.deliver_alerts",
+        lambda settings, codes, token: delivered.append(codes),
+    )
+    health = CheckHealth()
+    assert not check_once(store, "owner", settings(tmp_path), "test-only", health)
+    assert delivered == [{"alert_check_unavailable"}]
+    assert health.last_success == 0

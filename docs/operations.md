@@ -122,8 +122,8 @@ removes durable work or guesses a terminal result.
 | --- | --- | --- |
 | Heartbeat, version, workload and state | Migration 0010, fenced registrations, stale/offline and busy/draining tests | Workflow task occupancy is Unknown; heartbeat freshness is sampled |
 | Queued, assigned, running, cancelled, completed | Owner/repository-scoped durable runs and accepted dispatch receipts | Assigned means Temporal dispatch, not host reservation |
-| Queue, wait, capacity, utilization, pass rate | SQL counts/percentiles, activity interception, bounded private metrics and browser rendering | First-activity waits, not per-attempt Temporal backlog |
-| All required alerts | Fixed missing-worker, stuck-queue, repeated-failure, disk, backup and TLS checks with regression tests | Host probes use mounted files; monitoring interval must be configured |
+| Queue, wait, capacity, utilization, pass rate | SQL counts/percentiles, activity interception, bounded private metrics and browser rendering | Current activity queues include later stages/retry backoff; historical percentiles remain first starts |
+| All required alerts | Fixed missing-worker, stuck-queue, repeated-failure, disk, backup and TLS checks with regression tests | Compose installs a 30-second monitor and read-only host probes; receiver approval stays external |
 | Approved private delivery without private content | Literal private HTTPS receiver validation, no redirects/proxies, fixed allowlisted payload, auth-header tests | Actual approval and receiver delivery are not verified |
 | Drain without durable work loss | Real Temporal drain/replacement test; pending crash-drain is checked before polling | Real VM shutdown drill remains required |
 | Bounded metrics | Only a bounded configured queue label; work counts use live repository authorization | One queue per owner; no multi-queue routing or public scrape |
@@ -170,5 +170,15 @@ Recovery validation on 2026-10-08:
 Full acceptance is **not complete** while the broad check fails and these boundaries remain.
 Still required: independent review/CodeRabbit, Linux CI, real VM dependency/restart drill,
 approved receiver delivery, actual backup receipt/restore and TLS/disk probe evidence, and
-shared deployment wiring. Do not treat repository or fixture evidence as live
+independent failure-notification routing. Do not treat repository or fixture evidence as live
 production acceptance.
+
+### Focused review corrections (2026-10-08)
+
+The three independent blockers were corrected after recovery: both supported manifests supply
+mandatory runner settings and readiness/grace; periodic monitoring, probes, backup receipts and
+independent Prometheus failure detection are installed; queue observations now come from real
+Temporal pending activities via the existing workflow heartbeat loop. Focused regressions cover
+actual context completion followed by analyze waiting behind verification, plus retry backoff,
+unknown/stale observations and rendered deployment configuration. This is not a fresh independent
+review or production acceptance. The parent must run full CI and obtain re-review.

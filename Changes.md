@@ -1,6 +1,6 @@
 # Changes
 
-## 2026-10-08 � Focused independent-review corrections (#43)
+## 2026-10-08 — Focused independent-review corrections (#43)
 
 - Wired mandatory runner monitor environment, migration/database readiness and 90-second
   shutdown grace into local/VM Compose and CI manifest examples, without provider/socket
@@ -14,7 +14,7 @@
 - Added focused deployment, probe/receipt, periodic-failure and real Temporal delayed-activity
   regressions. Kept migration reservation 0010; no 0009/evidence/release changes.
 - References: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),
-  [operations decision](plan/v1.md#dec-013--use-one-self-hosted-runner-and-an-agent-pool).
+  [Temporal decision](plan/v1.md#dec-004--use-temporal-for-durable-workflows).
 
 ## 2026-09-08 — Individual GitHub access (#44)
 
