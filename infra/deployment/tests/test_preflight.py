@@ -49,6 +49,7 @@ def _deployment_files(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "GITHUB_OAUTH_CLIENT_ID": "test-client",
         "GITHUB_OAUTH_CLIENT_SECRET": "r" * 32,
         "SESSION_ENCRYPTION_KEY": Fernet.generate_key().decode(),
+        "EVIDENCE_ENCRYPTION_KEY": Fernet.generate_key().decode(),
         "GITHUB_LOGIN_ORIGIN": "https://reviews.internal.example",
         "GITHUB_ALLOWED_ACCOUNT_ID": "1",
         "GITHUB_ADMIN_IDS": "1",
@@ -348,3 +349,43 @@ def test_login_rate_limit_proxy_boundary_is_private_and_overwrites_forwarding():
     assert "header_up X-Forwarded-For {remote_host}" in (deployment / "Caddyfile").read_text()
     development = (deployment.parent / "compose" / "compose.yaml").read_text()
     assert "--forwarded-allow-ips" not in development
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("EVIDENCE_ENCRYPTION_KEY", ""),
+        ("EVIDENCE_ENCRYPTION_KEY", "replace-evidence-fernet-key"),
+        ("EVIDENCE_MAX_BYTES", "4095"),
+        ("EVIDENCE_RETENTION_SECONDS", "59"),
+        ("EVIDENCE_SECRET_PATTERNS", "{}"),
+        ("EVIDENCE_SECRET_PATTERNS", "not-json"),
+    ],
+)
+def test_preflight_rejects_invalid_evidence_configuration(tmp_path, monkeypatch, name, value):
+    repository, environment_file, values = _deployment_files(tmp_path)
+    monkeypatch.setattr(preflight, "_validate_rootless_paths", lambda *_: None)
+    values[name] = value
+    environment_file.write_text(
+        "\n".join(f"{key}={item}" for key, item in values.items()) + "\n", encoding="utf-8"
+    )
+    with pytest.raises(PreflightError, match="EVIDENCE_ENCRYPTION_KEY|evidence configuration"):
+        validate_environment(repository, environment_file)
+
+
+def test_supported_compose_manifests_forward_same_evidence_settings_to_both_services():
+    infra = Path(__file__).parents[2]
+    for manifest in (infra / "compose/compose.yaml", infra / "deployment/compose.vm.yaml"):
+        compose = manifest.read_text(encoding="utf-8")
+        for service, following in (
+            ("api", "repository-sync"),
+            ("activity-worker", "otel-collector"),
+        ):
+            section = compose.split(f"  {service}:\n", 1)[1].split(f"\n  {following}:", 1)[0]
+            for name, default in (
+                ("EVIDENCE_ENCRYPTION_KEY", "?EVIDENCE_ENCRYPTION_KEY is required"),
+                ("EVIDENCE_MAX_BYTES", "-262144"),
+                ("EVIDENCE_RETENTION_SECONDS", "-604800"),
+                ("EVIDENCE_SECRET_PATTERNS", "-[]"),
+            ):
+                assert f"      {name}: ${{{name}:{default}}}" in section

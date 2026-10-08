@@ -28,6 +28,12 @@ them and names the affected files.
 - Reject unsupported XML namespaces anywhere, including namespaced failure/testcase elements
   and attributes. Redact configured secret prefixes at runtime capture cutoffs before encryption
   and on display, including incomplete UTF-8 boundaries. Added focused regression tests.
+- Forward the required external evidence key and bounded settings to API/activity services in
+  local and VM Compose. Validate evidence settings in VM preflight; update operator templates,
+  configuration notes, CI manifest placeholders and regression fixtures. No release/deploy changes.
+- Focused Windows validation: 216 passed, 24 skipped (PostgreSQL, real Docker and POSIX/Linux
+  prerequisites); Ruff lint/format, compileall, both Compose config checks and missing-key rejection
+  passed. Parent review, CodeRabbit, full Linux CI and live operator acceptance remain required.
 
 ### Bounded encrypted verification evidence
 
