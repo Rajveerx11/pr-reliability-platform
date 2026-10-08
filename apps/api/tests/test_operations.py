@@ -243,7 +243,7 @@ def test_percentiles_missing_history_and_recent_failure_window(factory):
     runner = registration()
     store.register(runner)
     for index, seconds in enumerate((10, 20, 90)):
-        _, run, request = seed(factory, seq=100 + index * 10, state="failed")
+        _, run, _request = seed(factory, seq=100 + index * 10, state="failed")
         # Fixture observations model three known first-activity waits on old completed jobs.
         with factory() as connection:
             connection.execute(
@@ -270,3 +270,59 @@ def test_percentiles_missing_history_and_recent_failure_window(factory):
     assert snapshot["wait_samples"] == 0
     assert snapshot["unknown_wait_runs"] == 4
     assert snapshot["p50_wait_seconds"] is None
+
+
+def test_pass_rate_and_work_counts_use_the_same_queue_scope(factory):
+    store = OperationsStore(factory)
+    runner = registration()
+    store.register(runner)
+    for index, conclusion in enumerate(("passed", "failed")):
+        _, run, request = seed(factory, seq=200 + index * 10)
+        store.observe_start(runner, request)
+        with factory() as connection:
+            if index:
+                connection.execute(
+                    "UPDATE operation_work SET queue = 'other-queue' WHERE run_id = %s", (run,)
+                )
+            connection.execute(
+                """INSERT INTO run_events (public_id, owner_id, run_id, event_key, event_type,
+                     event_data, occurred_at) VALUES (%s, %s, %s, 'verify',
+                     'activity.verify.completed', jsonb_build_object('conclusion', %s::text), now())""",
+                (f"01J{300 + index:023d}", OWNER, run, conclusion),
+            )
+    snapshot = store.snapshot(OWNER, "pr-review")
+    assert snapshot["queued"] == snapshot["pass_rate_samples"] == 1
+    assert snapshot["job_pass_rate"] == 1
+    snapshot = store.snapshot(OWNER, "other-queue")
+    assert snapshot["queued"] == snapshot["pass_rate_samples"] == 1
+    assert snapshot["job_pass_rate"] == 0
+
+
+def test_unacknowledged_drain_survives_crashed_session_replacement(factory):
+    store = OperationsStore(factory)
+    old = registration()
+    store.register(old)
+    store.request_drain(OWNER, old.runner_id)
+    replacement = registration()
+    store.register(replacement)
+    assert store.heartbeat(replacement, 0, "online")
+    assert store.snapshot(OWNER, "pr-review")["runners"][0]["state"] == "draining"
+    store.retire(old)  # a late old process cannot acknowledge the replacement's drain
+    assert store.heartbeat(replacement, 0, "online")
+    store.retire(replacement)
+    assert not store.heartbeat(replacement, 0, "offline")
+
+
+def test_public_shell_and_script_have_no_private_data_and_secure_headers():
+    client = client_for(lambda: pytest.fail("static asset reached database"))
+    page = client.get("/operations")
+    assert page.status_code == 200
+    assert "<title>Runner operations</title>" in page.text
+    assert OWNER not in page.text and TOKEN not in page.text
+    assert page.headers["cache-control"] == "no-store"
+    assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
+    script = client.get("/operations/assets/operations.js")
+    assert script.status_code == 200
+    assert script.headers["content-type"].startswith("text/javascript")
+    assert script.headers["cache-control"] == "no-store"
+    assert "heartbeat" in script.text

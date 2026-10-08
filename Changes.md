@@ -31,8 +31,13 @@ them and names the affected files.
   owner-scoped durable work counts, capacity, waits, verification pass rate, and draining.
 - Added a private administrator operations page, bounded metrics, approved-private alert
   checks, operator documentation, and API/worker/browser regression tests.
-- Recovered the prior implementation without replacing its architecture. Validation is in
-  progress; live receiver, VM recovery, backup/restore, and Linux checks remain required.
+- Recovered the prior implementation without replacing its architecture. Fixed pending-drain
+  startup polling, offline health reporting, queue-scoped pass rates, and stale browser responses.
+- Added real Temporal/PostgreSQL retry-and-replacement coverage and linked the shared dashboard
+  to the operations page. Browser fixtures passed 28 assertions at desktop/mobile widths.
+- Validation remains WIP: the unfiltered broad suite reproduces the baseline Windows read-only
+  Git-pack cleanup failure. Docker/Linux checks, live receiver, VM recovery, and backup/restore
+  evidence remain required; see `docs/operations.md`. No deployment files were changed.
 
 ### Refreshed the README and merged-status documentation
 

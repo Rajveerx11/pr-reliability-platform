@@ -179,10 +179,12 @@ class OperationsStore:
                 """SELECT count(*) FILTER (WHERE event_data->>'conclusion' = 'passed'), count(*)
                    FROM run_events e JOIN runs r ON r.owner_id = e.owner_id AND r.id = e.run_id
                    JOIN pull_requests p ON p.owner_id = r.owner_id AND p.id = r.pull_request_id
+                   LEFT JOIN operation_work w ON w.owner_id = r.owner_id AND w.run_id = r.id
                    WHERE e.owner_id = %s AND e.event_type = 'activity.verify.completed'
                      AND (%s::bigint[] IS NULL OR p.repository_id = ANY(%s))
+                     AND (w.queue IS NULL OR w.queue = %s)
                      AND e.event_data->>'conclusion' IN ('passed', 'failed')""",
-                (owner_id, repository_ids, repository_ids),
+                (owner_id, repository_ids, repository_ids, queue),
             ).fetchone()
         keys = (
             "queued",

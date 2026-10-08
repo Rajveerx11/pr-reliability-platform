@@ -50,11 +50,15 @@ class RunnerMonitor(Interceptor):
         while True:
             try:
                 healthy = await client.service_client.check_health(timeout=timedelta(seconds=3))
+            except (RPCError, ConnectionError, TimeoutError):
+                healthy = False
+                _LOG.warning("runner heartbeat dependency unavailable")
+            try:
                 await self.pulse(healthy)
             except RunnerSessionReplaced:
                 self.drain()
                 return
-            except (psycopg.Error, RPCError, ConnectionError, TimeoutError):
+            except (psycopg.Error, ConnectionError, TimeoutError):
                 # Keep Temporal work durable during a dependency outage. No exception details.
                 _LOG.warning("runner heartbeat dependency unavailable")
             await asyncio.sleep(interval)
@@ -113,6 +117,11 @@ async def run_monitored(worker, client, monitor: RunnerMonitor):
     by Temporal. Do not cancel workflows or remove commands, leases, or run state here.
     """
     await asyncio.to_thread(monitor.store.register, monitor.registration)
+    # A drain left by a crashed process must be observed before any new Temporal polling.
+    await monitor.pulse()
+    if monitor.stop.is_set():
+        await asyncio.to_thread(monitor.store.retire, monitor.registration)
+        return
     loop = asyncio.get_running_loop()
     previous = {}
     for sig in (signal.SIGTERM, signal.SIGINT):

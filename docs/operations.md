@@ -57,20 +57,19 @@ The integrating operator must:
 3. Set the same `TEMPORAL_TASK_QUEUE` on API, dispatcher and both worker services.
 4. Allow the worker's database egress. Set container stop grace above the 60-second activity
    grace and cleanup time (at least 90 seconds). Do not send SIGKILL as the normal drain path.
-5. Add a navigation link to `/operations` in the shared dashboard during sequential integration.
-6. Configure a private alert receiver **only after human approval**. Start from
+5. Configure a private alert receiver **only after human approval**. Start from
    `infra/observability/operations-alerts.example.json`. Its placeholder intentionally fails
    validation. Replace it with the approved RFC1918/ULA literal IP HTTPS URL (port 443), valid
    trusted certificate, and private mounts for the disk, backup receipt and TLS certificate.
    DNS, public, loopback, metadata/link-local addresses, URL credentials, query strings and
    redirects are rejected. No environment proxy is used. Never disable TLS verification.
-7. Supply `OPERATIONS_ALERT_TOKEN` through a secret, not a tracked file. Run
+6. Supply `OPERATIONS_ALERT_TOKEN` through a secret, not a tracked file. Run
    `pr-reliability-operation-alerts --config /private/operations-alerts.json` on the existing
    monitoring interval (for example every minute). This command does not create a scheduler.
    Nonzero exit means the check/delivery itself is unavailable; the monitoring service must
    alert on that failure. Repeated checks can repeat alerts; receiver grouping/rate limiting
    must deduplicate the fixed service/code pairs.
-8. Wire the real backup job to atomically write its private status receipt:
+7. Wire the real backup job to atomically write its private status receipt:
    `{"succeeded":true,"finished_at":"2026-10-08T12:00:00+00:00"}`. Record false on failure.
    Never write credentials, error text or backup paths in this receipt. No receipt proves a
    restore; a real backup/restore drill is still required.
@@ -92,8 +91,9 @@ reports draining, stops Temporal polling and lets in-flight activities finish fo
 Temporal's durable work; this code never cancels workflows or deletes commands/run state.
 A clean shutdown retires the current session and acknowledges the drain. Restart resumes
 with a new random session and resets slot observations. A pending drain survives a crash until
-it is acknowledged. A replacement process fences older heartbeat/start writers and asks the
-older process to drain; do not intentionally overlap processes sharing a runner ID.
+it is acknowledged. Restart checks a pending drain before polling, retires that session and
+exits without accepting new work. A replacement process fences older heartbeat/start writers
+and asks the older process to drain; do not intentionally overlap processes sharing a runner ID.
 
 Database loss before an activity start prevents a new provider side effect and lets Temporal
 retry. Heartbeat dependency failures log only a fixed code. Temporal health failure reports
@@ -105,12 +105,16 @@ removes durable work or guesses a terminal result.
 
 Tests beside API and worker code cover auth, CSRF, owner/repository isolation, lifecycle counts,
 Unknown history, stale heartbeats, session fencing, drain requests, dependency failure, fixed
-private delivery metadata and host-probe failures. A real local Temporal test drains an active
-activity and proves queued work runs only after the replacement worker starts. Browser tests
-in `apps/web/tests/operations.browser.js` exercise desktop/mobile render, drain, unavailable,
-forbidden and signed-out states with isolated HTTP fixtures.
+private delivery metadata and host-probe failures. One real local Temporal test drains an
+active activity and proves queued work runs only after the replacement worker starts. Another
+uses real PostgreSQL observations and a test-only failed connection factory to prove a blocked
+activity retries across worker replacement without an early provider side effect or lost work.
+It does not stop a real database service or use real provider credentials. Browser tests in
+`apps/web/tests/operations.browser.js` exercise desktop/mobile render, keyboard drain, visible
+heartbeat, failed drain, unavailable, forbidden, signed-out and delayed-response clearing states
+with isolated HTTP fixtures. The shared dashboard links to the operations page.
 
 Still required: independent review/CodeRabbit, Linux CI, real VM dependency/restart drill,
 approved receiver delivery, actual backup receipt/restore and TLS/disk probe evidence, and
-shared deployment/navigation wiring. Do not treat repository or fixture evidence as live
+shared deployment wiring. Do not treat repository or fixture evidence as live
 production acceptance.
