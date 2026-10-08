@@ -2,7 +2,9 @@
 
 import re
 
-from pr_reliability_evidence import MAX_REPORT_BYTES, MAX_REPORT_FILES, ReportError, summarize_junit
+# Keep configuration validation stdlib-only: release preflight imports it with python -S.
+MAX_REPORT_BYTES = 1024 * 1024
+MAX_REPORT_FILES = 4
 
 _REPORT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.xml\Z")
 # Image-owned Python runs isolated (-I); neither workspace imports nor repository code run.
@@ -18,7 +20,7 @@ try:
             raise ValueError()
         raw = stream.read(limit + 1)
         after = os.fstat(stream.fileno())
-        if len(raw) != before.st_size or after.st_nlink != 1 or after.st_size != before.st_size or after.st_mtime_ns != before.st_mtime_ns:
+        if len(raw) != before.st_size or after.st_nlink != 1 or after.st_size != before.st_size or after.st_mtime_ns != before.st_mtime_ns or after.st_ctime_ns != before.st_ctime_ns:
             raise ValueError()
     sys.stdout.buffer.write(raw)
 except Exception:
@@ -37,6 +39,8 @@ def validate_report_files(names: tuple[str, ...]) -> None:
 
 
 async def export_reports(runtime, container_name: str, names: tuple[str, ...]):
+    from pr_reliability_evidence import ReportError, summarize_junit
+
     summaries = []
     for name in names:
         try:

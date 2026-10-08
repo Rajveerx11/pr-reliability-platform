@@ -33,8 +33,13 @@ them and names the affected files.
 - Wired production verification receipts to opaque references, owner/repository-scoped JSON
   display/download routes, and dashboard finding links to run-level check summaries and logs.
 - Added parser, redaction, truncation, extraction, isolation, expiry, and database regression
-  tests plus [deployment seam notes](docs/verification-evidence.md). Linux Docker CI, independent
-  review and real deployment evidence remain required; local checks are not staging evidence.
+  tests plus [deployment seam notes](docs/verification-evidence.md). Protected in-flight dashboard
+  details at sign-out and bounded log display on mobile. Kept allowlist validation stdlib-only
+  for existing release preflight, and normalized disposable Windows Git test fixtures.
+- Local validation: 149 focused checks and 572 full-suite checks passed with 21/28 explicit
+  platform skips; format/lint, build and fixture browser checks passed. Linux Docker CI,
+  independent review and real deployment evidence remain required; local checks are not staging
+  evidence. Exact evidence and corrected earlier failures are in the issue acceptance plan.
 
 ### Refreshed the README and merged-status documentation
 

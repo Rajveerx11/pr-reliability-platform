@@ -28,8 +28,32 @@ Migration 0009 is reserved for this issue.
 
 ## Validation boundaries
 
-Unit tests run on Windows. PostgreSQL tests use a disposable task-owned native PostgreSQL 18
-instance when available. Real Linux Docker tests remain required in the sandbox CI job: a local
-Docker daemon is not available. Browser checks use local fixture responses, not staging evidence.
-Independent review, CodeRabbit and remote CI belong to the parent handoff.
+Validated on Windows with Python 3.12 and a disposable task-owned native PostgreSQL 18 instance:
+
+- Focused suite: 149 passed, 21 skipped, one upstream Starlette deprecation warning.
+- Full `pytest -q -ra`, with no test exclusions: 572 passed, 28 skipped, the same warning.
+- `ruff check .`, `ruff format --check .` (202 files), Python compileall, Node syntax check,
+  lock check, wheel/sdist build and wheel contents check passed.
+- The expiry CLI ran successfully against the task-owned database after migration 0009.
+- Playwright fixture checks passed at 1440px and 390px: keyboard summary/log display, literal
+  hostile text, bounded log layout, expired evidence, attachment download, and a 401 during
+  evidence listing without redisplaying already-fetched findings. No page errors.
+
+Earlier runs failed honestly: large parametrized test IDs exceeded Windows environment limits;
+shared test resource dictionaries leaked mutation; Windows Git marked fixture pack files
+read-only; and a new eager package import broke stdlib-only release preflight. These were fixed
+in test fixtures and the artifact import boundary, without changing release preflight or
+production cleanup. Final focused and broad runs passed with the stated skips.
+
+The full-suite skips are 13 real Docker checks (including five new report-export/attack cases),
+six Linux-only file descriptor checks, seven Linux descendant-supervision checks and two POSIX
+socket-ownership checks. A local Docker daemon is not available; Linux report extraction remains
+an acceptance gap until sandbox CI runs. LSP tools are not available in this worker.
+Browser checks are fixture evidence, not staging or real GitHub evidence. Independent review,
+CodeRabbit and remote CI belong to the parent handoff.
+
+Local artifacts: `C:/Users/rajve/AppData/Local/Temp/issue42-focused-final.log`,
+`issue42-broad-final.log`, `issue42-browser-evidence.js`, and
+`issue42-browser-evidence-output/report.json` in that same temp directory. Browser screenshots
+and downloaded fixture JSON are beside the report. Checkpoint commit: `9cc86d4`.
 See [operator notes](../docs/verification-evidence.md) for the required deployment seams.

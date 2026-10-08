@@ -256,6 +256,9 @@ def test_report_files_can_only_come_from_operator_allowlist(tmp_path):
         ["reports/x.xml"],
         ["junit.xml"] * 2,
         [f"a{i}.xml" for i in range(5)],
+        {"junit.xml": True},
+        "junit.xml",
+        None,
     ],
 )
 def test_operator_cannot_approve_unsafe_report_files(files):

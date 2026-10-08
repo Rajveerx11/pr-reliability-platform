@@ -109,7 +109,10 @@ def parse_check_allowlist(raw: str) -> RepositoryCheckPolicy:
         )
         _require_fields(data, {"name", "image", "command"}, ValueError)
         maximums = _object(data.get("maximum_resources", {}), _LIMIT_FIELDS, ValueError)
+        reports = data.get("report_files", [])
         try:
+            if not isinstance(reports, list):
+                raise TypeError("approved report_files must be a list")
             limits = SandboxLimits(**maximums)
             checks.append(
                 ApprovedCheck(
@@ -117,7 +120,7 @@ def parse_check_allowlist(raw: str) -> RepositoryCheckPolicy:
                     image=_string(data["image"], ValueError),
                     command=_command(data["command"], ValueError),
                     maximum_limits=limits,
-                    report_files=tuple(data.get("report_files", [])),
+                    report_files=tuple(reports),
                 )
             )
         except (TypeError, ValueError) as exc:

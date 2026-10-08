@@ -267,6 +267,11 @@ class LocalFixtureCheckout:
             check=True,
             capture_output=True,
         )
+        if os.name == "nt":
+            # Windows Git marks pack files read-only; this disposable test fixture is deletable.
+            for path in (target / ".git").rglob("*"):
+                if path.is_file():
+                    path.chmod(0o600)
         return FakeCheckoutResult(target, base_sha, head_sha, "safe-checkout-ref")
 
 

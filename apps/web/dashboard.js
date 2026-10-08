@@ -4,6 +4,7 @@ const state = {
   offset: 0,
   limit: 20,
   total: 0,
+  accessGeneration: 0,
   pendingRunId: new URLSearchParams(window.location.search).get("run")
 };
 const byId = (id) => document.getElementById(id);
@@ -175,7 +176,7 @@ function verificationEvidence(items) {
     if (item.expired) {
       row.append(node("span", `${item.check_name}: evidence expired`));
     } else {
-      const button = node("button", `View ${item.check_name} summary and logs`);
+      const button = node("button", `View ${item.check_name} summary and logs`, "open-run");
       button.type = "button";
       const output = node("pre");
       button.addEventListener("click", async () => {
@@ -256,6 +257,7 @@ function renderRunDetail(detail, evidenceItems = [], evidenceError = null) {
 }
 
 async function openRun(runId) {
+  const generation = state.accessGeneration;
   const dialog = byId("run-dialog");
   byId("run-detail").replaceChildren(node("p", "Loading run evidence…"));
   dialog.showModal();
@@ -268,6 +270,7 @@ async function openRun(runId) {
     } catch (error) {
       evidenceError = `Verification evidence unavailable: ${error.message}`;
     }
+    if (generation !== state.accessGeneration) return;
     renderRunDetail(detail, items, evidenceError);
   } catch (error) {
     byId("run-detail").replaceChildren(node("p", error.message));
@@ -296,6 +299,7 @@ async function loadDashboard() {
 }
 
 document.addEventListener("reviewer:signed-out", () => {
+  state.accessGeneration += 1;
   byId("run-dialog").close();
   byId("run-detail").replaceChildren();
   byId("run-rows").replaceChildren();
