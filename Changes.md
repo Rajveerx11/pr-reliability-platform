@@ -1,5 +1,32 @@
 # Changes
 
+## 2026-10-08 — Final local review fixes (#43)
+
+- Updated the browser fixture for all 19 operation facts, including unobserved activity queues.
+- Matched workflow enumeration to snapshot predicates: only queued runs require an accepted
+  dispatch receipt. Advanced runs remain observable after a dispatcher receipt-write crash.
+  Added regressions for every active advanced state and retained owner, queue and terminal fences.
+- Removed the stale deployment-change claim and clarified local review versus live acceptance.
+- References: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),
+  [Temporal decision](plan/v1.md#dec-004--use-temporal-for-durable-workflows).
+
+## 2026-10-08 — Focused independent-review corrections (#43)
+
+- Wired mandatory runner monitor environment, migration/database readiness and 90-second
+  shutdown grace into local/VM Compose and CI manifest examples, without provider/socket
+  credentials on the workflow worker.
+- Installed the 30-second private operational monitor, actual disk/backup/TLS probe mounts,
+  fixed-label Prometheus check/delivery failure rule and atomic systemd backup receipts.
+  Receiver approval/configuration and independent Prometheus notification routing remain external.
+- Added authoritative owner/repository-scoped Temporal pending activity observations through the
+  existing workflow RunnerMonitor, including later-stage queues and retry backoff. Missing/stale
+  observations remain unknown and alert as unavailable, rather than reporting false zero.
+  Queue RPCs cannot block liveness pulses; API and workers share the configured queue.
+- Added focused deployment, probe/receipt, periodic-failure and real Temporal delayed-activity
+  regressions. Kept migration reservation 0010; no 0009/evidence/release changes.
+- References: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),
+  [Temporal decision](plan/v1.md#dec-004--use-temporal-for-durable-workflows).
+
 ## 2026-09-08 — Individual GitHub access (#44)
 
 - Issue: [#44](https://github.com/Rajveerx11/pr-reliability-platform/issues/44).
@@ -20,6 +47,19 @@ This file records repository changes. Each entry links changes to the decision t
 them and names the affected files.
 
 ## Unreleased
+
+### Integrate runner operations with bounded evidence (#43)
+
+- Merge existing PR63 runner operations with PR61 evidence at main `ef742b8` without
+  changing either feature's semantics. Preserve both API routers, mandatory worker database,
+  owner and runner settings, bounded evidence settings and the external encryption key.
+- Keep provider/GitHub/socket access on the activity worker only, continuous operational
+  alerts/probes/backup receipts and pending Temporal queue observations. Assert that the
+  migration chain ends with both 0009 and 0010; leave existing SQL and evidence repr fixes intact.
+- Add application-router coexistence and Compose evidence/runner isolation regressions.
+- References: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),
+  [DEC-004](plan/v1.md#dec-004--use-temporal-for-durable-workflows),
+  [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
 
 ### Issue #42 independent review corrections
 
@@ -64,6 +104,26 @@ them and names the affected files.
   platform skips; format/lint, build and fixture browser checks passed. Linux Docker CI,
   independent review and real deployment evidence remain required; local checks are not staging
   evidence. Exact evidence and corrected earlier failures are in the issue acceptance plan.
+
+### Added private runner operations (#43)
+
+- Issue: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43).
+- Decisions: [DEC-004](plan/v1.md#dec-004--use-temporal-for-durable-workflows),
+  [DEC-005](plan/v1.md#dec-005--use-postgresql-with-stable-ownership-fields), and
+  [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout).
+- Added migration 0010 and separate API/worker modules for heartbeat, session fencing,
+  owner-scoped durable work counts, capacity, waits, verification pass rate, and draining.
+- Added a private administrator operations page, bounded metrics, approved-private alert
+  checks, operator documentation, and API/worker/browser regression tests.
+- Recovered the prior implementation without replacing its architecture. Fixed pending-drain
+  startup polling, offline health reporting, queue-scoped pass rates, and stale browser responses.
+- Added real Temporal/PostgreSQL retry-and-replacement coverage and linked the shared dashboard
+  to the operations page. Browser fixtures passed 28 assertions at desktop/mobile widths.
+- Focused checks passed 45 tests; formatting/lint, JavaScript syntax, and wheel/sdist checks
+  passed. Validation remains WIP: the unfiltered broad suite recorded 546 passed, 1 failed,
+  17 skipped and reproduced the baseline Windows read-only Git-pack cleanup failure.
+- Docker/Linux and LSP checks, live receiver, VM recovery, backup/restore and independent
+  review remained unverified at recovery; see the later corrections in `docs/operations.md`.
 
 ### Refreshed the README and merged-status documentation
 

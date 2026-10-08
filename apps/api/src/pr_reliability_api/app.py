@@ -35,6 +35,7 @@ def create_app(
     database_health_check: DatabaseHealthCheck | None = None,
     repository_health_check: DatabaseHealthCheck | None = None,
     health_check_timeout_seconds: float = 2.0,
+    operations_queue: str = "pr-review",
 ) -> FastAPI:
     """Create the API with explicit production or test dependencies."""
 
@@ -61,6 +62,13 @@ def create_app(
                     approval_settings, connection_factory, evidence_settings, sessions=sessions
                 )
             )
+        from .operations.routes import create_operations_router
+
+        app.include_router(
+            create_operations_router(
+                approval_settings, connection_factory, queue=operations_queue, sessions=sessions
+            )
+        )
         app.include_router(
             create_approval_inbox_router(approval_settings, connection_factory, sessions=sessions)
         )
@@ -136,6 +144,7 @@ def create_app_from_environment() -> FastAPI:
         approval_settings,
         sessions=sessions,
         evidence_settings=evidence_from_environment(os.environ),
+        operations_queue=os.environ.get("TEMPORAL_TASK_QUEUE", "pr-review"),
         workflow_health_check=workflow_health_check,
         database_health_check=_database_health_check(
             database_url,

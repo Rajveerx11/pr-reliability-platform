@@ -7,9 +7,12 @@ import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pr_reliability_api.app import create_app
 from pr_reliability_api.approvals import ApprovalInboxSettings
 from pr_reliability_api.auth.sessions import Principal
 from pr_reliability_api.evidence.routes import create_evidence_router
+from pr_reliability_api.operations.store import OperationsStore
+from pr_reliability_api.webhooks import GithubWebhookSettings
 from pr_reliability_evidence import EvidenceSettings
 
 OWNER = "01J00000000000000000000001"
@@ -66,6 +69,40 @@ def client_for(row=None, *, sessions=None, config=None):
         )
     )
     return TestClient(app), connection, config
+
+
+def test_application_keeps_evidence_and_operations_routes_with_configured_queue(monkeypatch):
+    config = EvidenceSettings(Fernet.generate_key(), secret_patterns=("test-secret",))
+    ciphertext, _ = config.encrypt({"stdout": "test-secret", "stderr": ""})
+    connection = Connection((ciphertext, datetime.now(UTC) + timedelta(hours=1), None))
+    snapshots = []
+
+    def snapshot(self, owner, queue, repository_ids):
+        snapshots.append((owner, queue, repository_ids))
+        return {"queue_depth": 2}
+
+    monkeypatch.setattr(OperationsStore, "snapshot", snapshot)
+    client = TestClient(
+        create_app(
+            GithubWebhookSettings(OWNER, 1, b"test-only-webhook"),
+            lambda: connection,
+            ApprovalInboxSettings(OWNER, OWNER, "test-only-token"),
+            evidence_settings=config,
+            operations_queue="custom-review",
+        )
+    )
+    for path in (f"/api/evidence/{REF}", "/api/operations/overview"):
+        assert client.get(path).status_code == 401
+    assert connection.calls == []
+    assert snapshots == []
+    headers = {"Authorization": "Bearer test-only-token"}
+    evidence = client.get(f"/api/evidence/{REF}?download=true", headers=headers)
+    assert evidence.status_code == 200
+    assert evidence.json()["stdout"] == "[redacted]"
+    operations = client.get("/api/operations/overview", headers=headers)
+    assert operations.status_code == 200
+    assert operations.json() == {"queue_depth": 2}
+    assert snapshots == [(OWNER, "custom-review", None)]
 
 
 def test_unauthenticated_display_download_and_listing_do_not_touch_database():
