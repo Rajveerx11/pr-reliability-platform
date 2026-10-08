@@ -101,6 +101,19 @@ capacity offline; database loss eventually makes the heartbeat stale. A heartbea
 45 seconds is offline, even if its last stored state was online or busy. No dependency failure
 removes durable work or guesses a terminal result.
 
+## Checked acceptance facts
+
+| Issue #43 criterion | Repository evidence | Boundary |
+| --- | --- | --- |
+| Heartbeat, version, workload and state | Migration 0010, fenced registrations, stale/offline and busy/draining tests | Workflow task occupancy is Unknown; heartbeat freshness is sampled |
+| Queued, assigned, running, cancelled, completed | Owner/repository-scoped durable runs and accepted dispatch receipts | Assigned means Temporal dispatch, not host reservation |
+| Queue, wait, capacity, utilization, pass rate | SQL counts/percentiles, activity interception, bounded private metrics and browser rendering | First-activity waits, not per-attempt Temporal backlog |
+| All required alerts | Fixed missing-worker, stuck-queue, repeated-failure, disk, backup and TLS checks with regression tests | Host probes use mounted files; monitoring interval must be configured |
+| Approved private delivery without private content | Literal private HTTPS receiver validation, no redirects/proxies, fixed allowlisted payload, auth-header tests | Actual approval and receiver delivery are not verified |
+| Drain without durable work loss | Real Temporal drain/replacement test; pending crash-drain is checked before polling | Real VM shutdown drill remains required |
+| Bounded metrics | Only a bounded configured queue label; work counts use live repository authorization | One queue per owner; no multi-queue routing or public scrape |
+| Restart and dependency-loss recovery | Real Temporal retry across worker replacement with real PostgreSQL observations | Outage is injected into this test's connection factory, not a real VM dependency |
+
 ## Evidence and remaining acceptance
 
 Tests beside API and worker code cover auth, CSRF, owner/repository isolation, lifecycle counts,
@@ -114,6 +127,32 @@ It does not stop a real database service or use real provider credentials. Brows
 heartbeat, failed drain, unavailable, forbidden, signed-out and delayed-response clearing states
 with isolated HTTP fixtures. The shared dashboard links to the operations page.
 
+Recovery validation on 2026-10-08:
+
+- `uv run ruff format --check .`: 198 files already formatted.
+- `uv run ruff check .`, `git diff 9166409 --check`, and Node syntax checks for both new
+  operations JavaScript files passed. The recovered unused test variable was fixed.
+- Focused API/auth/migration/runner/alert tests: **45 passed**, one existing FastAPI/httpx
+  deprecation warning, with PostgreSQL 18 on task-owned port 5443 and UTF8 database
+  `issue43_utf8`. Initial attempts used the wrong test role and errored; the corrected role
+  and database were verified before the passing run.
+- Unfiltered `uv run pytest -q -ra`: **546 passed, 1 failed, 17 skipped**, one warning.
+  Failure: `workers/tests/test_production_operations.py::test_operations_persist_only_safe_receipts_and_replay_analysis`
+  cannot unlink a read-only Windows Git pack in existing provider cleanup. The same test
+  fails on the unchanged 9166409 archive (1 failed). That provider/artifact code was not
+  changed. No `-k`, `--ignore`, or arbitrary exclusion was used for this broad run.
+- Existing skips: 8 dedicated Docker sandbox tests, 7 Linux descendant-supervision tests,
+  and 2 POSIX socket-ownership tests. Docker has no running Linux daemon here. These are
+  unverified boundaries, not a clean integration result.
+- Playwright skill runner: **28 assertions passed** at 1280 and 390 pixels against local
+  source assets and isolated HTTP fixtures. Screenshots were inspected; both fit their
+  viewport. The temporary asset server used UTF8, matching production asset routes.
+- `uv build` passed for wheel and sdist. The wheel includes operations HTML/JavaScript,
+  migration 0010 and the dashboard navigation link.
+- LSP validation was not available in this worker's tool allowlist. No substitute LSP
+  script was created. Independent review and CodeRabbit are owned by the parent.
+
+Full acceptance is **not complete** while the broad check fails and these boundaries remain.
 Still required: independent review/CodeRabbit, Linux CI, real VM dependency/restart drill,
 approved receiver delivery, actual backup receipt/restore and TLS/disk probe evidence, and
 shared deployment wiring. Do not treat repository or fixture evidence as live

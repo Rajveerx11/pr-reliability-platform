@@ -35,9 +35,11 @@ them and names the affected files.
   startup polling, offline health reporting, queue-scoped pass rates, and stale browser responses.
 - Added real Temporal/PostgreSQL retry-and-replacement coverage and linked the shared dashboard
   to the operations page. Browser fixtures passed 28 assertions at desktop/mobile widths.
-- Validation remains WIP: the unfiltered broad suite reproduces the baseline Windows read-only
-  Git-pack cleanup failure. Docker/Linux checks, live receiver, VM recovery, and backup/restore
-  evidence remain required; see `docs/operations.md`. No deployment files were changed.
+- Focused checks passed 45 tests; formatting/lint, JavaScript syntax, and wheel/sdist checks
+  passed. Validation remains WIP: the unfiltered broad suite recorded 546 passed, 1 failed,
+  17 skipped and reproduced the baseline Windows read-only Git-pack cleanup failure.
+- Docker/Linux and LSP checks, live receiver, VM recovery, backup/restore and independent
+  review remain unverified; see `docs/operations.md`. No deployment files were changed.
 
 ### Refreshed the README and merged-status documentation
 
