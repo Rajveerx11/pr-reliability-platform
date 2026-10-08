@@ -1,5 +1,15 @@
 # Changes
 
+## 2026-10-08 — Final local review fixes (#43)
+
+- Updated the browser fixture for all 19 operation facts, including unobserved activity queues.
+- Matched workflow enumeration to snapshot predicates: only queued runs require an accepted
+  dispatch receipt. Advanced runs remain observable after a dispatcher receipt-write crash.
+  Added regressions for every active advanced state and retained owner, queue and terminal fences.
+- Removed the stale deployment-change claim and clarified local review versus live acceptance.
+- References: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),
+  [Temporal decision](plan/v1.md#dec-004--use-temporal-for-durable-workflows).
+
 ## 2026-10-08 — Focused independent-review corrections (#43)
 
 - Wired mandatory runner monitor environment, migration/database readiness and 90-second
@@ -56,7 +66,7 @@ them and names the affected files.
   passed. Validation remains WIP: the unfiltered broad suite recorded 546 passed, 1 failed,
   17 skipped and reproduced the baseline Windows read-only Git-pack cleanup failure.
 - Docker/Linux and LSP checks, live receiver, VM recovery, backup/restore and independent
-  review remain unverified; see `docs/operations.md`. No deployment files were changed.
+  review remained unverified at recovery; see the later corrections in `docs/operations.md`.
 
 ### Refreshed the README and merged-status documentation
 

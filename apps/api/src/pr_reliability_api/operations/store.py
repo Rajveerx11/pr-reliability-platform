@@ -132,10 +132,10 @@ class OperationsStore:
                    WHERE r.owner_id = %s AND (w.queue IS NULL OR w.queue = %s)
                      AND r.state IN ('queued', 'selecting_context', 'analyzing', 'verifying',
                                      'awaiting_approval')
-                     AND EXISTS (SELECT 1 FROM run_events e
+                     AND (r.state != 'queued' OR EXISTS (SELECT 1 FROM run_events e
                        WHERE e.owner_id = r.owner_id AND e.run_id = r.id
                          AND e.event_type = 'run.command_dispatched'
-                         AND e.event_data->>'status' = 'accepted')""",
+                         AND e.event_data->>'status' = 'accepted'))""",
                 (owner_id, queue),
             ).fetchall()
 

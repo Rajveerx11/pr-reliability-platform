@@ -366,3 +366,41 @@ def test_later_stage_pending_activity_wait_and_unknown_observations_are_owner_sc
     assert "queue_probe_unavailable" in evaluate_alerts(snapshot)
     store.observe_pending(runner, [(pr, 0, None)])
     assert store.snapshot(OWNER, "pr-review")["queue_depth"] == 0
+
+
+@pytest.mark.parametrize(
+    "state", ["selecting_context", "analyzing", "verifying", "awaiting_approval"]
+)
+def test_advanced_workflow_without_dispatch_receipt_is_observed(factory, state):
+    from datetime import UTC, datetime
+
+    store = OperationsStore(factory)
+    _, run, _ = seed(factory, state=state)
+    seed(factory, OTHER, 20, state=state)
+    seed(factory, seq=30)  # An undispatched queued run must not be described.
+    seed(factory, seq=40, state="published")
+    _, other_queue_run, other_queue_request = seed(factory, seq=50, state=state)
+    runner = registration(workload="workflow", runner_id="workflow-1")
+    store.register(runner)
+    store.observe_start(runner, other_queue_request)
+    with factory() as connection:
+        connection.execute(
+            "UPDATE operation_work SET queue = 'other-queue' WHERE run_id = %s", (other_queue_run,)
+        )
+        pr = connection.execute(
+            "SELECT pull_request_id FROM runs WHERE id = %s", (run,)
+        ).fetchone()[0]
+        assert connection.execute("SELECT count(*) FROM run_events").fetchone()[0] == 0
+    # Temporal accepted and advanced the run before a crashed dispatcher saved its receipt.
+    workflows = store.queue_workflows(OWNER, "pr-review")
+    assert workflows == [(pr, "01J00000000000000000000011")]
+    assert store.snapshot(OWNER, "pr-review")["queue_observation_unknown"] == 1
+    oldest = datetime.now(UTC) - timedelta(seconds=301)
+    store.observe_pending(runner, [(workflow[0], 1, oldest) for workflow in workflows])
+    snapshot = store.snapshot(OWNER, "pr-review")
+    assert snapshot["queue_observation_unknown"] == 0
+    assert snapshot["queued"] == 1
+    assert snapshot["queue_depth"] == 2  # Durable queued run plus the advanced pending activity.
+    assert snapshot["current_wait_seconds"] >= 301
+    assert snapshot["running"] == (state != "awaiting_approval")
+    assert snapshot["awaiting_approval"] == (state == "awaiting_approval")

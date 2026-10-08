@@ -164,11 +164,11 @@ Recovery validation on 2026-10-08:
   viewport. The temporary asset server used UTF8, matching production asset routes.
 - `uv build` passed for wheel and sdist. The wheel includes operations HTML/JavaScript,
   migration 0010 and the dashboard navigation link.
-- LSP validation was not available in this worker's tool allowlist. No substitute LSP
-  script was created. Independent review and CodeRabbit are owned by the parent.
+- LSP validation was not available at recovery. Later local review found that the installed
+  launcher has no `pylsp` module. Independent review and CodeRabbit evidence follows below.
 
 Full acceptance is **not complete** while the broad check fails and these boundaries remain.
-Still required: independent review/CodeRabbit, Linux CI, real VM dependency/restart drill,
+Still required: final independent review/CodeRabbit, Linux CI, real VM dependency/restart drill,
 approved receiver delivery, actual backup receipt/restore and TLS/disk probe evidence, and
 independent failure-notification routing. Do not treat repository or fixture evidence as live
 production acceptance.
@@ -190,4 +190,23 @@ FastAPI/httpx deprecation warning remains. Whole-repository Ruff lint/format, No
 rendered local/VM Compose config regressions and diff whitespace checks passed. Docker's Linux
 daemon is unavailable here; LSP is unavailable. The independently reproduced baseline Windows
 Git-pack failure was not changed or excluded from any claimed full-suite acceptance. Full CI,
-fresh independent review and live operational drills remain pending.
+final independent review and live operational drills remain pending.
+
+### Final local review fixes (2026-10-08)
+
+Independent review of `f1e0dbb` passed 66 focused tests, including real PostgreSQL/Temporal
+recovery and delayed activities. CodeRabbit completed with two minor findings: advanced
+workflows without a dispatch receipt were omitted from queue observation, and the changelog
+had a stale deployment-change claim. Independent review also found the browser fixture still
+expected 18 facts instead of 19. These three local defects are corrected with targeted
+regressions. State advancement after Temporal acceptance now permits observation even when
+receipt persistence was interrupted; queued runs still require an accepted receipt.
+
+Final-fix validation: **59 focused tests passed**, including PostgreSQL 18 and real Temporal
+recovery/pending-activity tests; **30 browser assertions passed** at 1280 and 390 pixels.
+Whole-repository Ruff lint/format (202 files), Node syntax and diff whitespace checks passed.
+The LSP launcher is installed but its `pylsp` module is missing; no LSP result is claimed.
+
+This is local implementation and review evidence only. Final diff review, a fresh CodeRabbit
+run, Linux CI, live approved receiver delivery, independent notification routing, actual host
+probes, VM shutdown/recovery and backup/restore acceptance remain separate gates.

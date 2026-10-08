@@ -24,7 +24,7 @@ const output = process.env.OPERATIONS_TEST_OUTPUT || path.join(require("node:os"
       let holdNext = false;
       let heldReady;
       const holding = new Promise(resolve => { heldReady = resolve; });
-      const data = {queue_depth: 2, current_wait_seconds: 12, p50_wait_seconds: null,
+      const data = {queue_observation_unknown: 1, queue_depth: 2, current_wait_seconds: 12, p50_wait_seconds: null,
         p95_wait_seconds: null, active_workers: 1, active_capacity: 4, active_slots: 2,
         utilization: .5, job_pass_rate: .75, pass_rate_samples: 4, wait_samples: 0,
         unknown_wait_runs: 5, queued: 1, assigned: 1, running: 1, awaiting_approval: 1,
@@ -47,7 +47,8 @@ const output = process.env.OPERATIONS_TEST_OUTPUT || path.join(require("node:os"
       });
       await page.goto(`${base}/operations`);
       await page.getByRole("button", {name: "Drain review-1"}).waitFor();
-      assert.equal(await page.locator("#summary dd").count(), 18); assertions++;
+      assert.equal(await page.locator("#summary dd").count(), 19); assertions++;
+      assert.equal(await page.locator("#summary dt").filter({hasText: "Unobserved activity queues"}).locator("+ dd").textContent(), "1"); assertions++;
       assert.equal(await page.getByText("Unknown", {exact: true}).count(), 2); assertions++;
       await page.getByRole("button", {name: "Drain review-1"}).focus();
       await page.keyboard.press("Enter");
