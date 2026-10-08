@@ -180,6 +180,7 @@ def build(
                     "--platform=linux/amd64",
                     "--provenance=false",
                     "--sbom=false",
+                    "--load",
                     "--file",
                     str(context / dockerfile),
                     "--tag",

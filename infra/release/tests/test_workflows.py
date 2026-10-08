@@ -1,6 +1,7 @@
 """Manual-only release entrypoints, pinned actions and least-privilege separation."""
 
 import re
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -74,6 +75,18 @@ def test_all_release_clis_use_frozen_project_dependencies():
                 if "-m infra.release" in step.get("run", ""):
                     assert index > install
                     assert "uv run python -m infra.release" in step["run"]
+
+
+def test_yaml_test_dependency_is_declared_directly_and_locked_for_dev():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert "pyyaml>=6,<7" in project["project"]["optional-dependencies"]["dev"]
+    lock = tomllib.loads((ROOT / "uv.lock").read_text())
+    package = next(p for p in lock["package"] if p["name"] == "pr-reliability-platform")
+    assert {"name": "pyyaml"} in package["optional-dependencies"]["dev"]
+    assert any(
+        dep["name"] == "pyyaml" and dep["marker"] == "extra == 'dev'"
+        for dep in package["metadata"]["requires-dist"]
+    )
 
 
 def test_uv_binary_is_exactly_pinned_in_all_release_workflows():

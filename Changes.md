@@ -48,6 +48,27 @@ them and names the affected files.
 
 ## Unreleased
 
+### Focused final PR62 review corrections (#42, #43, #45)
+
+- Keep the last completed backup receipt while a backup is running. Atomically write a
+  success after completion or a failure on exceptions/cancellation, then re-raise failures.
+  Existing stale-age monitoring still detects killed or stalled backups.
+- Load each single-platform Linux/amd64 release image into Docker before smoke tests,
+  scanning, pushing and digest inspection when using a docker-container Buildx builder.
+- Render verification controls once per run. Each finding has a keyboard-accessible link
+  to the shared section; evidence errors appear only there. Keep safe text rendering.
+- Derive report-container lifetime from the validated, rounded-up request timeout plus
+  a bounded 300-second export/control margin. Declare existing PyYAML directly for dev
+  tests and refresh lock metadata without changing package versions.
+- Add receipt/probe concurrency, atomic completion/cancellation, local image export/order,
+  timeout, direct dependency and desktop/mobile browser regressions. Local Docker builds,
+  signed images and production/staging acceptance are not claimed; #45 stays open.
+- References: [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42),
+  [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),
+  [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45),
+  [DEC-013](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation),
+  [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
+
 ### Integrate signed release tooling with evidence and runner operations (#45)
 
 - Integrate existing PR62 with merged PR61/#42 and PR63/#43 at main `ee8b6d6`,

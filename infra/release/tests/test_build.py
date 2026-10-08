@@ -79,14 +79,31 @@ def test_all_eight_images_have_evidence_and_three_owned_images_are_pushed_attest
         )
     )
     commands = []
+    local_images = set()
+    pushed_images = set()
 
     def output(command):
         commands.append(command)
         if command[0] == "git" and command[3:] == ["rev-parse", "HEAD"]:
             return "2" * 40
+        if command[:2] == ["docker", "build"]:
+            assert "--platform=linux/amd64" in command
+            tag = command[command.index("--tag") + 1]
+            # docker-container builders export only to cache unless explicitly loaded.
+            if "--load" in command:
+                local_images.add(tag)
+            return ""  # Buildx progress/image identifiers are not a registry digest.
+        if command[:2] == ["docker", "run"]:
+            tag = next(arg for arg in command if arg.startswith("ghcr.io/"))
+            assert tag in local_images, "smoke test cannot pull an unpublished image"
+        if command[:2] == ["docker", "push"]:
+            assert command[-1] in local_images
+            pushed_images.add(command[-1])
+            return "digest: sha256:" + "a" * 64 + " size: 1234"
         if command[0] == "tar":
             shutil.copytree(repository, command[-1], dirs_exist_ok=True)
         if command[:3] == ["docker", "image", "inspect"]:
+            assert command[-1] in local_images & pushed_images
             suffix = command[-1].split("/")[-1].split(":")[0]
             key = dict(zip(("platform", "provider-activity", "sandbox"), OWN_IMAGES, strict=True))[
                 suffix
@@ -119,6 +136,7 @@ def test_all_eight_images_have_evidence_and_three_owned_images_are_pushed_attest
             c[:2] == ["trivy", "image"] and "secret" in c and c[-1] == result["images"][key]
             for c in commands
         )
+    assert len(local_images) == len(pushed_images) == 3
     assert len([c for c in commands if c[:2] == ["docker", "push"]]) == 3
     assert len([c for c in commands if c[:2] == ["cosign", "attest"]]) == 3
     smoke = [c for c in commands if c[:2] == ["docker", "run"]]

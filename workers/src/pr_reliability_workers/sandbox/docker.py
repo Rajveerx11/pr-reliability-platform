@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import shutil
 import sys
 import tempfile
@@ -26,6 +27,8 @@ from .reports import export_reports
 
 _CONTROL_TIMEOUT_SECONDS = 30.0
 _CONTROL_OUTPUT_BYTES = 16 * 1024
+# Covers up to four 10-second exports, start/control calls and scheduling overhead.
+_REPORT_LIFETIME_MARGIN_SECONDS = 300
 _COPY_COMMAND = 'cp -R /source/. /workspace/ && exec "$@"'
 _ENGINE_CAPABILITY_TEMPLATE = (
     '{"os":{{json .OSType}},"memory":{{json .MemoryLimit}},'
@@ -340,7 +343,7 @@ def _create_arguments(
         "/bin/sh",
         "-c",
         *(
-            ("exec sleep 1200",)
+            (f"exec sleep {math.ceil(limits.timeout_seconds) + _REPORT_LIFETIME_MARGIN_SECONDS}",)
             if request.report_files
             else (_COPY_COMMAND, "sandbox-entry", *request.command)
         ),
