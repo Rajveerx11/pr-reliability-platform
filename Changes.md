@@ -29,8 +29,9 @@ them and names the affected files.
   and attributes. Redact configured secret prefixes at runtime capture cutoffs before encryption
   and on display, including incomplete UTF-8 boundaries. Added focused regression tests.
 - Persist the actual runtime timeout flag so encryption redacts partial configured secrets even
-  when output did not overflow. Added production database regressions for timeout-only cutoffs,
-  output overflow, report validation errors, unchanged receipt facts and skipped defaults.
+  when output did not overflow. Added production database regressions for a real local-runtime
+  timeout without overflow, output overflow, report validation errors, unchanged receipt facts
+  and skipped defaults.
 - Reapply boundary redaction when the evidence storage byte budget cuts log text. Added raw
   authenticated-plaintext regressions for both streams so display-time redaction cannot hide a leak.
 - Forward the required external evidence key and bounded settings to API/activity services in

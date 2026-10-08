@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from pr_reliability_evidence import EvidenceSettings
 from pr_reliability_workers.activities import VerificationCheckEvidence, VerificationEvidence
 from pr_reliability_workers.providers.operations import ProductionOperations
 from pr_reliability_workers.sandbox import SandboxResult
+from pr_reliability_workers.sandbox.docker import LocalDockerRuntime
 from pr_reliability_workers.workflows.types import StageRequest
 from test_production_operations import OWNER_ID, RUN_ID, _check_policy, _seed, connection_factory
 
@@ -113,10 +115,30 @@ def test_verification_artifacts_preserve_runtime_facts_and_redact_cutoff_secrets
         owner_id=OWNER_ID, run_id=RUN_ID, head_sha=head, idempotency_key=f"{RUN_ID}:{head}:verify"
     )
     cutoff = timed_out or output_limit_exceeded
+    stdout = "stdout " + (prefix if cutoff else secret)
+    stderr = "stderr " + (prefix if cutoff else secret)
+    if timed_out:
+        runtime = asyncio.run(
+            LocalDockerRuntime(sys.executable).execute(
+                (
+                    "-c",
+                    (
+                        f"import sys,time;print({stdout!r},end='',flush=True);"
+                        f"print({stderr!r},end='',file=sys.stderr,flush=True);time.sleep(60)"
+                    ),
+                ),
+                timeout_seconds=1,
+                output_limit_bytes=1024,
+            )
+        )
+        assert runtime.timed_out is True
+        assert runtime.output_limit_exceeded is False
+        timed_out, output_limit_exceeded = runtime.timed_out, runtime.output_limit_exceeded
+        stdout, stderr = runtime.stdout.decode(), runtime.stderr.decode()
     sandbox = SandboxResult(
         exit_code=None if cutoff else 1,
-        stdout="stdout " + (prefix if cutoff else secret),
-        stderr="stderr " + (prefix if cutoff else secret),
+        stdout=stdout,
+        stderr=stderr,
         duration_ms=25,
         timed_out=timed_out,
         output_limit_exceeded=output_limit_exceeded,
