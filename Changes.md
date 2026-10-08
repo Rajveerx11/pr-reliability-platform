@@ -31,6 +31,8 @@ them and names the affected files.
 - Persist the actual runtime timeout flag so encryption redacts partial configured secrets even
   when output did not overflow. Added production database regressions for timeout-only cutoffs,
   output overflow, report validation errors, unchanged receipt facts and skipped defaults.
+- Reapply boundary redaction when the evidence storage byte budget cuts log text. Added raw
+  authenticated-plaintext regressions for both streams so display-time redaction cannot hide a leak.
 - Forward the required external evidence key and bounded settings to API/activity services in
   local and VM Compose. Validate evidence settings in VM preflight; update operator templates,
   configuration notes, CI manifest placeholders and regression fixtures. No release/deploy changes.

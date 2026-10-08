@@ -68,7 +68,10 @@ class EvidenceSettings:
             )
             raw = text.encode("utf-8")
             if len(raw) > budget or safe.get("output_limit_exceeded"):
-                text = raw[:budget].decode("utf-8", errors="ignore") + TRUNCATION_MARKER
+                text = (
+                    self.redact(raw[:budget].decode("utf-8", errors="ignore"), truncated=True)
+                    + TRUNCATION_MARKER
+                )
             safe[name] = text
         raw = json.dumps(safe, ensure_ascii=True, allow_nan=False).encode()
         if len(raw) > self.max_bytes:

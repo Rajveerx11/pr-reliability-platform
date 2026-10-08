@@ -31,6 +31,20 @@ def test_ciphertext_redacts_before_truncating_and_is_authenticated():
         settings().decrypt(encrypted)
 
 
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_storage_budget_cutoff_redacts_prefix_in_authenticated_plaintext(stream):
+    secret = "configured-token-value"
+    prefix = secret[:8]
+    config = settings(max_bytes=4096, secret_patterns=(secret,))
+    padding = "x" * (config.max_bytes // 16 - len(prefix))
+    payload = {"stdout": "", "stderr": "", "timed_out": False, "output_limit_exceeded": False}
+    payload[stream] = padding + prefix + " log continues"
+    encrypted, _ = config.encrypt(payload)
+    persisted = json.loads(Fernet(config.key).decrypt(encrypted))
+    assert persisted[stream] == padding + "[redacted]" + TRUNCATION_MARKER
+    assert config.decrypt(encrypted) == persisted
+
+
 def test_runtime_truncation_is_marked_even_if_text_is_short():
     config = settings()
     encrypted, _ = config.encrypt({"stdout": "ok", "stderr": "", "output_limit_exceeded": True})
