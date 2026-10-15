@@ -22,7 +22,7 @@ or measured model baseline exists. [Current status](status.md) records CI eviden
 The full dependency map is in [plan/v1.md](../plan/v1.md#github-issue-map). Work on unblocked
 issues; do not bypass dependencies. Complete evidence, history, runner operations, releases, and
 live GitHub login acceptance. Finish real evaluation and VM acceptance before any production claim.
-ChatGPT-subscription Codex remains disabled in open PR #56; its private pilot depends on #58 and
+ChatGPT-subscription Codex remains disabled; its private pilot depends on #58 and
 #59, and public repository opt-in requires #60.
 
 ## Production exit checklist

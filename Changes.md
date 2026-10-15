@@ -48,6 +48,20 @@ them and names the affected files.
 
 ## Unreleased
 
+### Codex provider CI coverage and packaging checks
+
+- Issue: [#55](https://github.com/Rajveerx11/pr-reliability-platform/issues/55).
+- Decision: [DEC-012](plan/v1.md#dec-012--start-with-openai-behind-a-provider-neutral-interface).
+- Corrected `.github/workflows/quality.yml` to deselect worker tests in the Python quality job;
+  pytest's configured test paths bypassed the previous directory ignore. The Linux Temporal
+  job still runs every worker test, and future configured non-worker suites remain included.
+- Added existing Codex boundary and cancellation tests to the Windows job, where POSIX-only
+  cases retain their platform skips. Added source/wheel distribution builds and 20-minute
+  limits for the two previously unbounded jobs. Required job names and deployment behavior
+  remain unchanged.
+- Updated `docs/status.md` and `docs/production-readiness.md` to describe the disabled provider
+  and outstanding isolation/repository gates without depending on PR #56 remaining open.
+
 ### Codex CLI prompt privacy and timeout regression fixes
 
 - Issue: [#55](https://github.com/Rajveerx11/pr-reliability-platform/issues/55).

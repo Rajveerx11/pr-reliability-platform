@@ -11,6 +11,7 @@ permissions:
 jobs:
   repository-shape:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Check required project files
@@ -67,6 +68,7 @@ jobs:
 
   python-quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
@@ -95,8 +97,12 @@ jobs:
         run: uv run ruff check .
       - name: Check formatting
         run: uv run ruff format --check .
+      - name: Build source and wheel distributions
+        run: uv build
       - name: Test
-        run: uv run pytest --ignore=workers/tests
+        # testpaths explicitly includes workers/tests, so --ignore does not exclude it.
+        # The temporal-workflow job runs every worker test on Linux.
+        run: uv run pytest --deselect=workers/tests/
 
   temporal-workflow:
     runs-on: ubuntu-latest
@@ -139,8 +145,13 @@ jobs:
           enable-cache: true
       - name: Install project
         run: uv sync --frozen --extra dev
-      - name: Test Windows Temporal supersession and replay
-        run: uv run pytest workers/tests/test_pull_request_review_workflow.py -q
+      - name: Test Windows Temporal replay and Codex provider boundaries
+        run: >-
+          uv run pytest
+          workers/tests/test_pull_request_review_workflow.py
+          workers/tests/test_codex_client.py
+          workers/tests/test_codex_cancellation.py
+          -q
 
   sandbox-integration:
     runs-on: ubuntu-latest
