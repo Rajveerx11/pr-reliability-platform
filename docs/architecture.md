@@ -25,13 +25,13 @@ flowchart LR
 ```
 
 The diagram includes the production target. Provider operations (#36), installation inventory
-and policy (#37), Check Runs (#40), repository-defined checks (#41), and GitHub sessions (#44) are
-implemented. Complete history/analytics (#38/#39) and release artifacts (#45) remain planned. See
-[authentication](authentication.md) for login and session behavior.
+and policy (#37), Check Runs (#40), repository-defined checks (#41), GitHub sessions (#44), and
+review metrics (#39) are implemented. Repository and PR history UI (#38) and release artifacts
+(#45) remain planned. See [authentication](authentication.md) for login and session behavior.
 
-Installation state, repository policy and audit, verification receipts, and Check Run identities
-are persisted. Planned records include retained artifacts, runner heartbeats, and complete metric
-facts. See [production readiness](production-readiness.md).
+Installation state, repository policy and audit, verification receipts, Check Run identities, and
+nullable review metrics are persisted. Planned records include retained artifacts and runner
+heartbeats. See [production readiness](production-readiness.md).
 
 ## Main components
 
@@ -199,7 +199,7 @@ PostgreSQL stores summaries and safe evidence references. It does not store repo
 secrets, raw prompts, full agent output, or sandbox contents. Temporal history stores safe
 workflow arguments only.
 
-Seven migrations define current storage. Core entities expose ULIDs; internal joins use bigint
+Eight migrations define current storage. Core entities expose ULIDs; internal joins use bigint
 keys and composite owner constraints. `github_installations` uses `(owner_id, installation_id)`
 as its key, while internal `repository_events` use an identity key and owner-scoped event keys.
 PR run uniqueness includes head SHA and generation. Repository rows persist installation/access

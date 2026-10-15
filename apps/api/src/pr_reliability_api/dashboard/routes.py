@@ -147,7 +147,38 @@ def create_dashboard_router(
                 """,
                 (settings.owner_id, scope, scope),
             ).fetchone()[0]
+            metrics_row = connection.execute(
+                """
+                SELECT
+                    count(*) FILTER (WHERE m.usage_coverage = 'full')::integer,
+                    count(*) FILTER (WHERE m.usage_coverage = 'partial')::integer,
+                    count(*) FILTER (
+                        WHERE m.usage_coverage = 'unknown'
+                           OR m.usage_coverage IS NULL
+                    )::integer,
+                    sum(m.cost_usd_micros),
+                    CASE WHEN count(*) FILTER (
+                        WHERE r.state IN ('published', 'rejected', 'failed', 'cancelled')
+                          AND m.activity_retries IS NULL
+                    ) > 0 THEN NULL ELSE sum(m.activity_retries) END
+                FROM runs AS r
+                LEFT JOIN run_metrics AS m
+                  ON m.run_id = r.id AND m.owner_id = r.owner_id
+                WHERE r.owner_id = %s
+                  AND (%s::bigint[] IS NULL OR r.pull_request_id IN (
+                      SELECT id FROM pull_requests WHERE owner_id = %s
+                        AND repository_id = ANY(%s)))
+                """,
+                (settings.owner_id, scope, settings.owner_id, scope),
+            ).fetchone()
         total_runs, active, awaiting, failed, published, p50, p95 = row
+        usage_complete, usage_partial, usage_unknown, exact_cost, retry_count = metrics_row or (
+            0,
+            0,
+            total_runs,
+            None,
+            None,
+        )
         return DashboardOverview(
             schema_version="1",
             total_runs=total_runs,
@@ -158,11 +189,11 @@ def create_dashboard_router(
             published_runs=published,
             p50_duration_ms=_optional_int(p50),
             p95_duration_ms=_optional_int(p95),
-            activity_retry_count=None,
-            usage_complete_runs=0,
-            usage_partial_runs=0,
-            usage_unknown_runs=total_runs,
-            exact_known_cost_usd_micros=None,
+            activity_retry_count=retry_count,
+            usage_complete_runs=usage_complete or 0,
+            usage_partial_runs=usage_partial or 0,
+            usage_unknown_runs=usage_unknown or 0,
+            exact_known_cost_usd_micros=_optional_int(exact_cost),
         )
 
     @router.get("/api/dashboard/runs", response_model=DashboardRunPage)
@@ -215,7 +246,7 @@ def create_dashboard_router(
                                     THEN run.updated_at ELSE now() END - run.created_at
                            )) * 1000)
                        )::bigint,
-                       run.created_at, run.updated_at
+                       run.created_at, run.updated_at, metrics.activity_retries
                 FROM runs AS run
                 JOIN pull_requests AS pull_request
                   ON pull_request.id = run.pull_request_id
@@ -223,6 +254,8 @@ def create_dashboard_router(
                 JOIN repositories AS repository
                   ON repository.id = pull_request.repository_id
                  AND repository.owner_id = run.owner_id
+                LEFT JOIN run_metrics AS metrics
+                  ON metrics.run_id = run.id AND metrics.owner_id = run.owner_id
                 LEFT JOIN findings AS finding
                   ON finding.run_id = run.id
                  AND finding.owner_id = run.owner_id
@@ -233,7 +266,8 @@ def create_dashboard_router(
                   AND (%s::bigint[] IS NULL OR pull_request.repository_id = ANY(%s))
                   AND (%s::text IS NULL OR run.state = %s)
                   AND (%s::text IS NULL OR repository.full_name = %s)
-                GROUP BY run.id, repository.full_name, pull_request.github_number
+                GROUP BY run.id, repository.full_name, pull_request.github_number,
+                         metrics.activity_retries
                 ORDER BY run.created_at DESC, run.id DESC
                 LIMIT %s OFFSET %s
                 """,
@@ -293,7 +327,7 @@ def create_dashboard_router(
                                     THEN run.updated_at ELSE now() END - run.created_at
                            )) * 1000)
                        )::bigint,
-                       run.created_at, run.updated_at, run.id
+                       run.created_at, run.updated_at, metrics.activity_retries, run.id
                 FROM runs AS run
                 JOIN pull_requests AS pull_request
                   ON pull_request.id = run.pull_request_id
@@ -301,6 +335,8 @@ def create_dashboard_router(
                 JOIN repositories AS repository
                   ON repository.id = pull_request.repository_id
                  AND repository.owner_id = run.owner_id
+                LEFT JOIN run_metrics AS metrics
+                  ON metrics.run_id = run.id AND metrics.owner_id = run.owner_id
                 LEFT JOIN findings AS finding
                   ON finding.run_id = run.id
                  AND finding.owner_id = run.owner_id
@@ -309,7 +345,8 @@ def create_dashboard_router(
                  AND approval.owner_id = finding.owner_id
                 WHERE run.owner_id = %s AND run.public_id = %s
                   AND (%s::bigint[] IS NULL OR pull_request.repository_id = ANY(%s))
-                GROUP BY run.id, repository.full_name, pull_request.github_number
+                GROUP BY run.id, repository.full_name, pull_request.github_number,
+                         metrics.activity_retries
                 """,
                 (settings.owner_id, run_id, scope, scope),
             ).fetchone()
@@ -399,7 +436,7 @@ def _run_summary(row: tuple[Any, ...]) -> DashboardRunSummary:
         state=row[5],
         finding_count=row[6],
         pending_finding_count=row[7],
-        retry_count=None,
+        retry_count=row[11],
         duration_ms=row[8],
         created_at=row[9],
         updated_at=row[10],

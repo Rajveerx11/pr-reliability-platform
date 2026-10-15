@@ -1,5 +1,32 @@
 # Changes
 
+## 2026-10-08 — Final local review fixes (#43)
+
+- Updated the browser fixture for all 19 operation facts, including unobserved activity queues.
+- Matched workflow enumeration to snapshot predicates: only queued runs require an accepted
+  dispatch receipt. Advanced runs remain observable after a dispatcher receipt-write crash.
+  Added regressions for every active advanced state and retained owner, queue and terminal fences.
+- Removed the stale deployment-change claim and clarified local review versus live acceptance.
+- References: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),
+  [Temporal decision](plan/v1.md#dec-004--use-temporal-for-durable-workflows).
+
+## 2026-10-08 — Focused independent-review corrections (#43)
+
+- Wired mandatory runner monitor environment, migration/database readiness and 90-second
+  shutdown grace into local/VM Compose and CI manifest examples, without provider/socket
+  credentials on the workflow worker.
+- Installed the 30-second private operational monitor, actual disk/backup/TLS probe mounts,
+  fixed-label Prometheus check/delivery failure rule and atomic systemd backup receipts.
+  Receiver approval/configuration and independent Prometheus notification routing remain external.
+- Added authoritative owner/repository-scoped Temporal pending activity observations through the
+  existing workflow RunnerMonitor, including later-stage queues and retry backoff. Missing/stale
+  observations remain unknown and alert as unavailable, rather than reporting false zero.
+  Queue RPCs cannot block liveness pulses; API and workers share the configured queue.
+- Added focused deployment, probe/receipt, periodic-failure and real Temporal delayed-activity
+  regressions. Kept migration reservation 0010; no 0009/evidence/release changes.
+- References: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),
+  [Temporal decision](plan/v1.md#dec-004--use-temporal-for-durable-workflows).
+
 ## 2026-09-08 — Individual GitHub access (#44)
 
 - Issue: [#44](https://github.com/Rajveerx11/pr-reliability-platform/issues/44).
@@ -20,6 +47,19 @@ This file records repository changes. Each entry links changes to the decision t
 them and names the affected files.
 
 ## Unreleased
+
+### Codex CLI prompt privacy and timeout regression fixes
+
+- Issue: [#55](https://github.com/Rajveerx11/pr-reliability-platform/issues/55).
+- Decision: [DEC-012](plan/v1.md#dec-012--start-with-openai-behind-a-provider-neutral-interface).
+- Updated `workers/src/pr_reliability_workers/agents/codex_client.py` to send private review
+  prompts through anonymous stdin rather than process arguments, including large contexts. This
+  avoids Python 3.12 losing pending pipe input when communication retries after a timeout.
+- Strengthened `workers/tests/test_codex_client.py` to require sanitized exceptions and exercise
+  the running-process timeout path; covered stdin delivery and both output-draining retry paths.
+  Added a real large-prompt/delayed-reader regression in `workers/tests/test_codex_cancellation.py`.
+- Integrated current main, preserving bounded evidence imports and both changelog histories.
+- The production provider remains disabled until isolated execution and repository/fork gates exist.
 
 ### Codex CLI pilot safety and CI follow-up
 
@@ -56,6 +96,119 @@ them and names the affected files.
 - Added 25 unit tests in `workers/tests/test_codex_client.py` covering construction, prompt
   building, JSON extraction, usage parsing, subprocess interaction, timeout, missing-CLI, usage
   propagation, and security (no credential or context leakage).
+
+### Integrate runner operations with bounded evidence (#43)
+
+- Merge existing PR63 runner operations with PR61 evidence at main `ef742b8` without
+  changing either feature's semantics. Preserve both API routers, mandatory worker database,
+  owner and runner settings, bounded evidence settings and the external encryption key.
+- Keep provider/GitHub/socket access on the activity worker only, continuous operational
+  alerts/probes/backup receipts and pending Temporal queue observations. Assert that the
+  migration chain ends with both 0009 and 0010; leave existing SQL and evidence repr fixes intact.
+- Add application-router coexistence and Compose evidence/runner isolation regressions.
+- References: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43),
+  [DEC-004](plan/v1.md#dec-004--use-temporal-for-durable-workflows),
+  [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
+
+### Issue #42 independent review corrections
+
+- Hide the evidence encryption key and literal secret patterns from `EvidenceSettings` repr,
+  including when embedded in `ProductionOperations`. Preserve constructor defaults and add
+  direct and nested repr regressions for [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42)
+  and [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
+- Issue: [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42).
+  Decision: [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
+- Reject unsupported XML namespaces anywhere, including namespaced failure/testcase elements
+  and attributes. Redact configured secret prefixes at runtime capture cutoffs before encryption
+  and on display, including incomplete UTF-8 boundaries. Added focused regression tests.
+- Persist the actual runtime timeout flag so encryption redacts partial configured secrets even
+  when output did not overflow. Added production database regressions for a real local-runtime
+  timeout without overflow, output overflow, report validation errors, unchanged receipt facts
+  and skipped defaults.
+- Reapply boundary redaction when the evidence storage byte budget cuts log text. Added raw
+  authenticated-plaintext regressions for both streams so display-time redaction cannot hide a leak.
+- Forward the required external evidence key and bounded settings to API/activity services in
+  local and VM Compose. Validate evidence settings in VM preflight; update operator templates,
+  configuration notes, CI manifest placeholders and regression fixtures. No release/deploy changes.
+- Focused Windows validation: 216 passed, 24 skipped (PostgreSQL, real Docker and POSIX/Linux
+  prerequisites); Ruff lint/format, compileall, both Compose config checks and missing-key rejection
+  passed. Parent review, CodeRabbit, full Linux CI and live operator acceptance remain required.
+
+### Bounded encrypted verification evidence
+
+- Linked to [issue #42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42),
+  [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence), and
+  [acceptance plan](plan/issue-42.md).
+- Added shared encrypted/redacted bounded evidence storage, migration 0009, configurable
+  retention, transactional expiry tombstones, and an operator maintenance command.
+- Exported operator-approved report files read-only from live disposable containers before
+  removal, rejecting links and unsafe files; added resource-bounded JUnit summaries.
+- Wired production verification receipts to opaque references, owner/repository-scoped JSON
+  display/download routes, and dashboard finding links to run-level check summaries and logs.
+- Added parser, redaction, truncation, extraction, isolation, expiry, and database regression
+  tests plus [deployment seam notes](docs/verification-evidence.md). Protected in-flight dashboard
+  details at sign-out and bounded log display on mobile. Kept allowlist validation stdlib-only
+  for existing release preflight, and normalized disposable Windows Git test fixtures.
+- Local validation: 149 focused checks and 572 full-suite checks passed with 21/28 explicit
+  platform skips; format/lint, build and fixture browser checks passed. Linux Docker CI,
+  independent review and real deployment evidence remain required; local checks are not staging
+  evidence. Exact evidence and corrected earlier failures are in the issue acceptance plan.
+
+### Added private runner operations (#43)
+
+- Issue: [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43).
+- Decisions: [DEC-004](plan/v1.md#dec-004--use-temporal-for-durable-workflows),
+  [DEC-005](plan/v1.md#dec-005--use-postgresql-with-stable-ownership-fields), and
+  [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout).
+- Added migration 0010 and separate API/worker modules for heartbeat, session fencing,
+  owner-scoped durable work counts, capacity, waits, verification pass rate, and draining.
+- Added a private administrator operations page, bounded metrics, approved-private alert
+  checks, operator documentation, and API/worker/browser regression tests.
+- Recovered the prior implementation without replacing its architecture. Fixed pending-drain
+  startup polling, offline health reporting, queue-scoped pass rates, and stale browser responses.
+- Added real Temporal/PostgreSQL retry-and-replacement coverage and linked the shared dashboard
+  to the operations page. Browser fixtures passed 28 assertions at desktop/mobile widths.
+- Focused checks passed 45 tests; formatting/lint, JavaScript syntax, and wheel/sdist checks
+  passed. Validation remains WIP: the unfiltered broad suite recorded 546 passed, 1 failed,
+  17 skipped and reproduced the baseline Windows read-only Git-pack cleanup failure.
+- Docker/Linux and LSP checks, live receiver, VM recovery, backup/restore and independent
+  review remained unverified at recovery; see the later corrections in `docs/operations.md`.
+
+### Refreshed the README and merged-status documentation
+
+- Scope: [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46) production-readiness tracking.
+- Decision: [DEC-010](plan/v1.md#dec-010--use-clear-code-plan-and-documentation-boundaries).
+- Kept the root `README.md` as a short link hub and updated the documentation index, status,
+  architecture, dashboard, and production-readiness pages for merged metrics (#39/#57).
+- Recorded passing merged-main CI evidence without treating it as live provider or VM acceptance;
+  private subscription Codex remains open in #55/#56 pending #58/#59, with public opt-in in #60.
+
+### Added review metrics and analytics persistence
+
+- Issue: [#39](https://github.com/Rajveerx11/pr-reliability-platform/issues/39).
+- Decisions: [DEC-005](plan/v1.md#dec-005--select-pr-context-under-a-fixed-token-budget)
+  and [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
+- Added `migrations/0008_run_metrics.sql` creating the `run_metrics` table to durably store
+  review run durations, approval wait times, attempt/retry counts, token usage, cost, and
+  usage coverage. Missing facts remain `NULL` and are never stored as zero or estimated.
+- Updated `workers/src/pr_reliability_workers/providers/operations.py` to write structured metrics
+  via `_write_run_metrics` inside the terminal run transaction in `_record_terminal`.
+- Updated `apps/api/src/pr_reliability_api/dashboard/routes.py` (`GET /api/dashboard/overview`)
+  to replace hardcoded usage placeholders with live SQL queries against `run_metrics`.
+- Added unit tests in `workers/tests/test_run_metrics.py` and updated migration assertions in
+  `apps/api/tests/test_migrations.py`.
+- Publish duration uses actual GitHub creation start and end timestamps from the successful
+  attempt; recovered remote reviews keep this duration Unknown instead of counting crash delay.
+  Out-of-order stage events yield Unknown durations rather than zero.
+- A post-terminal `finalize_metrics` activity reads Temporal history after the completed Check Run
+  and idempotently stores exact observed attempts and retries, including terminal/check activities.
+  Intermediate retry failure types are not retained by Temporal, so timeout totals stay `NULL`
+  when retries occurred; without retries terminal timeouts and zero timeouts are known.
+  The finalization activity itself is excluded because its attempts are not yet observable.
+- Left the already-applied migration 0008 bytes unchanged. Added history, database finalization,
+  dashboard, and publish-recovery regression tests. Temporal integration tests use a real local
+  clock so time skipping does not expire a replacement generation during finalization.
+
 
 ### Added repository-defined sandbox verification checks
 

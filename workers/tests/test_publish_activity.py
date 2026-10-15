@@ -331,7 +331,9 @@ def test_unapproved_finding_cannot_publish(
     assert github.reviews == []
     with connection_factory() as connection:
         action_count = connection.execute("SELECT count(*) FROM external_actions").fetchone()[0]
-        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+        event = connection.execute(
+            "SELECT event_type, event_data FROM run_events WHERE event_type != 'github.review_publish_prepared'"
+        ).fetchone()
     assert action_count == 0
     assert event == ("github.review_publish_blocked", {"reason_code": "approval_missing"})
 
@@ -358,7 +360,9 @@ def test_empty_approval_set_cannot_publish_and_records_safe_block(
     assert github.reviews == []
     with connection_factory() as connection:
         action_count = connection.execute("SELECT count(*) FROM external_actions").fetchone()[0]
-        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+        event = connection.execute(
+            "SELECT event_type, event_data FROM run_events WHERE event_type != 'github.review_publish_prepared'"
+        ).fetchone()
     assert action_count == 0
     assert event == (
         "github.review_publish_blocked",
@@ -380,7 +384,9 @@ def test_rejected_approval_cannot_publish_and_records_safe_block(
     assert github.reviews == []
     with connection_factory() as connection:
         action_count = connection.execute("SELECT count(*) FROM external_actions").fetchone()[0]
-        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+        event = connection.execute(
+            "SELECT event_type, event_data FROM run_events WHERE event_type != 'github.review_publish_prepared'"
+        ).fetchone()
     assert action_count == 0
     assert event == ("github.review_publish_blocked", {"reason_code": "approval_rejected"})
 
@@ -402,7 +408,9 @@ def test_wrong_run_state_cannot_publish_and_records_safe_block(
     assert raised.value.type == "PublishBlocked"
     assert github.reviews == []
     with connection_factory() as connection:
-        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+        event = connection.execute(
+            "SELECT event_type, event_data FROM run_events WHERE event_type != 'github.review_publish_prepared'"
+        ).fetchone()
     assert event == (
         "github.review_publish_blocked",
         {"reason_code": "run_not_awaiting_approval"},
@@ -426,11 +434,22 @@ def test_stable_retry_creates_one_review_and_safe_audit(
         action = connection.execute(
             "SELECT status, remote_id, payload_fingerprint FROM external_actions"
         ).fetchone()
-        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+        events = connection.execute(
+            "SELECT event_type, event_data, occurred_at FROM run_events ORDER BY occurred_at, id"
+        ).fetchall()
     assert action[:2] == ("published", "1001")
     assert len(action[2]) == 64
-    assert event[0] == "github.review_published"
-    assert event[1] == {
+    assert [event[0] for event in events] == [
+        "github.review_publish_prepared",
+        "github.review_published",
+    ]
+    assert events[0][1] == {"action_id": public_id(20)}
+    assert events[0][2] <= events[1][2]
+    event = events[1]
+    assert event[1]["publish_started_at"] is not None
+    assert event[1]["publish_finished_at"] is not None
+    assert event[1]["publish_started_at"] <= event[1]["publish_finished_at"]
+    assert {k: v for k, v in event[1].items() if not k.startswith("publish_")} == {
         "action_id": public_id(20),
         "remote_review_id": "1001",
         "head_sha": HEAD_SHA,
@@ -500,7 +519,7 @@ def test_concurrent_retries_hold_one_publish_claim(
             "published",
             "1001",
         )
-        assert connection.execute("SELECT count(*) FROM run_events").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM run_events").fetchone()[0] == 2
 
 
 def test_retry_recovers_review_created_before_database_receipt(
@@ -522,6 +541,11 @@ def test_retry_recovers_review_created_before_database_receipt(
             "published",
             "1001",
         )
+        receipt = connection.execute(
+            "SELECT event_data FROM run_events WHERE event_type = 'github.review_published'"
+        ).fetchone()[0]
+        assert receipt["publish_started_at"] is None
+        assert receipt["publish_finished_at"] is None
 
 
 def test_retry_reconciles_created_review_after_head_advances(
@@ -550,9 +574,9 @@ def test_retry_reconciles_created_review_after_head_advances(
             "published",
             "1001",
         )
-        assert connection.execute("SELECT event_type FROM run_events").fetchone()[0] == (
-            "github.review_published"
-        )
+        assert connection.execute(
+            "SELECT event_type FROM run_events WHERE event_type = 'github.review_published'"
+        ).fetchone()[0] == ("github.review_published")
 
 
 def test_published_retry_with_different_payload_fails_closed(
@@ -622,7 +646,9 @@ def test_crash_recovery_rejects_edited_review_with_same_terminal_marker(
     assert github.create_calls == 1
     with connection_factory() as connection:
         action = connection.execute("SELECT status, remote_id FROM external_actions").fetchone()
-        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+        event = connection.execute(
+            "SELECT event_type, event_data FROM run_events WHERE event_type != 'github.review_publish_prepared'"
+        ).fetchone()
     assert action == ("failed", None)
     assert event == ("github.review_publish_blocked", {"reason_code": "review_payload_mismatch"})
 
@@ -646,7 +672,9 @@ def test_provider_failure_is_sanitized_before_temporal_conversion(
     assert "SECRET_GITHUB_RESPONSE_BODY" not in str(failure)
     with connection_factory() as connection:
         action = connection.execute("SELECT status FROM external_actions").fetchone()[0]
-        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+        event = connection.execute(
+            "SELECT event_type, event_data FROM run_events WHERE event_type != 'github.review_publish_prepared'"
+        ).fetchone()
     assert action == "failed"
     assert event == (
         "github.review_publish_failed",
@@ -670,7 +698,9 @@ def test_database_stale_head_blocks_before_github(
 
     assert raised.value.type == "PublishBlocked"
     with connection_factory() as connection:
-        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+        event = connection.execute(
+            "SELECT event_type, event_data FROM run_events WHERE event_type != 'github.review_publish_prepared'"
+        ).fetchone()
     assert event == ("github.review_publish_blocked", {"reason_code": "stale_head"})
     assert github.reviews == []
 
@@ -688,7 +718,9 @@ def test_remote_stale_head_blocks_and_records_safe_failure(
     assert github.reviews == []
     with connection_factory() as connection:
         action = connection.execute("SELECT status FROM external_actions").fetchone()[0]
-        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+        event = connection.execute(
+            "SELECT event_type, event_data FROM run_events WHERE event_type != 'github.review_publish_prepared'"
+        ).fetchone()
     assert action == "failed"
     assert event == ("github.review_publish_blocked", {"reason_code": "stale_head"})
 
@@ -707,6 +739,8 @@ def test_head_change_during_pending_review_blocks_and_records_safe_failure(
     assert github.create_calls == 1
     with connection_factory() as connection:
         action = connection.execute("SELECT status FROM external_actions").fetchone()[0]
-        event = connection.execute("SELECT event_type, event_data FROM run_events").fetchone()
+        event = connection.execute(
+            "SELECT event_type, event_data FROM run_events WHERE event_type != 'github.review_publish_prepared'"
+        ).fetchone()
     assert action == "failed"
     assert event == ("github.review_publish_blocked", {"reason_code": "stale_head"})

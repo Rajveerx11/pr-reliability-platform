@@ -4,6 +4,7 @@ const state = {
   offset: 0,
   limit: 20,
   total: 0,
+  accessGeneration: 0,
   pendingRunId: new URLSearchParams(window.location.search).get("run")
 };
 const byId = (id) => document.getElementById(id);
@@ -164,7 +165,39 @@ function fact(label, value) {
   return item;
 }
 
-function renderRunDetail(detail) {
+function verificationEvidence(items) {
+  const section = node("section", undefined, "verification-evidence");
+  section.append(node("h4", "Run verification checks"));
+  section.append(node("p", "These checks verify this run, not an individual finding."));
+  if (!items.length) section.append(node("p", "No retained verification evidence."));
+  for (const item of items) {
+    if (!/^ev_[0-9a-f]{64}$/.test(item.reference)) continue;
+    const row = node("div");
+    if (item.expired) {
+      row.append(node("span", `${item.check_name}: evidence expired`));
+    } else {
+      const button = node("button", `View ${item.check_name} summary and logs`, "open-run");
+      button.type = "button";
+      const output = node("pre");
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          const evidence = await getJson(`/api/evidence/${item.reference}`);
+          output.textContent = JSON.stringify(evidence, null, 2);
+        } catch (error) {
+          output.textContent = error.message;
+        } finally { button.disabled = false; }
+      });
+      const download = node("a", "Download redacted evidence");
+      download.href = `/api/evidence/${item.reference}?download=true`;
+      row.append(button, node("span", " · "), download, output);
+    }
+    section.append(row);
+  }
+  return section;
+}
+
+function renderRunDetail(detail, evidenceItems = [], evidenceError = null) {
   const run = detail.run;
   byId("run-dialog-title").textContent = `${run.repository_full_name} #${run.pull_request_number}`;
   byId("run-dialog-subtitle").textContent = `${humanState(run.state)} · ${formatTime(run.created_at)}`;
@@ -214,17 +247,31 @@ function renderRunDetail(detail) {
       const location = evidence.file_path ? ` · ${evidence.file_path}${evidence.start_line ? `:${evidence.start_line}` : ""}` : "";
       card.append(node("div", `${evidence.summary}${location}`, "evidence-line"));
     }
+    card.append(verificationEvidence(evidenceItems));
+    if (evidenceError) card.append(node("p", evidenceError));
     findingsSection.append(card);
   }
-  root.replaceChildren(facts, stagesSection, timelineSection, findingsSection);
+  const evidenceSection = verificationEvidence(evidenceItems);
+  if (evidenceError) evidenceSection.append(node("p", evidenceError));
+  root.replaceChildren(facts, stagesSection, timelineSection, evidenceSection, findingsSection);
 }
 
 async function openRun(runId) {
+  const generation = state.accessGeneration;
   const dialog = byId("run-dialog");
   byId("run-detail").replaceChildren(node("p", "Loading run evidence…"));
   dialog.showModal();
   try {
-    renderRunDetail(await getJson(`/api/dashboard/runs/${encodeURIComponent(runId)}`));
+    const detail = await getJson(`/api/dashboard/runs/${encodeURIComponent(runId)}`);
+    let items = [];
+    let evidenceError = null;
+    try {
+      items = (await getJson(`/api/evidence/runs/${encodeURIComponent(runId)}`)).items;
+    } catch (error) {
+      evidenceError = `Verification evidence unavailable: ${error.message}`;
+    }
+    if (generation !== state.accessGeneration) return;
+    renderRunDetail(detail, items, evidenceError);
   } catch (error) {
     byId("run-detail").replaceChildren(node("p", error.message));
   }
@@ -252,6 +299,7 @@ async function loadDashboard() {
 }
 
 document.addEventListener("reviewer:signed-out", () => {
+  state.accessGeneration += 1;
   byId("run-dialog").close();
   byId("run-detail").replaceChildren();
   byId("run-rows").replaceChildren();

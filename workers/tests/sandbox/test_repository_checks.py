@@ -52,7 +52,7 @@ def _check(name: str, command: list[str], paths: list[str]) -> dict[str, object]
         "command": command,
         "paths": paths,
         "timeout_seconds": 60,
-        "resources": RESOURCES,
+        "resources": dict(RESOURCES),
     }
 
 
@@ -223,3 +223,55 @@ def test_selected_checks_have_fifteen_minute_aggregate_timeout_cap(tmp_path: Pat
 
     with pytest.raises(RepositoryCheckConfigError, match="invalid"):
         load_verification_plan(tmp_path, ("service.py",), policy)
+
+
+def test_report_files_can_only_come_from_operator_allowlist(tmp_path):
+    check = _check("python-tests", ["python", "-m", "pytest", "-q"], ["**/*.py"])
+    _write_config(tmp_path, [check])
+    policy = parse_check_allowlist(
+        json.dumps(
+            [
+                {
+                    "name": "python-tests",
+                    "image": IMAGE,
+                    "command": check["command"],
+                    "report_files": ["junit.xml"],
+                }
+            ]
+        )
+    )
+    plan = load_verification_plan(tmp_path, ("example.py",), policy)
+    assert plan.checks[0].request.report_files == ("junit.xml",)
+    check["report_files"] = ["other.xml"]
+    _write_config(tmp_path, [check])
+    with pytest.raises(RepositoryCheckConfigError):
+        load_verification_plan(tmp_path, ("example.py",), policy)
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        ["../junit.xml"],
+        ["/host.xml"],
+        ["reports/x.xml"],
+        ["junit.xml"] * 2,
+        [f"a{i}.xml" for i in range(5)],
+        {"junit.xml": True},
+        "junit.xml",
+        None,
+    ],
+)
+def test_operator_cannot_approve_unsafe_report_files(files):
+    with pytest.raises(ValueError):
+        parse_check_allowlist(
+            json.dumps(
+                [
+                    {
+                        "name": "python-tests",
+                        "image": IMAGE,
+                        "command": ["true"],
+                        "report_files": files,
+                    }
+                ]
+            )
+        )

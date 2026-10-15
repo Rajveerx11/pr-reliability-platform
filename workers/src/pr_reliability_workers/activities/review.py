@@ -11,21 +11,25 @@ from dataclasses import dataclass
 from opentelemetry import trace
 from pr_reliability_observability import meter
 from temporalio import activity
+from temporalio.client import Client
 
 from ..workflows.types import (
     CheckRunRequest,
+    FinalMetricsRequest,
     ModelUsage,
     PublishRequest,
     StageRequest,
     StageResult,
     TerminalRequest,
 )
+from .metrics import final_metrics
 from .sandbox import SandboxVerificationOperation
 
 StageOperation = Callable[[StageRequest], Awaitable[StageResult]]
 PublishOperation = Callable[[PublishRequest], Awaitable[None]]
 TerminalOperation = Callable[[TerminalRequest], Awaitable[None]]
 CheckRunOperation = Callable[[CheckRunRequest], Awaitable[None]]
+FinalMetricsOperation = Callable[[FinalMetricsRequest], Awaitable[None]]
 
 _METER = meter()
 _ACTIVITY_DURATION = _METER.create_histogram("pr.activity.duration", unit="s")
@@ -47,6 +51,7 @@ class ActivityOperations:
     publish: PublishOperation
     record_terminal: TerminalOperation
     update_check: CheckRunOperation
+    finalize_metrics: FinalMetricsOperation
 
     def __post_init__(self) -> None:
         if not isinstance(self.verify, SandboxVerificationOperation):
@@ -58,6 +63,7 @@ class ReviewActivities:
 
     def __init__(self, operations: ActivityOperations) -> None:
         self._operations = operations
+        self.history_client: Client | None = None
 
     @activity.defn(name="select_context")
     async def select_context(self, request: StageRequest) -> StageResult:
@@ -114,6 +120,20 @@ class ReviewActivities:
     @activity.defn(name="update_check")
     async def update_check(self, request: CheckRunRequest) -> None:
         await _run_observed(self._operations.update_check(request), request, "tool", "update_check")
+
+    @activity.defn(name="finalize_metrics")
+    async def finalize_metrics(self, request: StageRequest) -> None:
+        async def reconcile() -> None:
+            info = activity.info()
+            if self.history_client is None or not info.workflow_id or not info.workflow_run_id:
+                raise RuntimeError("Temporal history client is required for metrics finalization")
+            history = await self.history_client.get_workflow_handle(
+                info.workflow_id, run_id=info.workflow_run_id
+            ).fetch_history()
+            counts = final_metrics(history, request.owner_id, request.run_id, request.head_sha)
+            await self._operations.finalize_metrics(counts)
+
+        await _run_cancellable(reconcile())
 
 
 async def _run_observed(operation, request, operation_kind: str, operation_name: str):

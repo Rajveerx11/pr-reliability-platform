@@ -142,6 +142,9 @@ dialog::backdrop { background: rgb(7 24 15 / 66%); backdrop-filter: blur(3px); }
 .finding-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
 .finding-card p { margin: 0; line-height: 1.5; }
 .evidence-line { margin-top: 9px; padding: 10px; border-left: 3px solid var(--amber); color: #4f584f; background: #f5f0e4; font-size: .8rem; }
+.verification-evidence { margin-top: 20px; }
+.verification-evidence p { margin-bottom: 10px; color: var(--muted); font-size: .8rem; }
+.verification-evidence pre { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #f1ede3; border-radius: 8px; font-size: .75rem; }
 .stage-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .stage-item { padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: #f4f1e8; }
 .stage-item strong, .stage-item span { display: block; }

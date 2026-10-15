@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -167,6 +168,73 @@ def test_complete_returns_model_response_on_success() -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
+def test_complete_sends_private_prompt_only_through_stdin() -> None:
+    request = _request()
+    proc = _make_proc()
+
+    def capture_prompt(*args, **kwargs):
+        assert kwargs["stdin"].read() == _build_prompt(request)
+        assert os.fstat(kwargs["stdin"].fileno()).st_nlink == 0
+        return proc
+
+    with patch("subprocess.Popen", side_effect=capture_prompt) as spawn:
+        CodexCliModelClient().complete(request)
+
+    cmd = spawn.call_args.args[0]
+    assert cmd[-2:] == ["--", "-"]
+    assert request.instruction not in " ".join(cmd)
+    assert request.context not in " ".join(cmd)
+    assert spawn.call_args.kwargs["stdin"].closed
+    assert "input" not in proc.communicate.call_args.kwargs
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
+@pytest.mark.parametrize("poll_result", [None, 0])
+def test_complete_does_not_resend_prompt_after_timeout(poll_result: int | None) -> None:
+    proc = _make_proc()
+    proc.poll.return_value = poll_result
+    proc.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd=["codex"], timeout=0.1),
+        ('{"findings":[]}', ""),
+    ]
+    with patch("subprocess.Popen", return_value=proc):
+        response = CodexCliModelClient().complete(_request())
+
+    assert response.output_json == '{"findings":[]}'
+    assert len(proc.communicate.call_args_list) == 2
+    assert "input" not in proc.communicate.call_args_list[0].kwargs
+    assert "input" not in proc.communicate.call_args_list[1].kwargs
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
+def test_prompt_file_is_closed_when_spawn_fails() -> None:
+    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as prompt_file:
+        with (
+            patch("tempfile.TemporaryFile", return_value=prompt_file),
+            patch("subprocess.Popen", side_effect=OSError(_build_prompt(_request()))),
+            pytest.raises(RuntimeError, match="^Codex CLI is not available$") as exc,
+        ):
+            CodexCliModelClient().complete(_request())
+        assert prompt_file.closed
+        assert exc.value.__suppress_context__
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
+def test_prompt_file_write_failure_is_sanitized_and_closed() -> None:
+    prompt_file = MagicMock()
+    prompt_file.__enter__.return_value = prompt_file
+    prompt_file.write.side_effect = OSError(_build_prompt(_request()))
+    with (
+        patch("tempfile.TemporaryFile", return_value=prompt_file),
+        patch("subprocess.Popen") as spawn,
+        pytest.raises(RuntimeError, match="^Codex CLI is not available$"),
+    ):
+        CodexCliModelClient().complete(_request())
+    spawn.assert_not_called()
+    prompt_file.__exit__.assert_called_once()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_complete_uses_custom_executable_and_timeout() -> None:
     with patch("subprocess.Popen", return_value=_make_proc()) as mock_popen:
         CodexCliModelClient(timeout_seconds=30.0, codex_executable="my-codex").complete(_request())
@@ -253,26 +321,36 @@ def test_complete_captures_usage_when_reported() -> None:
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_error_does_not_expose_context_or_credentials() -> None:
     """RuntimeError messages must never include the review context or any key material."""
-    with patch("subprocess.Popen", return_value=_make_proc(returncode=1)):
-        try:
-            CodexCliModelClient().complete(_request())
-        except RuntimeError as exc:
-            error_text = str(exc)
-            assert "--- a/app.py" not in error_text  # context fragment
-            assert "Review this PR" not in error_text  # instruction
-            assert "analyze" not in error_text  # idempotency key fragment
+    with (
+        patch("subprocess.Popen", return_value=_make_proc(returncode=1)),
+        pytest.raises(RuntimeError, match="non-zero status") as exc,
+    ):
+        CodexCliModelClient().complete(_request())
+    error_text = str(exc.value)
+    assert "--- a/app.py" not in error_text  # context fragment
+    assert "Review this PR" not in error_text  # instruction
+    assert "analyze" not in error_text  # idempotency key fragment
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
 def test_error_does_not_expose_prompt_on_timeout() -> None:
     proc = MagicMock(pid=12345)
-    proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["codex"], timeout=10)
-    with patch("subprocess.Popen", return_value=proc), patch("os.killpg"):
-        try:
-            CodexCliModelClient().complete(_request())
-        except RuntimeError as exc:
-            assert "--- a/app.py" not in str(exc)
-            assert "Review this PR" not in str(exc)
+    proc.poll.return_value = None
+    proc.communicate.side_effect = subprocess.TimeoutExpired(
+        cmd=["codex"], timeout=0.1, output=_build_prompt(_request())
+    )
+    with (
+        patch("subprocess.Popen", return_value=proc),
+        patch("os.killpg"),
+        patch("time.monotonic", side_effect=[0, 0, 1]),
+        pytest.raises(RuntimeError, match="timed out") as exc,
+    ):
+        CodexCliModelClient(timeout_seconds=1).complete(_request())
+    assert "--- a/app.py" not in str(exc.value)
+    assert "Review this PR" not in str(exc.value)
+    assert exc.value.__suppress_context__
+    proc.poll.assert_called_once()
+    proc.communicate.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -372,10 +450,11 @@ def test_interrupt_terminates_and_reaps_process_group() -> None:
     proc = MagicMock(pid=23456)
     proc.communicate.side_effect = KeyboardInterrupt()
     with (
-        patch("subprocess.Popen", return_value=proc),
+        patch("subprocess.Popen", return_value=proc) as spawn,
         patch("os.killpg") as kill_group,
         pytest.raises(KeyboardInterrupt),
     ):
         CodexCliModelClient().complete(_request())
     kill_group.assert_called_once_with(23456, 9)
     proc.wait.assert_called_once()
+    assert spawn.call_args.kwargs["stdin"].closed

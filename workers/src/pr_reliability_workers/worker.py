@@ -6,6 +6,7 @@ import asyncio
 import importlib
 import os
 from collections.abc import Callable
+from datetime import timedelta
 
 from pr_reliability_observability import configure_telemetry
 from pr_reliability_proof_adapter import ProofAdapter
@@ -20,6 +21,7 @@ from .activities import (
     GitHubReviewPublishOperation,
     ReviewActivities,
 )
+from .operations import RunnerMonitor, monitor_from_environment, run_monitored
 from .sandbox import DockerSandboxRunner
 from .workflows import PullRequestReviewWorkflow
 
@@ -38,12 +40,18 @@ def create_activity_worker(
     client: Client,
     task_queue: str,
     activities: ReviewActivities,
+    *,
+    monitor: RunnerMonitor | None = None,
 ) -> Worker:
     """Build one activity worker that registers the complete review activity set."""
 
+    activities.history_client = client
     return Worker(
         client,
         task_queue=task_queue,
+        interceptors=[monitor] if monitor else [],
+        max_concurrent_activities=monitor.registration.capacity if monitor else None,
+        graceful_shutdown_timeout=timedelta(seconds=60),
         activities=[
             activities.select_context,
             activities.analyze,
@@ -51,6 +59,7 @@ def create_activity_worker(
             activities.publish,
             activities.record_terminal,
             activities.update_check,
+            activities.finalize_metrics,
         ],
     )
 
@@ -58,6 +67,7 @@ def create_activity_worker(
 def create_worker(client: Client, task_queue: str, activities: ReviewActivities) -> Worker:
     """Build a combined workflow/activity worker for tests or compact deployments."""
 
+    activities.history_client = client
     return Worker(
         client,
         task_queue=task_queue,
@@ -69,6 +79,7 @@ def create_worker(client: Client, task_queue: str, activities: ReviewActivities)
             activities.publish,
             activities.record_terminal,
             activities.update_check,
+            activities.finalize_metrics,
         ],
     )
 
@@ -77,7 +88,8 @@ async def run_workflow_worker_from_environment() -> None:
     """Poll production workflow tasks using environment configuration."""
 
     client, task_queue = await _connect_from_environment("pr-reliability-workflow-worker")
-    await create_workflow_worker(client, task_queue).run()
+    monitor = monitor_from_environment(task_queue, "workflow")
+    await run_monitored(create_workflow_worker(client, task_queue), client, monitor)
 
 
 async def run_activity_worker_from_environment() -> None:
@@ -87,7 +99,11 @@ async def run_activity_worker_from_environment() -> None:
         _required_environment("REVIEW_ACTIVITY_OPERATIONS_FACTORY")
     )
     client, task_queue = await _connect_from_environment("pr-reliability-activity-worker")
-    await create_activity_worker(client, task_queue, ReviewActivities(operations)).run()
+    monitor = monitor_from_environment(task_queue, "review")
+    worker = create_activity_worker(
+        client, task_queue, ReviewActivities(operations), monitor=monitor
+    )
+    await run_monitored(worker, client, monitor)
 
 
 def workflow_main() -> None:

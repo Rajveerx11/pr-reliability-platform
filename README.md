@@ -1,13 +1,11 @@
 # PR Reliability Platform
 
-- [Current implementation and verification status](docs/status.md)
+- [Current status and verification](docs/status.md)
 - [Local development](docs/development.md)
-- [Configuration reference](docs/configuration.md)
-- [API reference](docs/api.md)
-- [Repository inventory and review policy](docs/repository-policy.md)
-- [Production readiness](docs/production-readiness.md)
+- [Configuration](docs/configuration.md)
 - [Private VM deployment](docs/deployment.md)
-- [Version-one decisions and roadmap](plan/v1.md)
-- [Interactive plan](plan/interactive.html)
+- [Architecture](docs/architecture.md) and [security](docs/security.md)
+- [Production readiness](docs/production-readiness.md)
+- [Version-one plan and decisions](plan/v1.md)
 - [Documentation index](docs/README.md)
 - [Change history](Changes.md)

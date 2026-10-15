@@ -13,6 +13,7 @@ import json
 import os
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Iterator
@@ -110,39 +111,47 @@ class CodexCliModelClient:
             "--ephemeral",
             "--skip-git-repo-check",
             "--",
-            prompt,
+            "-",
         ]
         proc = None
         invocation = _INVOCATION.get()
         if invocation is not None and invocation.cancelled:
             raise RuntimeError("Codex CLI review was cancelled")
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=_safe_env(),
-                start_new_session=True,
-            )
-            if invocation is not None:
-                invocation.register(proc)
-            deadline = time.monotonic() + self._timeout
-            while True:
-                try:
-                    stdout, _ = proc.communicate(
-                        timeout=min(0.1, max(0, deadline - time.monotonic()))
-                    )
-                    break
-                except subprocess.TimeoutExpired:
-                    # A descendant may hold the output pipes after the CLI itself exits.
-                    if proc.poll() is not None:
-                        _terminate_group(proc)
-                        stdout, _ = proc.communicate(timeout=max(0, deadline - time.monotonic()))
+            # Python 3.12 cannot resume a partial PIPE write after communicate times out.
+            # Anonymous stdin keeps large prompts private without changing bounded polling.
+            with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as prompt_file:
+                prompt_file.write(prompt)
+                prompt_file.seek(0)
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=prompt_file,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=_safe_env(),
+                    start_new_session=True,
+                )
+                if invocation is not None:
+                    invocation.register(proc)
+                deadline = time.monotonic() + self._timeout
+                while True:
+                    try:
+                        stdout, _ = proc.communicate(
+                            timeout=min(0.1, max(0, deadline - time.monotonic()))
+                        )
                         break
-                    if time.monotonic() >= deadline:
-                        raise
-            _terminate_group(proc)
+                    except subprocess.TimeoutExpired:
+                        # A descendant may hold the output pipes after the CLI itself exits.
+                        if proc.poll() is not None:
+                            _terminate_group(proc)
+                            stdout, _ = proc.communicate(
+                                timeout=max(0, deadline - time.monotonic())
+                            )
+                            break
+                        if time.monotonic() >= deadline:
+                            raise
+                _terminate_group(proc)
         except subprocess.TimeoutExpired:
             if proc is not None:
                 _terminate_group(proc)

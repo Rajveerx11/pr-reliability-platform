@@ -302,3 +302,35 @@ def test_restore_rejects_wrong_confirmation_and_modified_dump(tmp_path: Path) ->
     (bundle / "pr_reliability.dump").write_bytes(b"modified")
     with pytest.raises(DatabaseOperationError, match="checksum"):
         restore(repository, compose, environment, bundle, RESTORE_CONFIRMATION, runner=FakeRunner())
+
+
+def test_real_backup_wrapper_atomically_produces_success_and_failure_receipts(
+    tmp_path, monkeypatch
+):
+    import json
+
+    from infra.deployment import database
+
+    receipt = tmp_path / "backup.json"
+
+    def succeeded(*args):
+        assert json.loads(receipt.read_text())["succeeded"] is False
+        return tmp_path / "bundle"
+
+    monkeypatch.setattr(database, "backup", succeeded)
+    assert (
+        database.backup_with_receipt(tmp_path, tmp_path, tmp_path, tmp_path, receipt)
+        == tmp_path / "bundle"
+    )
+    assert set(json.loads(receipt.read_text())) == {"succeeded", "finished_at"}
+    assert json.loads(receipt.read_text())["succeeded"] is True
+
+    def failed(*args):
+        raise database.DatabaseOperationError("private failure detail")
+
+    monkeypatch.setattr(database, "backup", failed)
+    with pytest.raises(database.DatabaseOperationError):
+        database.backup_with_receipt(tmp_path, tmp_path, tmp_path, tmp_path, receipt)
+    assert json.loads(receipt.read_text())["succeeded"] is False
+    assert "private" not in receipt.read_text()
+    assert not list(tmp_path.glob(".receipt-*"))

@@ -14,9 +14,11 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from cryptography.fernet import Fernet
 from pr_reliability_api.db import apply_migrations
 from pr_reliability_contracts import ModelUsage as ContractUsage
 from pr_reliability_contracts import UsageCoverage
+from pr_reliability_evidence import EvidenceSettings
 from pr_reliability_proof_adapter import ProofVerdict
 from pr_reliability_workers.activities import VerificationCheckEvidence, VerificationEvidence
 from pr_reliability_workers.agents import ModelRequest, ModelResponse, ReviewAgent
@@ -30,6 +32,7 @@ from pr_reliability_workers.providers.operations import (
 )
 from pr_reliability_workers.sandbox import CONFIG_FILE_NAME, SandboxResult, parse_check_allowlist
 from pr_reliability_workers.workflows.types import (
+    FinalMetricsRequest,
     ModelUsage,
     StageRequest,
     TerminalRequest,
@@ -264,6 +267,11 @@ class LocalFixtureCheckout:
             check=True,
             capture_output=True,
         )
+        if os.name == "nt":
+            # Windows Git marks pack files read-only; this disposable test fixture is deletable.
+            for path in (target / ".git").rglob("*"):
+                if path.is_file():
+                    path.chmod(0o600)
         return FakeCheckoutResult(target, base_sha, head_sha, "safe-checkout-ref")
 
 
@@ -365,6 +373,7 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
             workspace_root=staging,
             check_policy=_check_policy(),
             id_factory=lambda: f"01J{uuid4().int % 10**23:023d}",
+            evidence_settings=EvidenceSettings(Fernet.generate_key(), secret_patterns=("private",)),
         )
         global BASE_SHA, HEAD_SHA
         BASE_SHA, HEAD_SHA = actual_base, actual_head
@@ -426,6 +435,25 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
             )
         )
 
+        final_counts = FinalMetricsRequest(
+            OWNER_ID,
+            RUN_ID,
+            actual_head,
+            activity_attempts=6,
+            activity_retries=1,
+            activity_timeouts=None,
+        )
+        await operations.finalize_metrics(final_counts)
+        await operations.finalize_metrics(final_counts)  # an activity retry cannot double-count
+        with pytest.raises(RuntimeError, match="conflicts with stored counts"):
+            await operations.finalize_metrics(
+                FinalMetricsRequest(OWNER_ID, RUN_ID, actual_head, 7, 2, None)
+            )
+        with connection_factory() as connection:
+            assert connection.execute(
+                "SELECT activity_attempts, activity_retries, activity_timeouts FROM run_metrics"
+            ).fetchone() == (6, 1, None)
+
         with pytest.raises(RuntimeError, match="review run is terminal"):
             operations._record_stage(
                 _request("verify", base_sha=actual_base, input_ref=analysis.output_ref),
@@ -448,6 +476,15 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
             events = connection.execute(
                 "SELECT event_data::text FROM run_events ORDER BY id"
             ).fetchall()
+            artifacts = connection.execute(
+                "SELECT reference, ciphertext FROM verification_artifacts"
+            ).fetchall()
+        assert len(artifacts) == 1
+        assert artifacts[0][0].startswith("ev_")
+        assert b"private" not in bytes(artifacts[0][1])
+        assert operations.evidence_settings.decrypt(bytes(artifacts[0][1]))["stdout"] == (
+            "[redacted] sandbox output"
+        )
         persisted = "\n".join(row[0] for row in events)
         assert finding_count == 1
         assert state == "rejected"

@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
 import shlex
+import sys
 import threading
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
+from pr_reliability_evidence import EvidenceSettings
 from pr_reliability_workers.agents import ModelRequest, ReviewAgent
-from pr_reliability_workers.agents.codex_client import CodexCliModelClient
+from pr_reliability_workers.agents.codex_client import CodexCliModelClient, _build_prompt
 from pr_reliability_workers.providers.operations import ProductionOperations
 from pr_reliability_workers.workflows.types import StageRequest
 
@@ -23,6 +28,32 @@ def _assert_dead_or_zombie(pid: int) -> None:
             os.kill(pid, 0)
     else:
         assert state == "Z"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
+def test_large_prompt_survives_stdin_timeout_retries(tmp_path: Path) -> None:
+    cli = tmp_path / "fake-codex"
+    cli.write_text(
+        f"#!{sys.executable}\n"
+        "import hashlib, json, sys, time\n"
+        "assert sys.argv[-2:] == ['--', '-']\n"
+        "time.sleep(0.3)\n"
+        "prompt = sys.stdin.read()\n"
+        "print(json.dumps({'digest': hashlib.sha256(prompt.encode()).hexdigest()}))\n",
+        encoding="utf-8",
+    )
+    cli.chmod(0o700)
+    request = ModelRequest(
+        instruction="review",
+        context="private context\n" * 32_768,
+        output_schema={"type": "object"},
+        idempotency_key="test",
+    )
+
+    response = CodexCliModelClient(timeout_seconds=5, codex_executable=str(cli)).complete(request)
+
+    expected = hashlib.sha256(_build_prompt(request).encode()).hexdigest()
+    assert json.loads(response.output_json) == {"digest": expected}
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process groups required")
@@ -70,6 +101,7 @@ def test_repeated_cancellation_waits_for_review_thread(tmp_path: Path) -> None:
         workspace_root=tmp_path,
         check_policy=None,  # type: ignore[arg-type]
         id_factory=lambda: "unused",
+        evidence_settings=EvidenceSettings(Fernet.generate_key()),
     )
 
     async def run() -> None:
@@ -115,6 +147,7 @@ def test_cancel_analyze_kills_child_and_reaps_cli(tmp_path: Path) -> None:
         workspace_root=tmp_path,
         check_policy=None,  # type: ignore[arg-type]
         id_factory=lambda: "unused",
+        evidence_settings=EvidenceSettings(Fernet.generate_key()),
     )
     operations._load_active_run = lambda *_: object()  # type: ignore[method-assign]
     operations._stage_receipt = lambda *_: None  # type: ignore[method-assign]

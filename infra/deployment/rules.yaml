@@ -8,3 +8,10 @@ groups:
           severity: critical
         annotations:
           summary: PR Reliability telemetry collector is unavailable
+      - alert: OperationsMonitorUnavailable
+        expr: up{job="operations-monitor"} == 0 or absent(up{job="operations-monitor"}) or time() - pr_operations_alert_last_success_seconds > 120
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: PR Reliability operational alert checks or delivery are unavailable

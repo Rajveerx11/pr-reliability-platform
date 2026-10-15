@@ -600,6 +600,9 @@ def _operations(
     async def update_check(request: CheckRunRequest) -> None:
         del request
 
+    async def finalize_metrics(request) -> None:
+        del request
+
     return ActivityOperations(
         select_context=stage,
         analyze=stage,
@@ -619,6 +622,7 @@ def _operations(
             lambda: "01J00000000000000000000001",
         ),
         record_terminal=terminal,
+        finalize_metrics=finalize_metrics,
         update_check=GitHubCheckRunOperation(
             lambda: None,  # type: ignore[arg-type,return-value]
             GitHubRestCheckRunClient(

@@ -157,6 +157,7 @@ class GitHubReviewPublishOperation:
                 return
 
             try:
+                publish_started_at = None
                 review = await self.client.find_review(
                     prepared.repository,
                     prepared.pull_request_number,
@@ -193,6 +194,7 @@ class GitHubReviewPublishOperation:
                             type="PublishBlocked",
                             non_retryable=True,
                         )
+                    publish_started_at = self.now().astimezone(UTC)
                     review = await self.client.create_review(
                         prepared.repository,
                         prepared.pull_request_number,
@@ -201,7 +203,15 @@ class GitHubReviewPublishOperation:
                     )
                 if review.commit_sha != prepared.head_sha:
                     raise GitHubReviewPayloadMismatch
-                await asyncio.to_thread(self._record_success, request, prepared, review)
+                publish_finished_at = self.now().astimezone(UTC) if publish_started_at else None
+                await asyncio.to_thread(
+                    self._record_success,
+                    request,
+                    prepared,
+                    review,
+                    publish_started_at,
+                    publish_finished_at,
+                )
             except GitHubReviewPayloadMismatch:
                 await asyncio.to_thread(
                     self._record_action_blocked,
@@ -363,6 +373,22 @@ class GitHubReviewPublishOperation:
                         payload_fingerprint,
                     ),
                 )
+                connection.execute(
+                    """
+                    INSERT INTO run_events (
+                        public_id, owner_id, run_id, event_key, event_type,
+                        event_data, occurred_at
+                    ) VALUES (%s, %s, %s, %s, 'github.review_publish_prepared', %s::jsonb, %s)
+                    """,
+                    (
+                        self.id_factory(),
+                        request.owner_id,
+                        internal_run_id,
+                        f"publish:{action_id}:started",
+                        json.dumps({"action_id": action_id}),
+                        self.now().astimezone(UTC),
+                    ),
+                )
             else:
                 if stored_payload_fingerprint != payload_fingerprint:
                     raise PublishBlockedError("idempotency key targets another publish payload")
@@ -413,6 +439,8 @@ class GitHubReviewPublishOperation:
         request: PublishRequest,
         prepared: _PreparedPublish,
         review: GitHubReview,
+        publish_started_at: datetime | None = None,
+        publish_finished_at: datetime | None = None,
     ) -> None:
         occurred_at = self.now().astimezone(UTC)
         with self.connection_factory() as connection, connection.transaction():
@@ -462,6 +490,12 @@ class GitHubReviewPublishOperation:
                             "finding_ids": list(request.finding_ids),
                             "approval_ids": list(request.approval_ids),
                             "payload_fingerprint": prepared.payload_fingerprint,
+                            "publish_started_at": (
+                                publish_started_at.isoformat() if publish_started_at else None
+                            ),
+                            "publish_finished_at": (
+                                publish_finished_at.isoformat() if publish_finished_at else None
+                            ),
                         }
                     ),
                     occurred_at,
