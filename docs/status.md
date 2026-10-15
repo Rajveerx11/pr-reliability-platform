@@ -6,7 +6,8 @@ Verified: 2026-09-26 against merged `main` at `c9f67e3` and its
 The review core, OpenAI API/GitHub operations, installation policy, repository checks, Check Runs,
 and review metrics are merged. Private production rollout is not accepted. Repository history UI,
 bounded check artifacts, signed releases, real-provider evaluation, and Linux VM recovery evidence
-remain open. ChatGPT-subscription Codex reviews are not enabled; PR #56 remains open.
+remain open. ChatGPT-subscription Codex reviews remain disabled until isolated execution and
+repository/fork validation gates are implemented and approved.
 
 ## Implemented
 
