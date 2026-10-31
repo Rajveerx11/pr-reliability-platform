@@ -314,9 +314,12 @@ def write_backup_receipt(path: Path, succeeded: bool) -> None:
 
 
 def backup_with_receipt(repository, compose_file, environment_file, destination, receipt):
-    # A killed or failed attempt leaves an explicit failure, not a stale success.
-    write_backup_receipt(receipt, False)
-    created = backup(repository, compose_file, environment_file, destination)
+    # Keep the last completed receipt during backup. A killed attempt ages into an alert.
+    try:
+        created = backup(repository, compose_file, environment_file, destination)
+    except BaseException:
+        write_backup_receipt(receipt, False)
+        raise
     write_backup_receipt(receipt, True)
     return created
 

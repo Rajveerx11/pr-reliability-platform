@@ -1,17 +1,22 @@
 # Current status
 
-Verified: 2026-09-26 against merged `main` at `c9f67e3` and its
-[Quality run](https://github.com/Rajveerx11/pr-reliability-platform/actions/runs/36257135195).
+Integration baseline: merged `main` at `f07c5cf` includes PR61/#42, PR63/#43 and PR56/#55.
+PR62/#45 adds release tooling, not live release acceptance.
+The earlier CI evidence below applies only to its recorded commit, not this integration.
 
 The review core, OpenAI API/GitHub operations, installation policy, repository checks, Check Runs,
-and review metrics are merged. Private production rollout is not accepted. Repository history UI,
-bounded check artifacts, signed releases, real-provider evaluation, and Linux VM recovery evidence
-remain open. ChatGPT-subscription Codex reviews remain disabled until isolated execution and
-repository/fork validation gates are implemented and approved.
+review metrics, bounded encrypted artifacts and runner operations are merged. Private production
+rollout is not accepted. Repository history UI, real Linux signed release artifacts, staging,
+backup restore, rollback, protected environments, real-provider evaluation and VM acceptance
+remain open. Release publication requires separate approval. ChatGPT-subscription Codex reviews
+remain disabled until isolated execution and repository/fork validation gates are implemented
+and approved.
 
 ## Implemented
 
-- Strict versioned contracts and eight checksummed PostgreSQL migrations.
+- Strict versioned contracts and ten checksummed PostgreSQL migrations.
+- Bounded encrypted/redacted check artifacts, private display/download and expiry maintenance.
+- Private runner capacity, pending queue observations, alerts, probes and backup receipt wiring.
 - Signed, installation-bound PR and installation lifecycle webhooks, with delivery deduplication.
 - Initial and periodic installation inventory, owner-scoped policy API, and append-only audit.
 - Admission and queued-dispatch checks for access, pause state, base branch, budgets, and sync age.
@@ -35,6 +40,8 @@ repository/fork validation gates are implemented and approved.
 | [#37](https://github.com/Rajveerx11/pr-reliability-platform/issues/37) | Installation sync and repository policy | [#51](https://github.com/Rajveerx11/pr-reliability-platform/pull/51) |
 | [#47](https://github.com/Rajveerx11/pr-reliability-platform/issues/47) | Windows Temporal regression stability | [#48](https://github.com/Rajveerx11/pr-reliability-platform/pull/48) |
 | [#39](https://github.com/Rajveerx11/pr-reliability-platform/issues/39) | Review metrics and analytics persistence | [#57](https://github.com/Rajveerx11/pr-reliability-platform/pull/57) |
+| [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42) | Bounded encrypted verification artifacts | [#61](https://github.com/Rajveerx11/pr-reliability-platform/pull/61) |
+| [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43) | Runner visibility and private alerts | [#63](https://github.com/Rajveerx11/pr-reliability-platform/pull/63) |
 
 ## Verification evidence
 
@@ -46,10 +53,10 @@ Skipped tests do not establish coverage for their skipped boundary.
 
 ## Remaining work
 
-Repository and PR history UI [#38](https://github.com/Rajveerx11/pr-reliability-platform/issues/38),
-bounded evidence [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42),
-runner visibility [#43](https://github.com/Rajveerx11/pr-reliability-platform/issues/43), and
-signed releases [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45) remain open.
+Repository and PR history UI [#38](https://github.com/Rajveerx11/pr-reliability-platform/issues/38)
+and live signed release acceptance [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45)
+remain open. Release tooling in PR62 is not proof of genuine signed artifacts or Linux staging.
+Merged #42/#43 implementation also does not establish live operator acceptance.
 Real model evaluation [#14](https://github.com/Rajveerx11/pr-reliability-platform/issues/14)
 and Linux VM acceptance [#15](https://github.com/Rajveerx11/pr-reliability-platform/issues/15)
 are not complete; [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46)

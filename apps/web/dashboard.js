@@ -247,11 +247,14 @@ function renderRunDetail(detail, evidenceItems = [], evidenceError = null) {
       const location = evidence.file_path ? ` · ${evidence.file_path}${evidence.start_line ? `:${evidence.start_line}` : ""}` : "";
       card.append(node("div", `${evidence.summary}${location}`, "evidence-line"));
     }
-    card.append(verificationEvidence(evidenceItems));
-    if (evidenceError) card.append(node("p", evidenceError));
+    const evidenceLink = node("a", "View run verification checks");
+    evidenceLink.href = "#run-verification-evidence";
+    card.append(evidenceLink);
     findingsSection.append(card);
   }
   const evidenceSection = verificationEvidence(evidenceItems);
+  evidenceSection.id = "run-verification-evidence";
+  evidenceSection.tabIndex = -1;
   if (evidenceError) evidenceSection.append(node("p", evidenceError));
   root.replaceChildren(facts, stagesSection, timelineSection, evidenceSection, findingsSection);
 }

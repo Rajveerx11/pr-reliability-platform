@@ -304,33 +304,57 @@ def test_restore_rejects_wrong_confirmation_and_modified_dump(tmp_path: Path) ->
         restore(repository, compose, environment, bundle, RESTORE_CONFIRMATION, runner=FakeRunner())
 
 
-def test_real_backup_wrapper_atomically_produces_success_and_failure_receipts(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("prior_success", [None, False, True])
+@pytest.mark.parametrize("outcome", ["success", "failure", "cancel"])
+def test_real_backup_wrapper_atomically_produces_completed_receipts(
+    tmp_path, monkeypatch, prior_success, outcome
 ):
+    import asyncio
     import json
 
     from infra.deployment import database
 
     receipt = tmp_path / "backup.json"
+    if prior_success is not None:
+        database.write_backup_receipt(receipt, prior_success)
+    previous = receipt.read_bytes() if receipt.exists() else None
+    replacements = []
+    replace = database.os.replace
 
-    def succeeded(*args):
-        assert json.loads(receipt.read_text())["succeeded"] is False
+    def atomic_replace(source, destination):
+        assert destination == receipt
+        assert (receipt.read_bytes() if receipt.exists() else None) == previous
+        body = json.loads(Path(source).read_text())
+        assert set(body) == {"succeeded", "finished_at"}
+        assert body["succeeded"] is (outcome == "success")
+        assert Path(source).stat().st_size > 0
+        replacements.append(body)
+        replace(source, destination)
+
+    error = (
+        asyncio.CancelledError("private cancellation detail")
+        if outcome == "cancel"
+        else database.DatabaseOperationError("private failure detail")
+    )
+
+    def attempt(*args):
+        assert (receipt.read_bytes() if receipt.exists() else None) == previous
+        if outcome != "success":
+            raise error
         return tmp_path / "bundle"
 
-    monkeypatch.setattr(database, "backup", succeeded)
-    assert (
-        database.backup_with_receipt(tmp_path, tmp_path, tmp_path, tmp_path, receipt)
-        == tmp_path / "bundle"
-    )
-    assert set(json.loads(receipt.read_text())) == {"succeeded", "finished_at"}
-    assert json.loads(receipt.read_text())["succeeded"] is True
-
-    def failed(*args):
-        raise database.DatabaseOperationError("private failure detail")
-
-    monkeypatch.setattr(database, "backup", failed)
-    with pytest.raises(database.DatabaseOperationError):
-        database.backup_with_receipt(tmp_path, tmp_path, tmp_path, tmp_path, receipt)
-    assert json.loads(receipt.read_text())["succeeded"] is False
+    monkeypatch.setattr(database.os, "replace", atomic_replace)
+    monkeypatch.setattr(database, "backup", attempt)
+    if outcome == "success":
+        assert (
+            database.backup_with_receipt(tmp_path, tmp_path, tmp_path, tmp_path, receipt)
+            == tmp_path / "bundle"
+        )
+    else:
+        with pytest.raises(type(error)) as raised:
+            database.backup_with_receipt(tmp_path, tmp_path, tmp_path, tmp_path, receipt)
+        assert raised.value is error
+    assert len(replacements) == 1
+    assert json.loads(receipt.read_text()) == replacements[0]
     assert "private" not in receipt.read_text()
     assert not list(tmp_path.glob(".receipt-*"))

@@ -149,6 +149,52 @@ def test_low_disk_failed_backup_expiring_tls_probes(tmp_path, monkeypatch):
     assert probe_host(config, now) == {"failed_backups"}
 
 
+def test_healthy_backup_concurrent_probe_keeps_last_success_until_completion(tmp_path, monkeypatch):
+    import threading
+    from collections import namedtuple
+    from concurrent.futures import ThreadPoolExecutor
+
+    from infra.deployment import database
+
+    disk = namedtuple("Disk", "total used free")
+    monkeypatch.setattr("shutil.disk_usage", lambda _: disk(100, 10, 90))
+    config = settings(tmp_path)
+    now = datetime.now(UTC)
+    certificate(config.tls_certificate, now + timedelta(days=90), now)
+    database.write_backup_receipt(config.backup_receipt, True)
+    previous = config.backup_receipt.read_bytes()
+    running = threading.Event()
+    finish = threading.Event()
+
+    def healthy_backup(*args):
+        running.set()
+        assert finish.wait(timeout=10)
+        return tmp_path / "bundle"
+
+    monkeypatch.setattr(database, "backup", healthy_backup)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending = executor.submit(
+            database.backup_with_receipt,
+            tmp_path,
+            tmp_path,
+            tmp_path,
+            tmp_path,
+            config.backup_receipt,
+        )
+        try:
+            assert running.wait(timeout=10)
+            for _ in range(3):
+                assert probe_host(config) == set()
+                assert config.backup_receipt.read_bytes() == previous
+            # A killed/stalled attempt still alerts once the unchanged receipt ages out.
+            assert probe_host(config, now + timedelta(days=3)) == {"failed_backups"}
+        finally:
+            finish.set()
+        assert pending.result(timeout=10) == tmp_path / "bundle"
+    assert probe_host(config) == set()
+    assert not list(tmp_path.glob(".receipt-*"))
+
+
 def test_probe_unknown_is_not_healthy_and_does_not_reflect_local_data(tmp_path, monkeypatch):
     def failed(_):
         raise OSError("private-secret-path")

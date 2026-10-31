@@ -1,0 +1,98 @@
+name: Exercise signed release on disposable Linux staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Signed release-build run ID for the current approved main commit
+        required: true
+        type: string
+      previous_run_id:
+        description: Previous signed release-build run ID named by candidate rollback
+        required: true
+        type: string
+      authorize_disposable_staging:
+        description: Explicitly authorize deploy, database restore and rollback on disposable staging only
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-linux-staging
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    if: github.ref == 'refs/heads/main' && inputs.authorize_disposable_staging
+    runs-on: [self-hosted, linux, x64, pr-release-staging]
+    timeout-minutes: 60
+    environment: disposable-linux-staging
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate public run IDs
+        env:
+          CANDIDATE_RUN: ${{ inputs.candidate_run_id }}
+          PREVIOUS_RUN: ${{ inputs.previous_run_id }}
+        run: python -c 'import os; assert all(os.environ[k].isdigit() for k in ("CANDIDATE_RUN", "PREVIOUS_RUN"))'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-release-candidate
+          path: ${{ runner.temp }}/candidate
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: signed-release-candidate
+          path: ${{ runner.temp }}/previous
+          run-id: ${{ inputs.previous_run_id }}
+          github-token: ${{ github.token }}
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.12.7'
+          python-version: '3.12'
+      - run: uv sync --frozen
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Verify exact commit and exercise real staging (no claimed receipts)
+        env:
+          COMMIT: ${{ github.sha }}
+          WORKFLOW_RUN: ${{ github.run_id }}
+          ARTIFACT_ROOT: ${{ runner.temp }}
+          E2E_SHA256: ${{ vars.STAGING_E2E_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY'
+          import os
+          from pathlib import Path
+          from infra.release.verify import verify_release
+          candidate = verify_release(Path(os.environ['ARTIFACT_ROOT']) / 'candidate', repository=Path.cwd())
+          assert candidate['commit'] == os.environ['COMMIT']
+          PY
+          uv run python -m infra.release stage --candidate "$ARTIFACT_ROOT/candidate" --previous "$ARTIFACT_ROOT/previous" --base-env-file /etc/pr-reliability/staging.env --output "$ARTIFACT_ROOT/staging.json" --run-id "$WORKFLOW_RUN" --e2e-program-sha256 "$E2E_SHA256" --authorize-disposable-staging
+          cosign sign-blob --yes --bundle "$ARTIFACT_ROOT/staging.sigstore.json" "$ARTIFACT_ROOT/staging.json"
+          uv run python -m infra.release gate --candidate "$ARTIFACT_ROOT/candidate" --previous "$ARTIFACT_ROOT/previous" --receipt "$ARTIFACT_ROOT/staging.json" --e2e-program-sha256 "$E2E_SHA256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: staging-acceptance
+          path: |
+            ${{ runner.temp }}/staging.json
+            ${{ runner.temp }}/staging.sigstore.json
+          if-no-files-found: error
+          retention-days: 90

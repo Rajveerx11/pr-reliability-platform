@@ -94,7 +94,7 @@ def test_live_file_export_precedes_container_removal(tmp_path):
     assert runtime.calls[4].arguments[-2:] == ("/workspace/junit.xml", str(MAX_REPORT_BYTES))
     assert runtime.calls[4].output_limit_bytes == MAX_REPORT_BYTES
     assert runtime.calls[4].timeout_seconds == 10
-    assert runtime.calls[1].arguments[-1] == "exec sleep 1200"
+    assert runtime.calls[1].arguments[-1] == "exec sleep 600"
 
 
 @pytest.mark.parametrize(
@@ -126,6 +126,27 @@ def test_bad_export_blocks_verification_and_still_removes_container(tmp_path, ex
     assert result.report_error == "report_invalid"
     assert result.report_summaries == ()
     assert runtime.calls[5].arguments[0] == "rm"
+
+
+@pytest.mark.parametrize("timeout, lifetime", [(0.1, 301), (30, 330), (300.5, 601), (900, 1200)])
+def test_report_container_lifetime_covers_timeout_and_bounded_export_margin(
+    tmp_path, timeout, lifetime
+):
+    from pr_reliability_workers.sandbox import SandboxLimits
+    from pr_reliability_workers.sandbox.docker import _create_arguments
+
+    request = SandboxRequest(
+        IMAGE,
+        tmp_path,
+        ("test-command",),
+        limits=SandboxLimits(timeout_seconds=timeout),
+        report_files=("one.xml", "two.xml", "three.xml", "four.xml"),
+    )
+    arguments = _create_arguments(request, tmp_path, "test-container")
+    assert arguments[-1] == f"exec sleep {lifetime}"
+    assert lifetime >= timeout + 300
+    plain_request = SandboxRequest(IMAGE, tmp_path, ("test-command",), limits=request.limits)
+    assert "sleep" not in " ".join(_create_arguments(plain_request, tmp_path, "test-container"))
 
 
 def test_report_failures_block_successful_exit_code(tmp_path):

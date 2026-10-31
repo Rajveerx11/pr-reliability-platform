@@ -1,0 +1,17 @@
+# This argument is a verified platform digest, never a credential or mutable tag.
+ARG PLATFORM_IMAGE
+FROM ${PLATFORM_IMAGE}
+USER root
+# The official Docker CLI is static and talks only to the separate rootless engine.
+COPY --from=docker:28.5.1-cli@sha256:9190b0613792e658a7783cf14b2d5ace5941bb68ede7276922ea36ee457d76ad /usr/local/bin/docker /usr/local/bin/docker
+# A fixed official Debian snapshot prevents apt from silently changing Git between builds.
+# Only expiry checking is disabled; Debian archive signatures are still mandatory.
+RUN sed -i \
+    -e 's|http://deb.debian.org/debian-security|https://snapshot.debian.org/archive/debian-security/20260801T000000Z|g' \
+    -e 's|http://deb.debian.org/debian|https://snapshot.debian.org/archive/debian/20260801T000000Z|g' \
+    /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::Check-Valid-Until=false update \
+    && apt-get install --no-install-recommends -y git \
+    && rm -rf /var/lib/apt/lists/*
+USER app
+CMD ["pr-reliability-activity-worker"]
