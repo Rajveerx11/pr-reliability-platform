@@ -1,7 +1,7 @@
 # Production readiness
 
-Integration baseline: merged `main` at `ee8b6d6`; PR62 release tooling is in this candidate.
-Review and CI for the candidate are still required. Release tracker:
+Integration baseline: merged `main` at `f07c5cf`; PR62 adds signed release tooling.
+Repository validation does not establish production acceptance. Release tracker:
 [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46).
 
 The review core, OpenAI API/GitHub operations (#36), approved publishing (#12), installation
@@ -26,7 +26,7 @@ The full dependency map is in [plan/v1.md](../plan/v1.md#github-issue-map). Work
 issues; do not bypass dependencies. Complete history and live evidence, runner operations,
 release and GitHub login acceptance. Release workflows are manual-only; publication requires
 separate approval. Finish real evaluation and VM acceptance before any production claim.
-ChatGPT-subscription Codex remains disabled in open PR #56; its private pilot depends on #58 and
+ChatGPT-subscription Codex remains disabled; its private pilot depends on #58 and
 #59, and public repository opt-in requires #60.
 
 ## Production exit checklist

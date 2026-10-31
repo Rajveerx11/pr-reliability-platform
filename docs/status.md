@@ -1,15 +1,16 @@
 # Current status
 
-Integration baseline: merged `main` at `ee8b6d6` includes PR61/#42 and PR63/#43.
-PR62/#45 release tooling is implemented in this candidate, pending review and CI.
-The earlier CI evidence below applies only to its recorded commit, not this candidate.
+Integration baseline: merged `main` at `f07c5cf` includes PR61/#42, PR63/#43 and PR56/#55.
+PR62/#45 adds release tooling, not live release acceptance.
+The earlier CI evidence below applies only to its recorded commit, not this integration.
 
 The review core, OpenAI API/GitHub operations, installation policy, repository checks, Check Runs,
 review metrics, bounded encrypted artifacts and runner operations are merged. Private production
 rollout is not accepted. Repository history UI, real Linux signed release artifacts, staging,
 backup restore, rollback, protected environments, real-provider evaluation and VM acceptance
 remain open. Release publication requires separate approval. ChatGPT-subscription Codex reviews
-are not enabled; PR #56 remains open.
+remain disabled until isolated execution and repository/fork validation gates are implemented
+and approved.
 
 ## Implemented
 

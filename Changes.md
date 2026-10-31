@@ -48,6 +48,16 @@ them and names the affected files.
 
 ## Unreleased
 
+### Resolve release tooling integration conflicts (#45)
+
+- Integrate main `f07c5cf` into PR62, preserving both release and Codex change histories.
+- Keep the Codex provider disabled and retain all live release and production acceptance gates.
+- Resolve conflicts only in `Changes.md`, `docs/status.md` and `docs/production-readiness.md`.
+- Python 3.12 validation: 167 release/preflight tests passed; Ruff lint, format and staged
+  whitespace checks passed. Updated-candidate remote CI is still required before merge.
+- References: [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45) and
+  [DEC-013](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation).
+
 ### Final release documentation review correction (#45)
 
 - Label the release recovery counts as an earlier checkpoint and link to the latest PR62
@@ -106,6 +116,69 @@ them and names the affected files.
   because the installed launcher cannot import pylsp. Parent review and remote CI remain required.
 - References: [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45),
   [DEC-013](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation).
+
+### Codex provider CI coverage and packaging checks
+
+- Issue: [#55](https://github.com/Rajveerx11/pr-reliability-platform/issues/55).
+- Decision: [DEC-012](plan/v1.md#dec-012--start-with-openai-behind-a-provider-neutral-interface).
+- Corrected `.github/workflows/quality.yml` to deselect worker tests in the Python quality job;
+  pytest's configured test paths bypassed the previous directory ignore. The Linux Temporal
+  job still runs every worker test, and future configured non-worker suites remain included.
+- Added existing Codex boundary and cancellation tests to the Windows job, where POSIX-only
+  cases retain their platform skips. Added source/wheel distribution builds and 20-minute
+  limits for the two previously unbounded jobs. Required job names and deployment behavior
+  remain unchanged.
+- Updated `docs/status.md` and `docs/production-readiness.md` to describe the disabled provider
+  and outstanding isolation/repository gates without depending on PR #56 remaining open.
+
+### Codex CLI prompt privacy and timeout regression fixes
+
+- Issue: [#55](https://github.com/Rajveerx11/pr-reliability-platform/issues/55).
+- Decision: [DEC-012](plan/v1.md#dec-012--start-with-openai-behind-a-provider-neutral-interface).
+- Updated `workers/src/pr_reliability_workers/agents/codex_client.py` to send private review
+  prompts through anonymous stdin rather than process arguments, including large contexts. This
+  avoids Python 3.12 losing pending pipe input when communication retries after a timeout.
+- Strengthened `workers/tests/test_codex_client.py` to require sanitized exceptions and exercise
+  the running-process timeout path; covered stdin delivery and both output-draining retry paths.
+  Added a real large-prompt/delayed-reader regression in `workers/tests/test_codex_cancellation.py`.
+- Integrated current main, preserving bounded evidence imports and both changelog histories.
+- The production provider remains disabled until isolated execution and repository/fork gates exist.
+
+### Codex CLI pilot safety and CI follow-up
+
+- Issue: [#55](https://github.com/Rajveerx11/pr-reliability-platform/issues/55).
+- Disabled `MODEL_PROVIDER=codex` at startup: the activity-worker has credentials, and Codex
+  read-only mode can still read host files; PR head repository identity is not persisted for fork
+  validation. A dedicated isolated runner and fail-closed repository/fork checks need approval
+  before enabling this provider. This is not a ready-to-deploy Codex pilot.
+- Removed full-auto CLI invocation, reduced forwarded child environment to an allowlist, and
+  terminate/reap the POSIX subprocess group on timeout or Temporal activity cancellation.
+  Cancellation is scoped to one review and waits for its thread even after repeat cancellation;
+  output draining stays bounded when descendants retain pipes. An isolated runner is still needed
+  to contain descendants that escape the process group.
+- Deployment preflight now rejects unknown providers as well as disabled Codex before startup.
+- Confirmed both Compose activity-worker templates already pass Codex timeout and executable;
+  updated `.env.example` and `docs/configuration.md` to state the provider is disabled, fixed CI
+  lint failures, and protected the terminal Check Run retry test from time-skipping past the
+  replacement approval wait.
+
+### Added Codex CLI provider for trusted pilot repositories (initial PR implementation)
+
+- Issue: [#55](https://github.com/Rajveerx11/pr-reliability-platform/issues/55).
+- Decisions: [DEC-012](plan/v1.md#dec-012--start-with-openai-behind-a-provider-neutral-interface)
+  and [DEC-013](plan/v1.md#dec-013--deploy-to-one-cloud-vm-after-local-validation).
+- Added `CodexCliModelClient` in `workers/src/pr_reliability_workers/agents/codex_client.py`.
+  Implements the existing `ModelClient` protocol. Runs the Codex CLI non-interactively as a
+  subprocess, extracts structured JSON output, and records token usage when the CLI reports it.
+  Credentials are never logged; errors never expose context, instruction, or key material.
+- Extended `workers/src/pr_reliability_workers/providers/factory.py` to select between
+  `openai` (default) and initially `codex` providers via `MODEL_PROVIDER`. The follow-up above
+  disables Codex until an isolated runner and fork validation are available.
+- Documented `MODEL_PROVIDER=codex`, `CODEX_TIMEOUT_SECONDS`, and `CODEX_EXECUTABLE` in
+  `docs/configuration.md` and `.env.example`; the follow-up above supersedes deployment guidance.
+- Added 25 unit tests in `workers/tests/test_codex_client.py` covering construction, prompt
+  building, JSON extraction, usage parsing, subprocess interaction, timeout, missing-CLI, usage
+  propagation, and security (no credential or context leakage).
 
 ### Integrate runner operations with bounded evidence (#43)
 
