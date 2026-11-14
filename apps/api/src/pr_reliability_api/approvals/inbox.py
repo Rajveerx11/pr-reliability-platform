@@ -25,6 +25,7 @@ from psycopg import Connection
 
 from ..identifiers import new_ulid
 from ..reviewer import request_reviewer
+from .export import create_findings_export_router
 
 ConnectionFactory = Callable[[], Connection[Any]]
 IdFactory = Callable[[], str]
@@ -59,6 +60,9 @@ def create_approval_inbox_router(
     """Create browser shell plus authenticated approval endpoints."""
 
     router = APIRouter()
+    router.include_router(
+        create_findings_export_router(settings, connection_factory, sessions=sessions)
+    )
 
     @router.get("/approval-inbox", response_class=HTMLResponse, include_in_schema=False)
     def approval_inbox_page() -> HTMLResponse:

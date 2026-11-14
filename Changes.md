@@ -1,5 +1,14 @@
 # Changes
 
+## 2026-11-14 — Approved findings export (#65)
+
+- Add session-authorized JSON Lines export of approved structured findings. Reuse live owner
+  and repository scope; exclude pending/rejected findings, confidence and model evidence.
+- Keep PR outcome unknown because merged versus closed is not persisted. No migration or new
+  dependency is needed. Add authorization, revocation and historical-head regression coverage.
+- References: [#65](https://github.com/Rajveerx11/pr-reliability-platform/issues/65),
+  [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+
 ## 2026-11-14 — Evidence trust and prompt boundaries (#65)
 
 - Mark model evidence as unverified claims in contracts, private views, Check Run annotations
