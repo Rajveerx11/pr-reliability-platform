@@ -334,7 +334,7 @@
         <span class="pill"><span class="dot"></span>Core, providers, and sync merged · acceptance open</span>
         <span class="pill">Core API: FastAPI</span>
         <span class="pill">Durable workflow: Temporal</span>
-        <span class="pill">Evidence gate: Proof of Work</span>
+        <span class="pill">Detector-only: Proof of Work v0.2.0</span>
       </div>
     </section>
 
@@ -361,12 +361,12 @@
                 <span class="status">Waiting for approval</span>
               </div>
               <div class="run-strip">
-                <div class="run-step done">Context</div><div class="run-step done">Analysis</div><div class="run-step done">Tests</div><div class="run-step done">Proof gate</div><div class="run-step current">Human review</div>
+                <div class="run-step done">Context</div><div class="run-step done">Analysis</div><div class="run-step done">Sandbox checks</div><div class="run-step done">Detector-only gate</div><div class="run-step current">Human review</div>
               </div>
               <div class="finding">
                 <span class="severity">HIGH</span>
-                <div><h3>Retry path can charge twice</h3><p><span class="mono">checkout.ts:91</span> creates a new payment before checking the idempotency key. Reproduced by generated test <span class="mono">checkout.retry.test.ts</span>.</p></div>
-                <span class="gate">Evidence passed</span>
+                <div><h3>Retry path can charge twice</h3><p><span class="mono">checkout.ts:91</span> creates a new payment before checking the idempotency key. Model claims reproduction using <span class="mono">checkout.retry.test.ts</span>.</p></div>
+                <span class="gate">Unverified model claim</span>
               </div>
               <div class="approval"><div><strong>Write action blocked.</strong><br><span style="font-size:13px;color:var(--muted)">Approve before posting this finding to GitHub.</span></div><button class="approve" type="button" id="demoApprove">Approve comment</button></div>
             </div>
@@ -382,7 +382,7 @@
       </div>
       <div class="idea-grid">
         <article class="card idea"><span class="idea-badge">Idea A</span><h3>Local PR Lab</h3><p>CLI takes two git refs, runs one agent, and produces an evidence report.</p><div class="score-row"><span>Speed to first demo</span><span class="score">5/5</span></div><div class="score-row"><span>Production proof</span><span class="score">2/5</span></div><div class="score-row"><span>Use</span><span>Evaluation core</span></div></article>
-        <article class="card idea recommended"><span class="idea-badge">Recommended</span><h3>Approval-First GitHub App</h3><p>Webhook starts a durable run. Agent reviews. Proof gate checks evidence. Human approves output.</p><div class="score-row"><span>Speed to first demo</span><span class="score">4/5</span></div><div class="score-row"><span>Production proof</span><span class="score">5/5</span></div><div class="score-row"><span>Use</span><span>Main product</span></div></article>
+        <article class="card idea recommended"><span class="idea-badge">Recommended</span><h3>Approval-First GitHub App</h3><p>Webhook starts a durable run. Agent reviews. Detector-only gate checks the changeset; it runs no tests. Human approves output.</p><div class="score-row"><span>Speed to first demo</span><span class="score">4/5</span></div><div class="score-row"><span>Production proof</span><span class="score">5/5</span></div><div class="score-row"><span>Use</span><span>Main product</span></div></article>
         <article class="card idea"><span class="idea-badge">Idea C</span><h3>Multi-Agent Review Council</h3><p>Test, security, and reviewer agents debate every PR before a final verdict.</p><div class="score-row"><span>Speed to first demo</span><span class="score">2/5</span></div><div class="score-row"><span>Production proof</span><span class="score">4/5</span></div><div class="score-row"><span>Use</span><span>Later experiment</span></div></article>
       </div>
       <div class="callout" style="margin-top:14px"><strong>Decision:</strong> Build Idea B. Start internally with Idea A’s local fixtures. Add Idea C only when evaluation shows specialist agents improve defect recall enough to justify extra cost and latency.</div>
@@ -408,7 +408,7 @@
             <div class="node" data-layer="context"><strong>Context selector</strong><span>Files within token budget</span></div>
             <div class="node" data-layer="agent"><strong>Single review agent</strong><span>Structured findings only</span></div>
             <div class="node" data-layer="sandbox"><strong>Sandbox runner</strong><span>Tests in disposable container</span></div>
-            <div class="node" data-layer="proof"><strong>Proof of Work adapter</strong><span>Fail-closed evidence gate</span></div>
+            <div class="node" data-layer="proof"><strong>Proof of Work adapter</strong><span>Detector-only; no package tests</span></div>
             <div class="node" data-layer="data"><strong>PostgreSQL</strong><span>Runs, findings, approvals</span></div>
             <div class="node" data-layer="observe"><strong>OpenTelemetry</strong><span>Calls, tools, cost, latency</span></div>
           </div>
@@ -445,8 +445,8 @@
         <div class="state"><strong>queued</strong><span>Fresh access and policy admitted the review.</span></div>
         <div class="state"><strong>selecting_context</strong><span>Relevant files chosen under budget.</span></div>
         <div class="state"><strong>analyzing</strong><span>Agent produces typed findings.</span></div>
-        <div class="state"><strong>verifying</strong><span>Tests and Proof of Work run.</span></div>
-        <div class="state"><strong>awaiting_approval</strong><span>Verified output waits for a person.</span></div>
+        <div class="state"><strong>verifying</strong><span>Sandbox checks and detector-only Proof of Work run.</span></div>
+        <div class="state"><strong>awaiting_approval</strong><span>Unverified model claims wait for a person.</span></div>
         <div class="state terminal"><strong>published</strong><span>Approved review recorded with an idempotency receipt.</span></div>
         <div class="state terminal"><strong>rejected</strong><span>Human rejects proposed output.</span></div>
         <div class="state terminal"><strong>failed / cancelled</strong><span>Terminal reason recorded; never restart this generation.</span></div>
@@ -482,7 +482,7 @@
         <article class="card decision"><div class="kicker">Agent output</div><h3 class="choice">Versioned JSON contract</h3><p>Agents return findings, evidence, confidence, and proposed action. Free-form prose is presentation only.</p></article>
         <article class="card decision"><div class="kicker">Ownership</div><h3 class="choice">GitHub installation is tenant boundary</h3><p>Every repo, run, artifact, and approval resolves through one installation and owner.</p></article>
         <article class="card decision"><div class="kicker">Writes</div><h3 class="choice">Idempotency key per external action</h3><p>The publish key is <span class="mono">{run_id}:{head_sha}:publish</span>. Retries reconcile a stored receipt and GitHub marker before writing again.</p></article>
-        <article class="card decision"><div class="kicker">Evidence</div><h3 class="choice">Fail closed</h3><p>If tests, sandbox, or Proof of Work cannot complete, finding stays unpublished and run shows why.</p></article>
+        <article class="card decision"><div class="kicker">Evidence</div><h3 class="choice">Fail closed</h3><p>If selected checks, sandbox, or the detector-only gate cannot complete, finding stays unpublished and run shows why.</p></article>
         <article class="card decision"><div class="kicker">Secrets</div><h3 class="choice">Short-lived scoped tokens</h3><p>Checkout and publishing use repository-scoped tokens. Inventory uses installation-wide metadata-only access. Secrets stay out of prompts and logs.</p></article>
       </div>
     </section>
@@ -494,7 +494,7 @@
       </div>
       <div class="roadmap">
         <div class="phase-label"><strong>Phases 0–3</strong><span>Merged</span></div>
-        <details class="phase"><summary>Core review workflow</summary><div class="phase-body"><ul><li>Contracts, PostgreSQL, signed webhooks, and Temporal orchestration.</li><li>Context selection, single review agent, sandbox, and Proof of Work.</li><li>Approval inbox and idempotent publish boundary.</li></ul><p class="deliverable">Done: repository implementation is on main.</p></div></details>
+        <details class="phase"><summary>Core review workflow</summary><div class="phase-body"><ul><li>Contracts, PostgreSQL, signed webhooks, and Temporal orchestration.</li><li>Context selection, single review agent, sandbox, and detector-only Proof of Work.</li><li>Approval inbox and idempotent publish boundary.</li></ul><p class="deliverable">Done: repository implementation is on main.</p></div></details>
         <div class="phase-label"><strong>Phase 4</strong><span>Foundation merged</span></div>
         <details class="phase"><summary>Evaluation and deployment foundation</summary><div class="phase-body"><ul><li>Frozen ten-task corpus and deterministic replay.</li><li>Telemetry, dashboard, health, backup, restore, and VM runbook.</li><li>Model quality remains unknown until a real provider run.</li></ul><p class="deliverable">Open: real evaluation and Linux acceptance.</p></div></details>
         <div class="phase-label"><strong>Phase 4A</strong><span>Partly merged</span></div>
@@ -527,7 +527,7 @@
 ├── apps\web\                    # approval inbox and dashboard
 ├── workers\                      # workflows, activities, sandbox
 ├── packages\contracts\          # versioned contracts
-├── packages\proof_adapter\      # Proof of Work boundary
+├── packages\proof_adapter\      # Detector-only Proof of Work boundary
 ├── evals\golden_prs\            # frozen evaluation tasks
 ├── infra\                        # local and VM operations
 ├── migrations\                   # product database
@@ -536,7 +536,7 @@
     </section>
     <section class="section shell" id="scope">
       <div class="two-col">
-        <article class="card list-card"><div class="kicker">Current core and planned additions</div><h3>One trustworthy AI review path</h3><ul><li>GitHub installation and repository policy.</li><li>Single-agent analysis with bounded context.</li><li>Sandboxed review checks and Proof of Work.</li><li>Human approve or reject.</li><li>Current: run dashboard, Check Runs, and basic operational summaries.</li><li>Planned: repository history and complete quality and usage analytics (#38–#39).</li></ul></article>
+        <article class="card list-card"><div class="kicker">Current core and planned additions</div><h3>One trustworthy AI review path</h3><ul><li>GitHub installation and repository policy.</li><li>Single-agent analysis with bounded context.</li><li>Sandboxed review checks and detector-only Proof of Work.</li><li>Human approve or reject.</li><li>Current: run dashboard, Check Runs, and basic operational summaries.</li><li>Planned: repository history and complete quality and usage analytics (#38–#39).</li></ul></article>
         <article class="card list-card"><div class="kicker">Not this product</div><h3>No general CI/CD platform</h3><ul><li>No application or infrastructure deployment.</li><li>No GitHub Actions compatibility.</li><li>No marketplace action execution.</li><li>No arbitrary host commands or privileged containers.</li><li>No secrets for forked pull requests.</li><li>No specialist agents before a measured baseline.</li></ul></article>
       </div>
     </section>
@@ -546,7 +546,7 @@
       </div>
       <div class="two-col">
         <article class="card list-card"><h3>Likely risk</h3><ul><li>Webhook retries create duplicate runs.</li><li>Agent invents evidence.</li><li>Tests escape worker process.</li><li>New commit makes old finding stale.</li><li>Provider usage is missing.</li></ul></article>
-        <article class="card list-card"><h3>Control</h3><ul><li>Delivery deduplication and PR/head/generation identity.</li><li>Evidence must map to file, line, or reproducible test.</li><li>Disposable container; blocked network; hard limits.</li><li>Cancel superseded workflow; bind findings to SHA.</li><li>Show unknown; never estimate or convert to zero.</li></ul></article>
+        <article class="card list-card"><h3>Control</h3><ul><li>Delivery deduplication and PR/head/generation identity.</li><li>Model evidence claims a source location or test result; sandbox results stay separate.</li><li>Disposable container; blocked network; hard limits.</li><li>Cancel superseded workflow; bind findings to SHA.</li><li>Show unknown; never estimate or convert to zero.</li></ul></article>
       </div>
     </section>
 
@@ -603,7 +603,7 @@
       ['Queue', 'Store a run and command for the admitted PR/head/generation. Recheck policy before dispatch. Duplicate deliveries do not queue another command.', 'Dispatcher + Temporal'],
       ['Context', 'Select changed files and direct dependencies until token budget is full.', 'Context service'],
       ['Analyze', 'Single agent returns versioned JSON findings. Invalid output is rejected.', 'Agent worker'],
-      ['Verify', 'Run tests and Proof of Work against captured workspace. Failure blocks output.', 'Sandbox + gate'],
+      ['Verify', 'Run sandbox checks and detector-only Proof of Work against captured workspace. Failure blocks output.', 'Sandbox + gate'],
       ['Approve', 'Human reads claim and evidence, then approves or rejects proposed GitHub action.', 'Reviewer'],
       ['Publish', 'Recheck the current head and approvals, reconcile earlier attempts, and post one commit-bound PR review with a stored receipt.', 'Publisher']
     ];

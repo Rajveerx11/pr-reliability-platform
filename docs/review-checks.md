@@ -48,7 +48,7 @@ Example repository configuration:
 Repository resource values may reduce limits but cannot raise them. Allowlist and repository
 configuration changes require worker restart and a new reviewed commit, respectively. Selected
 checks share a 15-minute aggregate command-time budget. The Temporal verification activity allows
-that budget, bounded container control and checkout work, one bounded Proof run, and cleanup under
+that budget, bounded container control and checkout work, one bounded detector-only Proof of Work run, and cleanup under
 a two-hour outer hard stop. Persisted verification receipts prevent retry from rerunning checks or
 changing nondeterministic evidence such as duration.
 

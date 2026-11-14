@@ -470,6 +470,10 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
 
         with connection_factory() as connection:
             finding_count = connection.execute("SELECT count(*) FROM findings").fetchone()[0]
+            assert (
+                connection.execute("SELECT evidence FROM findings").fetchone()[0][0]["verification"]
+                == "claimed"
+            )
             state = connection.execute(
                 "SELECT state FROM runs WHERE public_id = %s", (RUN_ID,)
             ).fetchone()[0]
@@ -496,6 +500,8 @@ def test_operations_persist_only_safe_receipts_and_replay_analysis(
         assert '"reason_code": "cancelled"' in persisted
         assert '"name": "python-tests"' in persisted
         assert '"conclusion": "passed"' in persisted
+        assert '"mode": "detector_only"' in persisted
+        assert '"tests_executed": false' in persisted
         assert '"status": "passed"' in persisted
         assert '"reason_code": "path_match"' in persisted
         assert '"total_tokens": 17' in persisted

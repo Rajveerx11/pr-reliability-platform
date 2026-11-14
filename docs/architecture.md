@@ -45,7 +45,7 @@ flowchart TB
   T --> C[Context selector]
   T --> M[Review agent]
   T --> S[Sandbox runner]
-  S --> W[Proof of Work adapter]
+  S --> W[Proof of Work detector-only adapter]
   T --> P
   P --> U[Approval inbox]
   U --> H[Human reviewer]
@@ -62,7 +62,7 @@ flowchart TB
 - Context selector owns file selection under a fixed token budget.
 - Review agent owns structured proposed findings. It cannot publish them.
 - Sandbox runner owns untrusted test execution.
-- Proof of Work adapter owns the stable verification boundary.
+- Proof of Work v0.2.0 adapter owns the detector-only boundary; it runs no tests.
 - Web application owns review and approval screens.
 - PostgreSQL owns product state and append-only audit events.
 
@@ -243,7 +243,7 @@ configuration fail closed. Path decisions and bounded result facts are stored in
 event for later reviewer and Check Run consumers. New-head supersession cancels the current
 Temporal activity; Docker cleanup remains cancellation-resistant.
 Selected checks have a 15-minute aggregate command-time cap. A two-hour verification activity cap
-bounds aggregate commands, container control, exact-head preparation, one Proof run, and cleanup.
+bounds aggregate commands, container control, exact-head preparation, one detector-only Proof of Work run, and cleanup.
 Persisted pass or failure receipts short-circuit retries before any command reruns.
 
 ## Write boundary

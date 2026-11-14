@@ -1,6 +1,6 @@
 # API reference
 
-Baseline: `675257a`, verified 2026-09-07. FastAPI exposes `/openapi.json` and `/docs` for the
+Source checked 2026-11-14 against `main` at `d1662e2` plus #65 hardening. FastAPI exposes `/openapi.json` and `/docs` for the
 running application's exact request and response schemas. Keep the service on its private origin.
 
 ## Authorization
@@ -27,9 +27,20 @@ contain no private data. See [authentication](authentication.md) for login and s
 | POST | `/api/approval-inbox/{finding_id}/decision` | Immutable approve/reject decision |
 | GET | `/dashboard` | Read-only run dashboard shell |
 | GET | `/approval-inbox` | Human approval interface shell |
+| GET | `/api/findings/approved.jsonl` | Session-scoped approved structured findings export |
+| GET | `/api/evidence/runs/{run_id}` | Retained sandbox artifact references and expiry |
+| GET | `/api/evidence/{reference}` | Decrypted redacted artifact; `download=true` attaches JSON |
+| GET | `/api/operations/overview` | Administrator runner, queue and alert snapshot |
+| GET | `/api/operations/metrics` | Administrator Prometheus text metrics |
+| POST | `/api/operations/runners/{runner_id}/drain` | Administrator drain request; returns 202 or 404 |
+| GET | `/operations` | Operations shell; private data requires administrator access |
 
 Product routes are registered when approval settings are provided; the production environment
-factory requires those settings. No public rerun or repository-sync trigger endpoint is
+factory requires those settings. Evidence routes additionally require evidence settings; the
+production factory requires these too. Evidence reads return 404 outside the live repository
+scope, 410 after expiry, and 503 when decryption fails. Operations mutations require CSRF.
+Static assets live under `/auth/assets/`, `/dashboard/assets/` and `/operations/assets/`.
+No public rerun or repository-sync trigger endpoint is
 implemented. GitHub Check Run reruns arrive through the signed webhook. Use
 `pr-reliability-repository-sync --once` for an operator sync.
 
@@ -64,7 +75,27 @@ The API stores the decision and durable signal; it does not publish to GitHub. P
 later only after verification and approval. See [approval contracts](../packages/contracts/src/pr_reliability_contracts/approvals.py)
 and [security](security.md#github-review-publishing) for replay and stale-head rules.
 
-## Readiness
+## Approved findings export
+
+`GET /api/findings/approved.jsonl` returns `application/x-ndjson`, one JSON object per approved
+finding, ordered by decision time and approval ID. It uses the existing GitHub session and live
+owner/repository authorization. An empty export is an empty body. Responses disable caching.
+
+Fields are `repository`, `pr_number`, `head_sha`, `category`, `severity`, `approval_decision`,
+`approved_at` (UTC), and `pr_outcome`. The head is the approved run's head, including historical
+approvals after the PR advances. Pending and rejected findings are excluded. No confidence,
+claim prose, evidence, commands, exit codes, actor details or approval reasons are exported.
+Category and severity remain model judgements that a human approved, not verified facts.
+
+`pr_outcome` is currently `null`: storage tracks open/closed but does not persist merged versus
+closed without merging. This endpoint exports approval history, not a publication receipt or
+a learning journal. Journal ingestion, deduplication and feedback are not built. The current
+single-owner export is buffered in memory; streaming or pagination should precede large histories.
+
+Finding objects in other APIs label model evidence as `claimed`. Separate sandbox artifacts
+can have execution results. Proof of Work v0.2.0 is detector-only; it executes no tests.
+
+## Readiness results
 
 The production factory adds `database`, `workflow`, and `repository_sync` dependency results.
 All must be `ready` for HTTP 200. Any unavailable dependency returns 503 with `status: not_ready`.

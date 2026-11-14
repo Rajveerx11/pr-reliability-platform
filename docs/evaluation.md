@@ -37,13 +37,16 @@ This runner is tamper-resistant evaluation for reviewed fixtures. It is not a se
 Untrusted pull request code must use the merged disposable sandbox described in
 [security](security.md).
 
-## Proof of Work gate
+## Proof of Work detector-only gate
 
-The worker first runs repository tests in the disposable Docker sandbox. It then calls the
-published `proof-of-work-agent` package through `pr_reliability_proof_adapter`. Package test
-execution stays disabled because untrusted tests must never run on the activity-worker host.
+The worker runs selected repository checks in the disposable Docker sandbox; path filters can
+skip checks. It then calls published `proof-of-work-agent` v0.2.0 through
+`pr_reliability_proof_adapter` with `run_tests=False`, `run_mutation=False`, and `use_judge=False`.
+This is detector-only: its pass does not mean any tests ran or validate a model finding.
+Moving to v0.3.0 with tests on is pending an actual release and sandbox integration; v0.3.0 is
+not available. Untrusted tests must never run on the activity-worker host.
 
-The adapter returns version 1 of a small verdict: pass or fail, reasons, unique finding rule
+The adapter returns version 1 of a small verdict: detector pass or fail, reasons, unique finding rule
 IDs, and the installed package version. Application code imports only this local adapter, not
 Proof of Work modules. Package errors, timeouts, and malformed results produce no verdict and
 fail verification. A failed verdict is recorded as evidence but cannot reach human approval.

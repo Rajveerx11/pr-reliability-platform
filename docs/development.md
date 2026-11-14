@@ -126,7 +126,8 @@ uv run pytest workers/tests -q
 On POSIX use `export TEST_DATABASE_URL=...`. Without a test database, local database tests skip;
 CI requires it. Linux workflow tests use Temporal's time-skipping server. Windows workflow tests
 use the local dev server to avoid the supersession stall fixed by #47. The configured Windows CI
-job runs only `workers/tests/test_pull_request_review_workflow.py`.
+job runs `workers/tests/test_pull_request_review_workflow.py`, `workers/tests/test_codex_client.py`,
+and `workers/tests/test_codex_cancellation.py`.
 
 A full Windows suite has a known pre-existing Git-pack cleanup failure in the production-operations
 fixture, reproduced on `09da81a`. It does not fail Linux CI. Psycopg async tests use a selector event

@@ -1,13 +1,13 @@
 # Production readiness
 
-Integration baseline: merged `main` at `f07c5cf`; PR62 adds signed release tooling.
+Source baseline: merged `main` at `d1662e2`, checked 2026-11-14; PR62 includes signed release tooling.
 Repository validation does not establish production acceptance. Release tracker:
 [#46](https://github.com/Rajveerx11/pr-reliability-platform/issues/46).
 
 The review core, OpenAI API/GitHub operations (#36), approved publishing (#12), installation
 policy (#37), repository checks (#41), Check Runs (#40), GitHub sessions (#44), and review
 metrics (#39), bounded evidence (#42/PR61), and runner operations (#43/PR63) are merged.
-Release tooling (#45/PR62) is implemented in this candidate. These are prerequisites for
+Release tooling (#45/PR62) is merged. These are prerequisites for
 production, not proof that a live service
 or measured model baseline exists. [Current status](status.md) records CI evidence.
 
@@ -18,7 +18,7 @@ or measured model baseline exists. [Current status](status.md) records CI eviden
 | #38 | Repository and PR history dashboard | #37 merged |
 | #42 | Live evidence settings and retention acceptance as part of #15 | Implementation merged in PR61 |
 | #43 | Live receiver, queue monitoring and recovery acceptance as part of #15 | Implementation merged in PR63 |
-| #45 | Genuine Linux signed artifacts, staging, backup restore, rollback and protected environments | Release tooling implemented in candidate PR62; live acceptance open |
+| #45 | Genuine Linux signed artifacts, staging, backup restore, rollback and protected environments | Release tooling merged in PR62; live acceptance open |
 | #14 | Frozen real-provider evaluation report | Provider code ready; real runs and adjudication needed |
 | #15 | Private Linux VM end-to-end and recovery acceptance | Remaining release gates must pass |
 
@@ -46,6 +46,12 @@ ChatGPT-subscription Codex remains disabled; its private pilot depends on #58 an
 - Issues #14 and #15 close with evidence; #46 records accepted release evidence. #12 is already closed.
 
 ## Current rollout constraints
+
+No licence file exists. Anyone reusing this code needs the owner's licence decision first.
+Model evidence is unverified even when approved. Proof of Work v0.2.0 is detector-only and does
+not run tests; a v0.3.0 upgrade with tests on awaits release and sandbox integration. The approved
+findings export is implemented, but PR merge outcomes and learning-journal ingestion are not.
+Prompt hardening has deterministic coverage; live-model resistance remains unproven.
 
 Start an acceptance deployment with one private test repository. Migration 0005 starts existing
 repository access as pending; complete the first sync before delivering test PRs. Sync runs at
