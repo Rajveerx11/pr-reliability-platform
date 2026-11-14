@@ -1,5 +1,15 @@
 # Changes
 
+## 2026-11-14 — Evidence trust and prompt boundaries (#65)
+
+- Mark model evidence as unverified claims in contracts, private views, Check Run annotations
+  and review text. Historical evidence stays readable; command exit codes cannot verify findings.
+- Delimit PR context as encoded untrusted data and instruct the review model to ignore embedded
+  instructions. Add deterministic tests for fabricated success and delimiter injection.
+- References: [#65](https://github.com/Rajveerx11/pr-reliability-platform/issues/65),
+  [DEC-006](plan/v1.md#dec-006--use-versioned-json-contracts),
+  [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+
 ## 2026-10-08 — Final local review fixes (#43)
 
 - Updated the browser fixture for all 19 operation facts, including unobserved activity queues.

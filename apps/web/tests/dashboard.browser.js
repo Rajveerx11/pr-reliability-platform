@@ -9,6 +9,9 @@ const root = process.env.DASHBOARD_TEST_ROOT;
 const output = process.env.DASHBOARD_TEST_OUTPUT || path.join(require("node:os").tmpdir(), "pr62-dashboard");
 const assets = {
   "/dashboard": ["dashboard.html", "text/html"],
+  "/approval-inbox": ["approval_inbox.html", "text/html"],
+  "/auth/assets/approval_inbox.js": ["approval_inbox.js", "text/javascript"],
+  "/auth/assets/approval_inbox.css": ["approval_inbox.css", "text/css"],
   "/dashboard/assets/dashboard.css": ["dashboard.css", "text/css"],
   "/dashboard/assets/dashboard.js": ["dashboard.js", "text/javascript"],
   "/auth/assets/auth.js": ["auth.js", "text/javascript"]
@@ -74,6 +77,8 @@ const assets = {
       assert.equal(await page.locator(".verification-evidence pre").count(), 2); assertions++;
       assert.equal(await page.getByText("check-3: evidence expired", {exact: true}).count(), 1); assertions++;
       assert.equal(await page.locator(".finding-card img").count(), 0); assertions++;
+      assert.equal(await page.getByText("Unverified model claim", {exact: true}).count(), 3); assertions++;
+      assert.equal(await page.locator(".evidence-line").filter({hasText: "Unverified model claim:"}).count(), 3); assertions++;
       assert.equal(await pointers.count(), 3); assertions++;
       for (let i = 0; i < 3; i++) {
         assert.equal(await pointers.nth(i).getAttribute("href"), "#run-verification-evidence"); assertions++;
@@ -103,6 +108,20 @@ const assets = {
       assert.equal(await pointers.count(), 3); assertions++;
       assert.equal(await page.locator(".verification-evidence").count(), 1); assertions++;
       assert.equal(await page.getByRole("button", {name: /summary and logs/}).count(), 0); assertions++;
+      assert.deepEqual(errors, []); assertions++;
+      await page.route("**/api/approval-inbox", route => route.fulfill({json: [{
+        finding_id: "finding-test", repository_full_name: "test/repo", pull_request_number: 62,
+        head_sha: "a".repeat(40), claim: "Model claim <img src=x onerror=alert(1)>",
+        verification: "passed", status: "pending", cost_usd_micros: null, cost_budget_usd_micros: 100,
+        evidence: [{kind: "test_result", summary: "Model says tests passed",
+          command: ["pytest", "<img src=x onerror=alert(1)>"], exit_code: 0}]
+      }]}));
+      await page.goto(`${base}/approval-inbox`);
+      await page.getByText("Unverified model claim", {exact: true}).waitFor();
+      assert.equal(await page.getByText("Unverified model claim: test_result", {exact: true}).count(), 1); assertions++;
+      assert.equal(await page.getByText(/claimed exit 0; not executed by platform/).count(), 1); assertions++;
+      assert.equal(await page.locator(".pill").filter({hasText: /^passed$/}).count(), 0); assertions++;
+      assert.equal(await page.locator("img").count(), 0); assertions++;
       assert.deepEqual(errors, []); assertions++;
       await context.close();
     }

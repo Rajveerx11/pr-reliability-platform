@@ -22,7 +22,6 @@ from pr_reliability_contracts import (
     DashboardStageStatus,
     DashboardTimelineEvent,
     Evidence,
-    EvidenceKind,
     RunState,
     VerificationStatus,
 )
@@ -445,13 +444,6 @@ def _run_summary(row: tuple[Any, ...]) -> DashboardRunSummary:
 
 def _finding(row: tuple[Any, ...]) -> DashboardFinding:
     evidence = tuple(Evidence.model_validate(item) for item in row[5])
-    test_results = [item for item in evidence if item.kind is EvidenceKind.TEST_RESULT]
-    if not test_results:
-        verification = VerificationStatus.NOT_RECORDED
-    elif any(item.exit_code != 0 for item in test_results):
-        verification = VerificationStatus.FAILED
-    else:
-        verification = VerificationStatus.PASSED
     return DashboardFinding(
         schema_version="1",
         finding_id=row[0],
@@ -460,7 +452,7 @@ def _finding(row: tuple[Any, ...]) -> DashboardFinding:
         claim=row[3],
         confidence=row[4],
         evidence=evidence,
-        verification=verification,
+        verification=VerificationStatus.CLAIMED,
         approval_status=DashboardFindingStatus(row[6]),
     )
 

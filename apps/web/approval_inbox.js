@@ -41,7 +41,7 @@ const findings = document.querySelector("#findings");
         const meta = node("div", undefined, "meta");
         meta.append(
           node("span", `${item.repository_full_name} #${item.pull_request_number}`, "pill"),
-          node("span", item.verification, "pill"),
+          node("span", "Unverified model claim", "pill"),
           node("span", item.status, "pill status")
         );
         card.append(meta, node("p", item.claim, "claim"));
@@ -54,9 +54,9 @@ const findings = document.querySelector("#findings");
 
         item.evidence.forEach((entry) => {
           const evidence = node("div", undefined, "evidence");
-          evidence.append(node("strong", entry.kind), node("p", entry.summary));
+          evidence.append(node("strong", `Unverified model claim: ${entry.kind}`), node("p", entry.summary));
           if (entry.file_path) evidence.append(node("p", `${entry.file_path}${entry.start_line ? `:${entry.start_line}` : ""}`));
-          if (entry.command) evidence.append(node("p", `${entry.command.join(" ")} (exit ${entry.exit_code})`));
+          if (entry.command) evidence.append(node("p", `Claimed command: ${entry.command.join(" ")} (claimed exit ${entry.exit_code}; not executed by platform)`));
           card.append(evidence);
         });
 

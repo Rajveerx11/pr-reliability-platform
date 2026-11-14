@@ -242,10 +242,10 @@ function renderRunDetail(detail, evidenceItems = [], evidenceError = null) {
       node("span", finding.category, "state-pill"),
       node("span", humanState(finding.approval_status), "state-pill")
     );
-    card.append(meta, node("p", finding.claim));
+    card.append(meta, node("p", "Unverified model claim"), node("p", finding.claim));
     for (const evidence of finding.evidence) {
       const location = evidence.file_path ? ` · ${evidence.file_path}${evidence.start_line ? `:${evidence.start_line}` : ""}` : "";
-      card.append(node("div", `${evidence.summary}${location}`, "evidence-line"));
+      card.append(node("div", `Unverified model claim: ${evidence.summary}${location}`, "evidence-line"));
     }
     const evidenceLink = node("a", "View run verification checks");
     evidenceLink.href = "#run-verification-evidence";

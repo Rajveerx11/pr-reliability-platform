@@ -221,10 +221,12 @@ def test_transitions_once_and_sends_only_safe_annotations(
             "start_line": 7,
             "end_line": 8,
             "annotation_level": "failure",
-            "message": "Unsafe access",
-            "title": "PR Reliability finding",
+            "message": "Unverified model claim (human-approved): Unsafe access",
+            "title": "PR Reliability finding (unverified claim)",
         }
     ]
+    assert "unverified model claim" in output["text"]
+    assert "detector-only; it runs no tests" in output["text"]
     assert client.updated[-1]["details_url"].endswith(f"/dashboard?run={RUN_ID}")
     with connection_factory() as connection:
         stored = connection.execute(
@@ -262,6 +264,22 @@ def test_non_success_conclusions_never_publish_finding_annotations(
     output = client.updated[-1]["output"]
     assert isinstance(output, dict)
     assert "annotations" not in output
+
+
+@pytest.mark.parametrize("decision", [None, "rejected"])
+def test_pending_and_rejected_findings_never_become_annotations(connection_factory, decision):
+    seed_run(connection_factory)
+    with connection_factory() as connection:
+        if decision is None:
+            connection.execute("DELETE FROM approvals")
+        else:
+            connection.execute("UPDATE approvals SET decision = 'rejected'")
+    client = FakeCheckClient()
+    update = operation(connection_factory, client)
+    asyncio.run(update(request(CheckRunStatus.QUEUED)))
+    asyncio.run(update(request(CheckRunStatus.COMPLETED, CheckRunConclusion.SUCCESS)))
+    assert "annotations" not in client.updated[-1]["output"]
+    assert "Unsafe access" not in str(client.updated[-1])
 
 
 def test_same_head_rerun_reuses_check_and_late_old_completion_is_ignored(
