@@ -21,6 +21,7 @@ class FindingApprovalStatus(StrEnum):
 
 
 class VerificationStatus(StrEnum):
+    CLAIMED = "claimed"
     PASSED = "passed"
     FAILED = "failed"
     NOT_RECORDED = "not_recorded"

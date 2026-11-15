@@ -238,6 +238,8 @@ class ProductionOperations:
                 for check in evidence.checks
             ],
             "proof": {
+                "mode": "detector_only",
+                "tests_executed": False,
                 "passed": evidence.proof.passed,
                 "version": evidence.proof.version,
                 "package_version": evidence.proof.package_version,

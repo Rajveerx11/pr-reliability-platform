@@ -17,7 +17,7 @@ See [authentication](authentication.md) for operator configuration and revocatio
 - Findings awaiting approval.
 - p50 and p95 duration for terminal runs.
 - Recent runs with repository and status filters.
-- Run timeline, trace ID, findings, and safe evidence.
+- Run timeline, trace ID, model claims, and separate sandbox check evidence.
 - Overall API readiness, with PostgreSQL and Temporal detail labels. Sync freshness participates
   in overall readiness but has no separate dashboard card yet.
 - Honest usage coverage and known cost.
@@ -52,12 +52,12 @@ approval, GitHub writes, retries, and safe rerun or cancel controls.
 ### System health
 
 API, PostgreSQL, Temporal, dispatcher, workers, queue depth, oldest queued run, runner capacity,
-error rate, and alert state. This requires issue #43.
+error rate, and alert state. The administrator `/operations` page implements runner and queue visibility (#43); live acceptance remains open.
 
 ## Data gaps to close
 
 - Installation inventory is synchronized, but a repository/history UI is not yet implemented (#38).
-- Test summaries and bounded logs require issue #42.
+- Bounded encrypted logs and test summaries are implemented (#42); live retention acceptance remains open.
 - Check Run detail links open the exact run after private dashboard authentication. Dashboard list
   columns for Check Run state remain part of repository/history work in issue #38.
 

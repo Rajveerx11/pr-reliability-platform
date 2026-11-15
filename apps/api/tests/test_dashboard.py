@@ -357,6 +357,8 @@ def test_run_detail_returns_safe_timeline_and_evidence(
     ]
     assert body["findings"][0]["claim"] == "Null input crashes the request"
     assert body["findings"][0]["approval_status"] == "pending"
+    assert body["findings"][0]["verification"] == "claimed"
+    assert body["findings"][0]["evidence"][0]["verification"] == "claimed"
     assert "event_data" not in response.text
     assert "traceparent" not in response.text
     assert "run no longer awaits this commit" not in response.text

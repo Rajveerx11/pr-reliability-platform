@@ -671,7 +671,15 @@ def _payload_fingerprint(
 
 
 def _render_review_body(findings: list[tuple[Any, ...]], marker: str) -> str:
-    sections = ["## PR Reliability review"]
+    sections = [
+        "## PR Reliability review",
+        (
+            "Human-approved findings below are unverified model claims. "
+            "Approval does not verify model-written evidence. "
+            "Proof of Work v0.2.0 is detector-only; it runs no tests. "
+            "See the private dashboard for separate sandbox check results."
+        ),
+    ]
     for _, severity, claim, *_ in findings:
         sections.append(f"### {severity.title()} finding\n\n{claim}")
     sections.append(marker)

@@ -3,6 +3,23 @@
 Issue [#42](https://github.com/Rajveerx11/pr-reliability-platform/issues/42),
 [DEC-014](../plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence).
 
+## Evidence provenance
+
+Finding evidence and sandbox evidence have different origins. Every finding evidence object is
+an unverified model claim (`verification: "claimed"`), including stored rows written before #65.
+Its command and exit code are model text, never proof that the platform ran a command. Human
+approval allows publication but does not verify the claim. Inbox, dashboard and Check Run text
+label this boundary. Sandbox artifacts below record platform-executed checks separately.
+
+Proof of Work v0.2.0 is detector-only, with tests off. Its pass can occur without a test running;
+selected sandbox checks can also be skipped by path filters. Inspect each check's status and
+retained artifact instead of treating a completed review as a passing test suite. A v0.3.0 upgrade
+with tests on awaits a release and sandbox integration; no dependency upgrade is included here.
+
+Previously published GitHub content is not rewritten. In-flight publication receipts bind the
+rendered body fingerprint; a retry prepared with older text can fail closed after this update.
+Resolve that receipt before retrying; do not bypass its fingerprint or publish a duplicate.
+
 ## Deployment configuration
 
 Set the same `EVIDENCE_ENCRYPTION_KEY` on the API and activity worker. Use a Fernet key generated

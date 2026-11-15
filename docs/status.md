@@ -1,7 +1,8 @@
 # Current status
 
-Integration baseline: merged `main` at `f07c5cf` includes PR61/#42, PR63/#43 and PR56/#55.
-PR62/#45 adds release tooling, not live release acceptance.
+Source baseline: merged `main` at `d1662e2`, checked 2026-11-14.
+PR62/#45 is merged release tooling, not live release acceptance. The #65 hardening changes
+label model evidence as claims, delimit untrusted context, and add an approved-findings export.
 The earlier CI evidence below applies only to its recorded commit, not this integration.
 
 The review core, OpenAI API/GitHub operations, installation policy, repository checks, Check Runs,
@@ -22,8 +23,10 @@ and approved.
 - Admission and queued-dispatch checks for access, pause state, base branch, budgets, and sync age.
 - Durable Temporal execution, ordered run generations, retries, cancellation, and supersession.
 - Bounded context selection, OpenAI structured findings, and provider-reported usage facts.
-- Exact-head GitHub checkout, disposable Linux sandbox, and Proof of Work verification.
+- Exact-head GitHub checkout, disposable Linux sandbox, and Proof of Work v0.2.0 detector-only checks (no package tests).
 - Human approval and idempotent, commit-bound GitHub review publication.
+- Authenticated JSON Lines export of approved structured findings; PR outcome stays unknown.
+- Model evidence labelled `claimed`, including historical rows. Approval does not verify it.
 - Idempotent Check Runs with safe annotations, exact-run dashboard links, and authenticated reruns.
 - Private run dashboard and approval inbox using individual revocable GitHub sessions.
 - Nullable review durations, activity attempts and retries, usage coverage, and known cost on the
@@ -52,6 +55,15 @@ All five Quality jobs passed on merged commit `c9f67e3` in
 Skipped tests do not establish coverage for their skipped boundary.
 
 ## Remaining work
+
+No licence file is present. Reuse is blocked pending the owner's licence choice; this task adds
+none. Tracker #46 still leaves #12 unchecked although #12 is closed and PR49 merged. Its checklist
+also lags merged #36/#37/#39–#44/#47 work. No existing issues were edited.
+
+Prompt delimiting and deterministic tests establish the input boundary, not live-model injection
+resistance. Model evidence remains unverified after approval. Proof of Work v0.2.0 is detector-only;
+moving to v0.3.0 with tests on is pending a release and sandbox integration. PR merge outcomes,
+Neura consumption and automatic learning-journal ingestion are not built or validated here.
 
 Repository and PR history UI [#38](https://github.com/Rajveerx11/pr-reliability-platform/issues/38)
 and live signed release acceptance [#45](https://github.com/Rajveerx11/pr-reliability-platform/issues/45)

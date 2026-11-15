@@ -18,7 +18,7 @@ their GitHub signature is verified.
 - Authenticate approval API calls with GitHub sessions, CSRF, live repository access, and individual actor identity.
 - Require human approval before every external write.
 - Make publish actions idempotent.
-- Fail closed when validation, sandboxing, tests, or Proof of Work fails.
+- Fail closed when validation, sandboxing, selected checks, or the detector-only Proof of Work gate fails.
 
 ## Sandbox operations
 

@@ -430,6 +430,8 @@ def test_stable_retry_creates_one_review_and_safe_audit(
     assert github.create_calls == 1
     assert len(github.reviews) == 1
     assert "Null input crashes the request" in github.reviews[0][1]
+    assert "unverified model claims" in github.reviews[0][1]
+    assert "detector-only; it runs no tests" in github.reviews[0][1]
     with connection_factory() as connection:
         action = connection.execute(
             "SELECT status, remote_id, payload_fingerprint FROM external_actions"

@@ -1,6 +1,7 @@
-"""Structured agent findings and their checkable evidence."""
+"""Structured agent findings and unverified model evidence claims."""
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import Field, StrictFloat, StrictInt, model_validator
 
@@ -21,13 +22,20 @@ class EvidenceKind(StrEnum):
 
 
 class Evidence(Contract):
+    """Model claims, including historical rows; never sandbox execution results."""
+
+    verification: Literal["claimed"] = "claimed"
     kind: EvidenceKind
     summary: NonEmptyText
     file_path: NonEmptyText | None = None
     start_line: StrictInt | None = Field(default=None, ge=1)
     end_line: StrictInt | None = Field(default=None, ge=1)
-    command: tuple[NonEmptyText, ...] | None = None
-    exit_code: StrictInt | None = None
+    command: tuple[NonEmptyText, ...] | None = Field(
+        default=None, description="Model-claimed command; not executed by the platform."
+    )
+    exit_code: StrictInt | None = Field(
+        default=None, description="Model-claimed exit code; not a verified result."
+    )
 
     @model_validator(mode="after")
     def validate_kind_fields(self) -> "Evidence":

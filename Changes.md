@@ -1,5 +1,35 @@
 # Changes
 
+## 2026-11-14 — Current verification limits and documentation (#65)
+
+- Identify Proof of Work v0.2.0 as detector-only, with no package tests, in published text and
+  documentation. Record detector-only metadata separately from sandbox execution results.
+- Refresh the API inventory, status and readiness documents against `d1662e2`; record the absent
+  licence, stale tracker and pending v0.3.0 sandbox integration without changing existing issues.
+- References: [#65](https://github.com/Rajveerx11/pr-reliability-platform/issues/65),
+  [DEC-007](plan/v1.md#dec-007--keep-proof-of-work-behind-an-adapter),
+  [DEC-014](plan/v1.md#dec-014--limit-ci-style-work-to-review-evidence),
+  [DEC-015](plan/v1.md#dec-015--require-production-evidence-before-rollout).
+
+## 2026-11-14 — Approved findings export (#65)
+
+- Add session-authorized JSON Lines export of approved structured findings. Reuse live owner
+  and repository scope; exclude pending/rejected findings, confidence and model evidence.
+- Keep PR outcome unknown because merged versus closed is not persisted. No migration or new
+  dependency is needed. Add authorization, revocation and historical-head regression coverage.
+- References: [#65](https://github.com/Rajveerx11/pr-reliability-platform/issues/65),
+  [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+
+## 2026-11-14 — Evidence trust and prompt boundaries (#65)
+
+- Mark model evidence as unverified claims in contracts, private views, Check Run annotations
+  and review text. Historical evidence stays readable; command exit codes cannot verify findings.
+- Delimit PR context as encoded untrusted data and instruct the review model to ignore embedded
+  instructions. Add deterministic tests for fabricated success and delimiter injection.
+- References: [#65](https://github.com/Rajveerx11/pr-reliability-platform/issues/65),
+  [DEC-006](plan/v1.md#dec-006--use-versioned-json-contracts),
+  [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+
 ## 2026-10-08 — Final local review fixes (#43)
 
 - Updated the browser fixture for all 19 operation facts, including unobserved activity queues.

@@ -256,7 +256,11 @@ def _payload(
         "output": {
             "title": _title(request),
             "summary": _summary(request),
-            "text": "Open the private dashboard for full evidence and approval history.",
+            "text": (
+                "Finding evidence is an unverified model claim, even after human approval. "
+                "Proof of Work v0.2.0 is detector-only; it runs no tests. "
+                "Open the private dashboard for separate sandbox check results and approval history."
+            ),
         },
     }
     if request.status is CheckRunStatus.IN_PROGRESS:
@@ -314,8 +318,8 @@ def _annotations(
                     "start_line": start,
                     "end_line": end,
                     "annotation_level": _annotation_level(severity),
-                    "message": claim[:1_000],
-                    "title": "PR Reliability finding",
+                    "message": "Unverified model claim (human-approved): " + claim[:1_000],
+                    "title": "PR Reliability finding (unverified claim)",
                 }
             )
             break

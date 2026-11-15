@@ -18,7 +18,6 @@ from pr_reliability_contracts import (
     ApprovalDecisionRequest,
     ApprovalInboxItem,
     Evidence,
-    EvidenceKind,
     FindingApprovalStatus,
     VerificationStatus,
 )
@@ -26,6 +25,7 @@ from psycopg import Connection
 
 from ..identifiers import new_ulid
 from ..reviewer import request_reviewer
+from .export import create_findings_export_router
 
 ConnectionFactory = Callable[[], Connection[Any]]
 IdFactory = Callable[[], str]
@@ -60,6 +60,9 @@ def create_approval_inbox_router(
     """Create browser shell plus authenticated approval endpoints."""
 
     router = APIRouter()
+    router.include_router(
+        create_findings_export_router(settings, connection_factory, sessions=sessions)
+    )
 
     @router.get("/approval-inbox", response_class=HTMLResponse, include_in_schema=False)
     def approval_inbox_page() -> HTMLResponse:
@@ -283,20 +286,11 @@ def _inbox_item(row: tuple[Any, ...]) -> ApprovalInboxItem:
         head_sha=head_sha,
         claim=claim,
         evidence=evidence,
-        verification=_verification_status(evidence),
+        verification=VerificationStatus.CLAIMED,
         cost_usd_micros=None,
         cost_budget_usd_micros=cost_budget_usd_micros,
         status=FindingApprovalStatus(decision or FindingApprovalStatus.PENDING),
     )
-
-
-def _verification_status(evidence: tuple[Evidence, ...]) -> VerificationStatus:
-    test_results = [item for item in evidence if item.kind is EvidenceKind.TEST_RESULT]
-    if not test_results:
-        return VerificationStatus.NOT_RECORDED
-    if any(item.exit_code != 0 for item in test_results):
-        return VerificationStatus.FAILED
-    return VerificationStatus.PASSED
 
 
 def _receipt(
