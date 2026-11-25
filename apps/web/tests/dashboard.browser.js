@@ -139,19 +139,57 @@ const assets = {
       assert.equal(await page.locator("#run-count").isVisible(), false); assertions++;
       assert.equal(await page.locator("#coverage-meter").isVisible(), false); assertions++;
       signedIn = true;
-      await page.route("**/api/approval-inbox", route => route.fulfill({json: [{
-        finding_id: "finding-test", repository_full_name: "test/repo", pull_request_number: 62,
+      let inboxEmpty = true;
+      let staleDecision = true;
+      const finding = {
+        finding_id: "finding-test", run_id: "01J00000000000000000000000",
+        repository_full_name: "test/repo", pull_request_number: 62,
         head_sha: "a".repeat(40), claim: "Model claim <img src=x onerror=alert(1)>",
         verification: "passed", status: "pending", cost_usd_micros: null, cost_budget_usd_micros: 100,
         evidence: [{kind: "test_result", summary: "Model says tests passed",
           command: ["pytest", "<img src=x onerror=alert(1)>"], exit_code: 0}]
-      }]}));
+      };
+      await page.route("**/api/approval-inbox", route => route.fulfill({
+        status: signedIn ? 200 : 401, json: signedIn ? (inboxEmpty ? [] : [finding]) : {}
+      }));
+      await page.route("**/api/approval-inbox/finding-test/decision", route => {
+        assert.deepEqual(route.request().postDataJSON(), {
+          schema_version: "1", head_sha: finding.head_sha, decision: "approved", reason: "Reviewed commit"
+        });
+        return route.fulfill(staleDecision
+          ? {status: 409, json: {detail: "finding commit is stale"}}
+          : {json: {decision: "approved"}});
+      });
       await page.goto(`${base}/approval-inbox`);
+      await page.getByRole("heading", {name: "No findings await approval."}).waitFor();
+      assert.equal(await page.getByRole("link", {name: "View review runs"}).getAttribute("href"), "/dashboard#runs"); assertions++;
+      assert.equal(await page.locator('[aria-current="page"]').textContent(), "Approval inbox"); assertions++;
+      inboxEmpty = false;
+      const refreshFindings = page.getByRole("button", {name: "Refresh findings"});
+      await refreshFindings.click();
       await page.getByText("Unverified model claim", {exact: true}).waitFor();
       assert.equal(await page.getByText("Unverified model claim: test_result", {exact: true}).count(), 1); assertions++;
       assert.equal(await page.getByText(/claimed exit 0; not executed by platform/).count(), 1); assertions++;
       assert.equal(await page.locator(".pill").filter({hasText: /^passed$/}).count(), 0); assertions++;
       assert.equal(await page.locator("img").count(), 0); assertions++;
+      assert.equal(await page.getByRole("link", {name: "View run and sandbox checks"}).getAttribute("href"),
+        `/dashboard?run=${finding.run_id}`); assertions++;
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); assertions++;
+      const approve = page.getByRole("button", {name: "Approve finding", exact: true});
+      await page.getByLabel("Decision reason (optional)").fill("Reviewed commit");
+      await approve.click();
+      await page.getByText("finding commit is stale", {exact: true}).waitFor();
+      assert.ok(await approve.isEnabled()); assertions++;
+      staleDecision = false;
+      await approve.click();
+      await page.getByText("Decision recorded. Publishing happens separately.", {exact: true}).waitFor();
+      assert.ok(await approve.isDisabled()); assertions++;
+      assert.equal(await page.locator("#pending-count").textContent(), "0 pending"); assertions++;
+      signedIn = false;
+      await refreshFindings.click();
+      await page.getByRole("heading", {name: "Sign in to review findings"}).waitFor();
+      assert.equal(await page.locator(".inbox-finding").count(), 0); assertions++;
+      assert.equal(await refreshFindings.isVisible(), false); assertions++;
       assert.deepEqual(errors, []); assertions++;
       await context.close();
     }

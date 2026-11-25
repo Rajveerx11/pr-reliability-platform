@@ -3,26 +3,68 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
     <title>Approval inbox</title>
+    <link rel="stylesheet" href="/dashboard/assets/dashboard.css">
     <link rel="stylesheet" href="/auth/assets/approval_inbox.css">
     <script src="/auth/assets/auth.js" defer></script>
     <script src="/auth/assets/approval_inbox.js" defer></script>
   </head>
-  <body>
-    <main>
-      <header>
-        <h1>Approval inbox</h1>
-        <p class="lede">Finding evidence is an unverified model claim. Inspect the commit and cost before deciding. Sandbox check results are separate in the dashboard. Decisions never publish from this page.</p>
-        <div class="access">
-          <span id="reviewer-name">Sign in to view your repositories.</span>
-          <a id="github-login" href="/auth/login">Sign in with GitHub</a>
-          <button id="logout" type="button" hidden>Sign out</button>
-          <button class="load" id="load" type="button">Load findings</button>
+  <body class="dashboard approval-inbox">
+    <div class="shell">
+      <a class="skip-link" href="#top">Skip to approval inbox</a>
+      <aside class="sidebar">
+        <a class="brand" href="/dashboard" aria-label="PR Reliability dashboard home">
+          <span class="brand-mark" aria-hidden="true">PR</span>
+          <span>PR Reliability</span>
+        </a>
+        <nav aria-label="Dashboard">
+          <a class="nav-link" href="/dashboard#overview">Overview</a>
+          <a class="nav-link" href="/dashboard#runs">Review runs</a>
+          <a class="nav-link" href="/dashboard#health">System health</a>
+          <a class="nav-link" href="/approval-inbox" aria-current="page">Approval inbox</a>
+          <a class="nav-link" href="/operations">Runner operations</a>
+        </nav>
+        <div class="sidebar-note">
+          <span class="eyebrow">Operating rule</span>
+          <p>Evidence first. Human approval before every external write.</p>
         </div>
-        <div id="notice" role="status" aria-live="polite"></div>
-      </header>
-      <section id="findings" aria-label="Findings"></section>
-    </main>
+      </aside>
 
+      <main id="top" tabindex="-1">
+        <header class="topbar">
+          <h1>Approval inbox</h1>
+          <div class="access-card">
+            <span id="reviewer-name" hidden>Sign in to view your repositories.</span>
+            <div class="access-row">
+              <a id="github-login" class="button primary" href="/auth/login">Sign in with GitHub</a>
+              <button id="logout" class="button quiet" type="button" hidden>Sign out</button>
+            </div>
+          </div>
+        </header>
+
+        <p class="inbox-intro">Inspect the commit, cost, and unverified model evidence before deciding. Decisions never publish from this page.</p>
+
+        <section class="panel inbox-queue" aria-labelledby="queue-title">
+          <header class="panel-heading queue-heading">
+            <div class="queue-label">
+              <h2 id="queue-title">Approval queue</h2>
+              <span id="pending-count" class="count-badge" role="status" hidden></span>
+            </div>
+            <button class="button quiet" id="load" type="button" disabled hidden>Refresh findings</button>
+          </header>
+
+          <div id="inbox-state" class="queue-state">
+            <div role="status">
+              <h3 id="state-title">Sign in to review findings</h3>
+              <p id="state-copy">The inbox shows findings from repositories you can access.</p>
+            </div>
+            <a id="state-link" class="button quiet" href="/dashboard#runs" hidden>View review runs</a>
+          </div>
+
+          <div id="findings" aria-label="Findings"></div>
+        </section>
+      </main>
+    </div>
   </body>
 </html>

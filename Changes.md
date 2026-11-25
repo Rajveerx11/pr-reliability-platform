@@ -1,5 +1,12 @@
 # Changes
 
+## 2026-11-25 — Approval inbox layout
+
+- Reuse the dashboard navigation and make the approval queue easier to scan on mobile and desktop.
+- Show distinct inbox states and put decision feedback beside the finding.
+- References: [#11](https://github.com/Rajveerx11/pr-reliability-platform/issues/11),
+  [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+
 ## 2026-11-24 — Review dashboard layout
 
 - Compact the dashboard overview and give review runs more room on desktop and mobile.
