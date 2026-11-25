@@ -10,9 +10,11 @@ window.reviewerSession = (() => {
         current = null;
         document.dispatchEvent(new Event("reviewer:signed-out"));
       }
-      throw new Error(response.status === 503
+      const error = new Error(response.status === 503
         ? "GitHub access check unavailable. Try again shortly."
         : "Session expired or access removed. Sign in with GitHub.");
+      error.status = response.status;
+      throw error;
     }
     current = await response.json();
     return current;

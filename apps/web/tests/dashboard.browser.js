@@ -32,7 +32,7 @@ const assets = {
   let assertions = 0;
   try {
     browser = await chromium.launch({headless: true});
-    for (const width of [1280, 390]) {
+    for (const width of [1280, 768, 390, 320]) {
       const context = await browser.newContext({viewport: {width, height: 900}});
       const page = await context.newPage();
       page.setDefaultTimeout(10000);
@@ -50,14 +50,22 @@ const assets = {
       items.push({reference: "javascript:alert(1)", check_name: "invalid", expired: false});
       let evidenceUnavailable = false;
       let decryptRequests = 0;
-      await page.route("**/auth/logout-token", route => route.fulfill({json: {csrf_token: "test-only"}}));
-      await page.route("**/auth/session", route => route.fulfill({json: {login: "reviewer", role: "reviewer", csrf_token: "test-only"}}));
+      let signedIn = true;
+      let empty = false;
+      await page.route("**/auth/logout-token", route => route.fulfill({
+        status: signedIn ? 200 : 401, json: signedIn ? {csrf_token: "test-only"} : {}
+      }));
+      await page.route("**/auth/session", route => route.fulfill({
+        status: signedIn ? 200 : 401, json: signedIn ? {login: "reviewer", role: "reviewer", csrf_token: "test-only"} : {}
+      }));
       await page.route("**/health/ready", route => route.fulfill({json: {dependencies: {database: "ready", workflow: "ready"}}}));
       await page.route("**/api/dashboard/overview", route => route.fulfill({json: {total_runs: 1,
         active_runs: 1, pending_findings: 3, awaiting_approval_runs: 1, p95_duration_ms: 1234,
         p50_duration_ms: 1234, published_runs: 0, failed_runs: 0, activity_retry_count: 0,
         usage_complete_runs: 0, usage_partial_runs: 0, usage_unknown_runs: 1, exact_known_cost_usd_micros: null}}));
-      await page.route("**/api/dashboard/runs?*", route => route.fulfill({json: {total: 1, items: [run]}}));
+      await page.route("**/api/dashboard/runs?*", route => route.fulfill({
+        json: empty ? {total: 0, items: []} : {total: 1, items: [run]}
+      }));
       await page.route("**/api/dashboard/runs/run-test", route => route.fulfill({json: detail}));
       await page.route("**/api/evidence/runs/run-test", route => route.fulfill({status: evidenceUnavailable ? 503 : 200,
         json: evidenceUnavailable ? {detail: "unavailable"} : {items}}));
@@ -66,6 +74,11 @@ const assets = {
         return route.fulfill({json: {stdout: "<script>untrusted log</script>", summary: "redacted"}});
       });
       await page.goto(`${base}/dashboard`);
+      await page.getByText("Showing repositories you can access.", {exact: true}).waitFor();
+      assert.equal(await page.locator("#coverage-meter").evaluate(element => element.value), 0); assertions++;
+      assert.ok(await page.locator("#coverage-meter").isVisible()); assertions++;
+      assert.equal(await page.locator("#pagination").isVisible(), false); assertions++;
+      assert.ok(await page.locator(".table-wrap").evaluate(element => element.scrollWidth <= element.clientWidth)); assertions++;
       const inspect = page.getByRole("button", {name: "Inspect run for test/repo pull request 62"});
       await inspect.click();
       const pointers = page.getByRole("link", {name: "View run verification checks"});
@@ -109,6 +122,23 @@ const assets = {
       assert.equal(await page.locator(".verification-evidence").count(), 1); assertions++;
       assert.equal(await page.getByRole("button", {name: /summary and logs/}).count(), 0); assertions++;
       assert.deepEqual(errors, []); assertions++;
+      await page.getByRole("button", {name: "Close run detail", exact: true}).click();
+      empty = true;
+      await page.getByLabel("Status", {exact: true}).selectOption("failed");
+      await page.getByRole("button", {name: "Apply filters"}).click();
+      await page.getByText("No runs match these filters.", {exact: true}).waitFor();
+      await page.getByLabel("Status", {exact: true}).selectOption("");
+      await page.getByRole("button", {name: "Apply filters"}).click();
+      await page.getByText("No review runs yet.", {exact: true}).waitFor();
+      signedIn = false;
+      const guestSession = page.waitForResponse(response => response.url().endsWith("/auth/session"));
+      await page.reload();
+      assert.equal((await guestSession).status(), 401); assertions++;
+      assert.ok(await page.getByRole("link", {name: "Sign in with GitHub"}).isVisible()); assertions++;
+      assert.ok(await page.getByRole("button", {name: "Apply filters"}).isDisabled()); assertions++;
+      assert.equal(await page.locator("#run-count").isVisible(), false); assertions++;
+      assert.equal(await page.locator("#coverage-meter").isVisible(), false); assertions++;
+      signedIn = true;
       await page.route("**/api/approval-inbox", route => route.fulfill({json: [{
         finding_id: "finding-test", repository_full_name: "test/repo", pull_request_number: 62,
         head_sha: "a".repeat(40), claim: "Model claim <img src=x onerror=alert(1)>",

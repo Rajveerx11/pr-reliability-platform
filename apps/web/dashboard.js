@@ -3,8 +3,9 @@
 const state = {
   offset: 0,
   limit: 20,
-  total: 0,
   accessGeneration: 0,
+  runRequest: 0,
+  signedIn: false,
   pendingRunId: new URLSearchParams(window.location.search).get("run")
 };
 const byId = (id) => document.getElementById(id);
@@ -84,24 +85,30 @@ function renderOverview(data) {
   byId("usage-partial").textContent = data.usage_partial_runs;
   byId("usage-unknown").textContent = data.usage_unknown_runs;
   byId("known-cost").textContent = formatMoney(data.exact_known_cost_usd_micros);
-  const coverage = data.total_runs === 0 ? 0 : Math.round((data.usage_complete_runs / data.total_runs) * 100);
-  byId("coverage-number").textContent = `${coverage}%`;
+  const coverage = data.total_runs ? (data.usage_complete_runs / data.total_runs) * 100 : 0;
+  const hasRuns = data.total_runs > 0;
+  byId("coverage-meter").value = coverage;
+  byId("coverage-meter").hidden = byId("coverage-number").hidden = !hasRuns;
+  byId("coverage-number").textContent = `${Math.round(coverage)}%`;
 }
 
 function statusPill(value) {
   return node("span", humanState(value), `state-pill ${value}`);
 }
 
-function renderRuns(page) {
-  state.total = page.total;
+function showRunMessage(message) {
+  const row = node("tr");
+  const cell = node("td", message, "empty-cell");
+  cell.colSpan = 6;
+  row.append(cell);
+  byId("run-rows").replaceChildren(row);
+}
+
+function renderRuns(page, filtered) {
   const rows = byId("run-rows");
   rows.replaceChildren();
   if (!page.items.length) {
-    const row = node("tr");
-    const cell = node("td", "No runs match these filters.", "empty-cell");
-    cell.colSpan = 6;
-    row.append(cell);
-    rows.append(row);
+    showRunMessage(filtered ? "No runs match these filters." : "No review runs yet.");
   }
   for (const run of page.items) {
     const row = node("tr");
@@ -112,7 +119,11 @@ function renderRuns(page) {
     );
     const statusCell = node("td");
     statusCell.append(statusPill(run.state));
-    const findings = node("td", `${run.finding_count} · ${run.pending_finding_count} pending`, "secondary");
+    const findings = node("td", undefined, "secondary");
+    findings.append(
+      node("strong", run.finding_count, "finding-count"),
+      node("small", `${run.pending_finding_count} pending`, "pending-count")
+    );
     const retries = node("td", run.retry_count ?? "Unknown", "secondary");
     const duration = node("td", formatDuration(run.duration_ms), "secondary");
     const actionCell = node("td");
@@ -125,24 +136,30 @@ function renderRuns(page) {
     rows.append(row);
   }
   byId("run-count").textContent = `${page.total} run${page.total === 1 ? "" : "s"}`;
+  byId("run-count").hidden = false;
   const pageNumber = Math.floor(state.offset / state.limit) + 1;
   const pageCount = Math.max(1, Math.ceil(page.total / state.limit));
+  byId("pagination").hidden = pageCount === 1;
   byId("page-status").textContent = `Page ${pageNumber} of ${pageCount}`;
   byId("previous-page").disabled = state.offset === 0;
   byId("next-page").disabled = state.offset + state.limit >= page.total;
 }
 
-async function loadRuns() {
-  const params = new URLSearchParams({ limit: state.limit, offset: state.offset });
+async function loadRuns(offset = state.offset) {
+  const request = ++state.runRequest;
+  const params = new URLSearchParams({ limit: state.limit, offset });
   const status = byId("status-filter").value;
   const repository = byId("repository-filter").value.trim();
   if (status) params.set("status", status);
   if (repository) params.set("repository", repository);
-  renderRuns(await getJson(`/api/dashboard/runs?${params}`));
+  const page = await getJson(`/api/dashboard/runs?${params}`);
+  if (request !== state.runRequest) return;
+  state.offset = offset;
+  renderRuns(page, Boolean(status || repository));
 }
 
-function renderHealth(body, ok) {
-  byId("health-api").textContent = "Responding";
+function renderHealth(body, ok, responded = true) {
+  byId("health-api").textContent = responded ? "Responding" : "Unavailable";
   byId("health-database").textContent = humanState(body?.dependencies?.database || "unknown");
   byId("health-workflow").textContent = humanState(body?.dependencies?.workflow || "unknown");
   const badge = byId("health-overall");
@@ -150,12 +167,12 @@ function renderHealth(body, ok) {
   badge.className = `status-dot ${ok ? "ready" : "not-ready"}`;
 }
 
-async function loadHealth() {
+async function loadHealth(generation) {
   try {
-    const body = await getJson("/health/ready", false);
-    renderHealth(body, true);
+    const body = await getJson("/health/ready");
+    if (generation === state.accessGeneration) renderHealth(body, true);
   } catch (error) {
-    renderHealth(error.body, false);
+    if (generation === state.accessGeneration) renderHealth(error.body, false, Boolean(error.status));
   }
 }
 
@@ -262,10 +279,16 @@ function renderRunDetail(detail, evidenceItems = [], evidenceError = null) {
 async function openRun(runId) {
   const generation = state.accessGeneration;
   const dialog = byId("run-dialog");
-  byId("run-detail").replaceChildren(node("p", "Loading run evidence…"));
+  const root = byId("run-detail");
+  const loading = node("p", "Loading run evidence…");
+  const isCurrent = () => generation === state.accessGeneration && dialog.open && root.firstChild === loading;
+  byId("run-dialog-title").textContent = "Run detail";
+  byId("run-dialog-subtitle").textContent = "Loading…";
+  root.replaceChildren(loading);
   dialog.showModal();
   try {
     const detail = await getJson(`/api/dashboard/runs/${encodeURIComponent(runId)}`);
+    if (!isCurrent()) return;
     let items = [];
     let evidenceError = null;
     try {
@@ -273,57 +296,103 @@ async function openRun(runId) {
     } catch (error) {
       evidenceError = `Verification evidence unavailable: ${error.message}`;
     }
-    if (generation !== state.accessGeneration) return;
+    if (!isCurrent()) return;
     renderRunDetail(detail, items, evidenceError);
   } catch (error) {
-    byId("run-detail").replaceChildren(node("p", error.message));
+    if (isCurrent()) {
+      byId("run-dialog-subtitle").textContent = "Evidence unavailable";
+      root.replaceChildren(node("p", error.message));
+    }
   }
 }
 
 async function loadDashboard() {
+  const generation = state.accessGeneration;
+  byId("refresh").disabled = true;
   byId("metric-grid").classList.add("loading");
   byId("metric-grid").setAttribute("aria-busy", "true");
   try {
-    const [overview] = await Promise.all([getJson("/api/dashboard/overview"), loadRuns(), loadHealth()]);
+    const [overview] = await Promise.all([getJson("/api/dashboard/overview"), loadRuns(), loadHealth(generation)]);
+    if (generation !== state.accessGeneration) return;
     renderOverview(overview);
-    byId("refresh").disabled = false;
-    setNotice("Dashboard current. Showing repositories you can access.", "success");
+    setNotice("Showing repositories you can access.", "success");
     if (state.pendingRunId) {
       const runId = state.pendingRunId;
       state.pendingRunId = null;
       await openRun(runId);
     }
   } catch (error) {
-    setNotice(error.message, "error");
+    if (generation === state.accessGeneration) {
+      if (byId("run-count").hidden) showRunMessage("Couldn’t load review runs. Refresh to try again.");
+      setNotice(error.message, "error");
+    }
   } finally {
+    byId("refresh").disabled = !state.signedIn;
+    byId("filter-controls").disabled = !state.signedIn;
     byId("metric-grid").classList.remove("loading");
     byId("metric-grid").setAttribute("aria-busy", "false");
   }
 }
 
+const guestNotice = byId("notice").textContent;
+const privateFacts = document.querySelectorAll(".metric-card strong, .metric-card small, .compact-facts dd, .health-list dd, #health-overall");
+const initialFacts = Array.from(privateFacts, (fact) => ({text: fact.textContent, className: fact.className}));
 document.addEventListener("reviewer:signed-out", () => {
+  const wasSignedIn = state.signedIn;
+  state.signedIn = false;
+  state.offset = 0;
   state.accessGeneration += 1;
+  state.runRequest += 1;
   byId("run-dialog").close();
   byId("run-detail").replaceChildren();
-  byId("run-rows").replaceChildren();
-  for (const value of document.querySelectorAll(".metric-card strong")) value.textContent = "\u2014";
+  showRunMessage("Sign in to see recent runs.");
+  for (const [index, fact] of privateFacts.entries()) {
+    fact.textContent = initialFacts[index].text;
+    fact.className = initialFacts[index].className;
+  }
+  byId("filters").reset();
+  byId("run-count").hidden = true;
+  byId("pagination").hidden = true;
+  byId("coverage-number").hidden = byId("coverage-meter").hidden = true;
+  byId("reviewer-name").hidden = true;
+  byId("filter-controls").disabled = true;
   byId("refresh").disabled = true;
+  setNotice(wasSignedIn ? "Session ended. Sign in again to view review runs." : guestNotice);
 });
-reviewerSession.start(loadDashboard, (error) => setNotice(error.message, "error"));
+reviewerSession.start(() => {
+  state.signedIn = true;
+  byId("reviewer-name").hidden = false;
+  showRunMessage("Loading review runs…");
+  return loadDashboard();
+}, (error) => {
+  if (error.status !== 401 && error.status !== 403) setNotice(error.message, "error");
+});
+
+function updateNavigation() {
+  const section = ["#runs", "#health"].includes(location.hash) ? location.hash : "#overview";
+  for (const link of document.querySelectorAll('.nav-link[href^="#"]')) {
+    if (link.hash === section) link.setAttribute("aria-current", "location");
+    else link.removeAttribute("aria-current");
+  }
+}
+
+window.addEventListener("hashchange", updateNavigation);
+updateNavigation();
 byId("refresh").addEventListener("click", loadDashboard);
 byId("filters").addEventListener("submit", (event) => {
   event.preventDefault();
-  state.offset = 0;
-  loadRuns().catch((error) => setNotice(error.message, "error"));
+  loadRuns(0).catch(reportRunError);
 });
 byId("previous-page").addEventListener("click", () => {
-  state.offset = Math.max(0, state.offset - state.limit);
-  loadRuns().catch((error) => setNotice(error.message, "error"));
+  loadRuns(Math.max(0, state.offset - state.limit)).catch(reportRunError);
 });
 byId("next-page").addEventListener("click", () => {
-  state.offset += state.limit;
-  loadRuns().catch((error) => setNotice(error.message, "error"));
+  loadRuns(state.offset + state.limit).catch(reportRunError);
 });
+
+function reportRunError(error) {
+  if (state.signedIn) setNotice(error.message, "error");
+}
 byId("close-dialog").addEventListener("click", () => byId("run-dialog").close());
 byId("run-dialog").addEventListener("click", (event) => {
   if (event.target === byId("run-dialog")) byId("run-dialog").close();

@@ -9,15 +9,16 @@
     <script src="/auth/assets/auth.js" defer></script>
     <script src="/dashboard/assets/dashboard.js" defer></script>
   </head>
-  <body>
+  <body class="dashboard">
     <div class="shell">
-      <aside class="sidebar" aria-label="Dashboard navigation">
+      <a class="skip-link" href="#top">Skip to dashboard</a>
+      <aside class="sidebar">
         <a class="brand" href="#top" aria-label="PR Reliability dashboard home">
           <span class="brand-mark" aria-hidden="true">PR</span>
-          <span>Reliability<br>Control</span>
+          <span>PR Reliability</span>
         </a>
-        <nav>
-          <a class="nav-link active" href="#overview">Overview</a>
+        <nav aria-label="Dashboard">
+          <a class="nav-link" href="#overview" aria-current="location">Overview</a>
           <a class="nav-link" href="#runs">Review runs</a>
           <a class="nav-link" href="#health">System health</a>
           <a class="nav-link" href="/approval-inbox">Approval inbox</a>
@@ -29,15 +30,11 @@
         </div>
       </aside>
 
-      <main id="top">
+      <main id="top" tabindex="-1">
         <header class="topbar">
-          <div>
-            <p class="eyebrow">Private review operations</p>
-            <h1>Review control room</h1>
-            <p class="lede">One calm view of run health, approval pressure, latency, and evidence.</p>
-          </div>
+          <h1>Review control room</h1>
           <div class="access-card">
-            <span id="reviewer-name">Sign in to view your repositories.</span>
+            <span id="reviewer-name" hidden>Sign in to view your repositories.</span>
             <div class="access-row">
               <a id="github-login" class="button primary" href="/auth/login">Sign in with GitHub</a>
               <button id="logout" class="button quiet" type="button" hidden>Sign out</button>
@@ -45,27 +42,24 @@
           </div>
         </header>
 
-        <div id="notice" class="notice" role="status" aria-live="polite">Sign in with GitHub to load private run data.</div>
+        <div id="notice" class="notice" role="status">Sign in with GitHub to view your repositories and review runs.</div>
 
         <section id="overview" aria-labelledby="overview-title">
           <div class="section-heading">
-            <div>
-              <p class="eyebrow">At a glance</p>
-              <h2 id="overview-title">Operational pulse</h2>
-            </div>
+            <h2 id="overview-title">Overview</h2>
             <button id="refresh" class="button quiet" type="button" disabled>Refresh data</button>
           </div>
 
           <div id="metric-grid" class="metric-grid" aria-busy="false">
-            <article class="metric-card accent">
+            <article class="metric-card">
               <span>Runs</span>
               <strong id="metric-total">—</strong>
               <small id="metric-active">Waiting for access</small>
             </article>
-            <article class="metric-card urgent">
+            <article class="metric-card approval-metric">
               <span>Approval queue</span>
               <strong id="metric-pending">—</strong>
-              <small id="metric-awaiting">Findings requiring review</small>
+              <small id="metric-awaiting">Findings awaiting a decision</small>
             </article>
             <article class="metric-card">
               <span>p95 duration</span>
@@ -88,34 +82,34 @@
         <div class="operations-grid">
           <section id="runs" class="panel runs-panel" aria-labelledby="runs-title">
             <div class="panel-heading">
-              <div>
-                <p class="eyebrow">Recent activity</p>
-                <h2 id="runs-title">Review runs</h2>
-              </div>
-              <span id="run-count" class="count-badge">0 runs</span>
+              <h2 id="runs-title">Review runs</h2>
+              <span id="run-count" class="count-badge" aria-live="polite" hidden></span>
             </div>
 
-            <form id="filters" class="filters">
-              <label>
-                <span>Status</span>
-                <select id="status-filter" name="status">
-                  <option value="">All states</option>
-                  <option value="queued">Queued</option>
-                  <option value="selecting_context">Selecting context</option>
-                  <option value="analyzing">Analyzing</option>
-                  <option value="verifying">Verifying</option>
-                  <option value="awaiting_approval">Awaiting approval</option>
-                  <option value="published">Published</option>
-                  <option value="rejected">Rejected</option>
-                  <option value="failed">Failed</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </label>
-              <label class="repository-filter">
-                <span>Repository</span>
-                <input id="repository-filter" name="repository" type="search" maxlength="255" placeholder="owner/repository">
-              </label>
-              <button class="button quiet" type="submit">Apply filters</button>
+            <form id="filters">
+              <fieldset id="filter-controls" class="filters" disabled>
+                <legend class="sr-only">Filter review runs</legend>
+                <label>
+                  <span>Repository</span>
+                  <input id="repository-filter" name="repository" type="search" maxlength="255" placeholder="owner/repository">
+                </label>
+                <label>
+                  <span>Status</span>
+                  <select id="status-filter" name="status">
+                    <option value="">All states</option>
+                    <option value="queued">Queued</option>
+                    <option value="selecting_context">Selecting context</option>
+                    <option value="analyzing">Analyzing</option>
+                    <option value="verifying">Verifying</option>
+                    <option value="awaiting_approval">Awaiting approval</option>
+                    <option value="published">Published</option>
+                    <option value="rejected">Rejected</option>
+                    <option value="failed">Failed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </label>
+                <button class="button quiet" type="submit">Apply filters</button>
+              </fieldset>
             </form>
 
             <div class="table-wrap">
@@ -131,24 +125,21 @@
                   </tr>
                 </thead>
                 <tbody id="run-rows">
-                  <tr><td colspan="6" class="empty-cell">Connect to load recent runs.</td></tr>
+                  <tr><td colspan="6" class="empty-cell">Sign in to see recent runs.</td></tr>
                 </tbody>
               </table>
             </div>
-            <div class="pagination">
+            <div id="pagination" class="pagination" hidden>
               <button id="previous-page" class="button quiet" type="button" disabled>Previous</button>
               <span id="page-status">Page 1</span>
               <button id="next-page" class="button quiet" type="button" disabled>Next</button>
             </div>
           </section>
 
-          <aside class="side-stack">
+          <div class="side-stack">
             <section id="health" class="panel health-panel" aria-labelledby="health-title">
               <div class="panel-heading">
-                <div>
-                  <p class="eyebrow">Dependencies</p>
-                  <h2 id="health-title">System health</h2>
-                </div>
+                <h2 id="health-title">System health</h2>
                 <span id="health-overall" class="status-dot unknown">Unknown</span>
               </div>
               <dl class="health-list">
@@ -159,10 +150,12 @@
             </section>
 
             <section class="panel coverage-panel" aria-labelledby="coverage-title">
-              <p class="eyebrow">Data honesty</p>
-              <h2 id="coverage-title">Usage coverage</h2>
-              <div class="coverage-ring" aria-hidden="true"><span id="coverage-number">—</span></div>
-              <p id="coverage-copy">Usage remains unknown until a provider reports both token counts.</p>
+              <div class="panel-heading">
+                <h2 id="coverage-title">Usage coverage</h2>
+                <strong id="coverage-number" class="coverage-number" hidden></strong>
+              </div>
+              <meter id="coverage-meter" min="0" max="100" value="0" aria-label="Runs with complete usage" hidden></meter>
+              <p>Complete usage requires both input and output token counts.</p>
               <dl class="compact-facts">
                 <div><dt>Complete</dt><dd id="usage-complete">—</dd></div>
                 <div><dt>Partial</dt><dd id="usage-partial">—</dd></div>
@@ -170,7 +163,7 @@
                 <div><dt>Known cost</dt><dd id="known-cost">Unknown</dd></div>
               </dl>
             </section>
-          </aside>
+          </div>
         </div>
       </main>
     </div>
@@ -183,7 +176,7 @@
             <h2 id="run-dialog-title">Run detail</h2>
             <p id="run-dialog-subtitle">Loading…</p>
           </div>
-          <button id="close-dialog" class="icon-button" type="button" aria-label="Close run detail">×</button>
+          <button id="close-dialog" class="icon-button" type="button" autofocus aria-label="Close run detail">×</button>
         </header>
         <div id="run-detail" class="run-detail"></div>
       </div>

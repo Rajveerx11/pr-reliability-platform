@@ -1,5 +1,12 @@
 # Changes
 
+## 2026-11-24 — Review dashboard layout
+
+- Compact the dashboard overview and give review runs more room on desktop and mobile.
+- Show measured usage coverage and distinguish signed-out, empty, and unavailable run states.
+- References: [#30](https://github.com/Rajveerx11/pr-reliability-platform/issues/30),
+  [DEC-009](plan/v1.md#dec-009--require-human-approval-before-every-external-write).
+
 ## 2026-11-14 — Current verification limits and documentation (#65)
 
 - Identify Proof of Work v0.2.0 as detector-only, with no package tests, in published text and
